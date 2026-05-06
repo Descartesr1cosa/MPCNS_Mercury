@@ -4,13 +4,22 @@ void FieldStorage::bind_grid(Grid *grid)
 {
     grid_ = grid;
 
-    blocks_.resize(grid_->nblock);
-    for (int i = 0; i < grid_->nblock; ++i)
-        blocks_[i] = &(grid_->grids(i));
-
+    blocks_.clear();
     blocks_by_name_.clear();
-    for (int ib = 0; ib < static_cast<int>(blocks_.size()); ++ib)
+
+    if (!grid_)
+    {
+        field_blocks_.clear();
+        return;
+    }
+
+    blocks_.resize(grid_->nblock);
+
+    for (int ib = 0; ib < grid_->nblock; ++ib)
+    {
+        blocks_[ib] = &(grid_->grids(ib));
         blocks_by_name_[blocks_[ib]->block_name].push_back(ib);
+    }
 }
 
 bool FieldStorage::has_grid() const
@@ -46,19 +55,23 @@ void FieldStorage::allocate_field(int32_t fid, const FieldCatalog &catalog)
     const int nb = static_cast<int>(blocks_.size());
     const FieldDescriptor &desc = catalog.descriptor(fid);
 
-    std::vector<FieldBlock> &blocks = field_blocks_[fid];
-    if (blocks.size() != static_cast<size_t>(nb))
-        blocks.resize(nb);
+    std::vector<FieldBlock> &field_blocks_for_fid = field_blocks_[fid];
 
-    for (int b = 0; b < nb; ++b)
+    if (field_blocks_for_fid.size() != static_cast<size_t>(nb))
+        field_blocks_for_fid.resize(nb);
+
+    for (int ib = 0; ib < nb; ++ib)
     {
-        const Block &blk = *blocks_[b];
-        const bool active = (desc.physics.empty() || blk.block_name == desc.physics);
+        const Block &blk = *blocks_[ib];
+
+        const bool active =
+            desc.physics.empty() ||
+            blk.block_name == desc.physics;
 
         if (active)
-            blocks[b].allocate(blk, desc);
+            field_blocks_for_fid[ib].allocate(blk, desc);
         else
-            blocks[b].bind_inactive(blk, desc);
+            field_blocks_for_fid[ib].bind_inactive(blk, desc);
     }
 }
 
