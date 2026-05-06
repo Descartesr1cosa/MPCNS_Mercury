@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "4_halo/detail/halo_build_tools.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
@@ -22,7 +23,8 @@ void Halo::build_parallel_2DCorner_pattern(StaggerLocation loc, int nghost)
     // 每个 neighbor_rank 自增 tag
     std::map<int, int> next_tag;
 
-    for (TOPO::EdgePatch &ep : topo_->parallel_edge_patches)
+    const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const auto &ep : parallel_edges)
     {
         if (ep.is_coupling)
             continue;
@@ -161,7 +163,8 @@ void Halo::build_inner_2DCorner_pattern(StaggerLocation loc, int nghost)
     pat.nghost = nghost;
     pat.regions.clear();
 
-    for (TOPO::EdgePatch &ep : topo_->inner_edge_patches)
+    const auto &inner_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Inner);
+    for (const auto &ep : inner_edges)
     {
         if (ep.is_coupling)
             continue;

@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "4_halo/detail/halo_build_tools.h"
 
 void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
@@ -14,10 +15,11 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
     if (cb.inner_face.empty())
         return;
 
-    // 1) 遍历 topo 的 inner face patches：用 ip 作为 buffer 的第二维下标
-    for (size_t ip = 0; ip < topo_->inner_patches.size(); ++ip)
+    // 1) 遍历 inner face patches：用 ip 作为 buffer 的第二维下标
+    const auto inner_faces = TOPO_VIEW::inner_faces(*topo_);
+    for (size_t ip = 0; ip < inner_faces.size(); ++ip)
     {
-        const TOPO::InterfacePatch &p = topo_->inner_patches[ip];
+        const auto &p = inner_faces[ip];
 
         if (!p.is_coupling)
             continue;
@@ -94,10 +96,11 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst, s
     if (cb.inner_face.empty())
         return;
 
-    // 1) 遍历 topo 的 inner face patches：用 ip 作为 buffer 的第二维下标
-    for (size_t ip = 0; ip < topo_->inner_patches.size(); ++ip)
+    // 1) 遍历 inner face patches：用 ip 作为 buffer 的第二维下标
+    const auto inner_faces = TOPO_VIEW::inner_faces(*topo_);
+    for (size_t ip = 0; ip < inner_faces.size(); ++ip)
     {
-        const TOPO::InterfacePatch &p = topo_->inner_patches[ip];
+        const auto &p = inner_faces[ip];
 
         if (!p.is_coupling)
             continue;
@@ -173,9 +176,10 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst)
     if (cb.inner_edge.empty())
         return;
 
-    for (size_t ie = 0; ie < topo_->inner_edge_patches.size(); ++ie)
+    const auto &inner_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Inner);
+    for (size_t ie = 0; ie < inner_edges.size(); ++ie)
     {
-        const TOPO::EdgePatch &e = topo_->inner_edge_patches[ie];
+        const TOPO::EdgePatch &e = inner_edges[ie];
 
         if (!e.is_coupling)
             continue;
@@ -238,9 +242,10 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst, s
     if (cb.inner_edge.empty())
         return;
 
-    for (size_t ie = 0; ie < topo_->inner_edge_patches.size(); ++ie)
+    const auto &inner_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Inner);
+    for (size_t ie = 0; ie < inner_edges.size(); ++ie)
     {
-        const TOPO::EdgePatch &e = topo_->inner_edge_patches[ie];
+        const TOPO::EdgePatch &e = inner_edges[ie];
 
         if (!e.is_coupling)
             continue;
@@ -303,9 +308,10 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst)
     if (cb.inner_vertex.empty())
         return;
 
-    for (size_t iv = 0; iv < topo_->inner_vertex_patches.size(); ++iv)
+    const auto &inner_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Inner);
+    for (size_t iv = 0; iv < inner_vertices.size(); ++iv)
     {
-        const TOPO::VertexPatch &v = topo_->inner_vertex_patches[iv];
+        const TOPO::VertexPatch &v = inner_vertices[iv];
 
         if (!v.is_coupling)
             continue;
@@ -368,9 +374,10 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst,
     if (cb.inner_vertex.empty())
         return;
 
-    for (size_t iv = 0; iv < topo_->inner_vertex_patches.size(); ++iv)
+    const auto &inner_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Inner);
+    for (size_t iv = 0; iv < inner_vertices.size(); ++iv)
     {
-        const TOPO::VertexPatch &v = topo_->inner_vertex_patches[iv];
+        const TOPO::VertexPatch &v = inner_vertices[iv];
 
         if (!v.is_coupling)
             continue;

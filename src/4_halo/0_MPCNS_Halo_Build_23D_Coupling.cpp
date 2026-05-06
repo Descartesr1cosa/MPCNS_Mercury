@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "4_halo/detail/halo_build_tools.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
@@ -37,7 +38,8 @@ void Halo::build_coupling_parallel_2DCorner_pattern(const std::string &src,
     // ----------------------------------------------------------------------
     // 1) Build recv side (dst) regions and EdgeMeta to send to src ranks.
     // ----------------------------------------------------------------------
-    for (TOPO::EdgePatch &ep : topo_->parallel_edge_patches)
+    const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const auto &ep : parallel_edges)
     {
         if (!ep.is_coupling)
             continue;
@@ -180,7 +182,8 @@ void Halo::build_coupling_parallel_3DCorner_pattern(const std::string &src,
     std::map<int, std::vector<VertexMeta>> meta_to_send;
     std::map<int, int> next_tag;
 
-    for (TOPO::VertexPatch &vp : topo_->parallel_vertex_patches)
+    const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const auto &vp : parallel_vertices)
     {
         if (!vp.is_coupling)
             continue;

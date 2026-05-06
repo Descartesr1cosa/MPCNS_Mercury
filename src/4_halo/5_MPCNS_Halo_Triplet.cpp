@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
 #include "4_halo/detail/halo_build_tools.h"
@@ -510,7 +511,8 @@ void Halo::exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::str
     std::map<int, int> next_tag;
     std::vector<TripletCornerMeta> recv_plan;
 
-    for (const TOPO::EdgePatch &ep : topo_->parallel_edge_patches)
+    const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const TOPO::EdgePatch &ep : parallel_edges)
     {
         if (ep.is_coupling)
             continue;
@@ -624,7 +626,8 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
     std::map<int, int> next_tag;
     std::vector<TripletCornerMeta> recv_plan;
 
-    for (const TOPO::VertexPatch &vp : topo_->parallel_vertex_patches)
+    const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const TOPO::VertexPatch &vp : parallel_vertices)
     {
         if (vp.is_coupling)
             continue;

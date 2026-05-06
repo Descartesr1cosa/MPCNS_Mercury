@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "4_halo/detail/halo_build_tools.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
 
@@ -14,8 +15,8 @@ void Halo::build_inner_1DCorner_pattern(StaggerLocation loc, int nghost)
     pat.nghost = nghost;
     pat.regions.clear();
 
-    // 遍历所有 inner_patches（同一 rank 的块-块接口）
-    for (const TOPO::InterfacePatch &patch : topo_->inner_patches)
+    const auto inner_faces = TOPO_VIEW::inner_faces(*topo_);
+    for (const auto &patch : inner_faces)
     {
         if (patch.is_coupling)
             continue; // 跳过耦合接口
@@ -69,8 +70,8 @@ void Halo::build_parallel_1DCorner_pattern(StaggerLocation loc, int nghost)
     pat.nghost = nghost;
     pat.regions.clear();
 
-    // 遍历所有 parallel_patches（跨 rank 的接口）
-    for (const TOPO::InterfacePatch &patch : topo_->parallel_patches)
+    const auto parallel_faces = TOPO_VIEW::parallel_faces(*topo_);
+    for (const auto &patch : parallel_faces)
     {
         if (patch.is_coupling)
             continue; // 跳过耦合接口

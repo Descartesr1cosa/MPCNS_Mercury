@@ -25,6 +25,12 @@ public:
     // 统一构建 pattern（只构建 registry 中需要的）
     void build_registered_patterns();
 
+    void sync_registered();
+
+    void sync_field(const std::string &field_name);
+
+    void sync_group(const std::string &group_name);
+
     //=========================================================================
     // 普通面虚网格halo通信
     void data_trans_1DCorner(std::string &field_name)
@@ -148,8 +154,81 @@ private:
     Field *fld_;
     TOPO::Topology *topo_;
 
+    enum class HaloSyncSemantics
+    {
+        ComponentCopy,
+        Edge1FormTriplet,
+        Face2FormTriplet
+    };
+
+    struct HaloTripletRequest
+    {
+        std::string group_name;
+
+        std::string xi;
+        std::string eta;
+        std::string zeta;
+
+        FieldValueKind value_kind = FieldValueKind::Scalar;
+
+        HaloLevel level = HaloLevel::Vertex;
+        int nghost = 0;
+
+        bool orientation_aware = true;
+    };
+
+    struct HaloOwnerRequest
+    {
+        std::string field_name;
+        std::string sync_group;
+
+        OwnerSyncPolicy policy = OwnerSyncPolicy::None;
+
+        FieldValueKind value_kind = FieldValueKind::Scalar;
+        StaggerLocation location = StaggerLocation::Cell;
+
+        bool orientation_aware = false;
+    };
+
     // 同一个 field_name 多次注册时取更高等级（FaceOnly < Edge < Vertex）
     std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
+
+    std::vector<std::string> component_copy_fields_;
+
+    std::unordered_map<std::string, HaloTripletRequest> edge_1form_triplets_;
+    std::unordered_map<std::string, HaloTripletRequest> face_2form_triplets_;
+
+    std::vector<HaloOwnerRequest> owner_sync_requests_;
+
+    std::unordered_map<std::string, std::string> field_to_group_;
+
+    HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
+
+    void rebuild_sync_registry_();
+
+    void classify_registered_request_(const FieldHaloRequest &req);
+
+    void validate_triplet_registry_() const;
+
+    const FieldHaloRequest &halo_request_(const std::string &field_name) const;
+
+    void sync_component_copy_field_(const std::string &field_name);
+
+    void sync_component_copy_registered_();
+
+    void sync_edge_1form_triplet_(const HaloTripletRequest &tri);
+
+    void sync_edge_1form_triplets_registered_();
+
+    void sync_face_2form_triplet_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplets_registered_();
+
+    void sync_owner_alias_request_(const HaloOwnerRequest &req);
+
+    void sync_owner_alias_registered_();
+
+    bool field_is_component_copy_(const std::string &field_name) const;
 
     // key = (StaggerLocation, nghost)，value = HaloPattern
     using PatternKey = std::pair<StaggerLocation, int>;

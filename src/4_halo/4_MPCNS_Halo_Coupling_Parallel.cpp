@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "4_halo/detail/halo_build_tools.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
@@ -40,9 +41,10 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        for (size_t ip = 0; ip < topo_->parallel_patches.size(); ++ip)
+        const auto parallel_faces = TOPO_VIEW::parallel_faces(*topo_);
+        for (size_t ip = 0; ip < parallel_faces.size(); ++ip)
         {
-            const TOPO::InterfacePatch &p = topo_->parallel_patches[ip];
+            const auto &p = parallel_faces[ip];
             if (!p.is_coupling)
                 continue;
 
@@ -68,7 +70,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     continue;
 
                 SendItem it;
-                it.p = &p;
+                it.p = p.interface_patch;
                 it.fid = fid;
                 it.this_block = p.this_block;
                 it.sb = sb;
@@ -89,7 +91,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     continue; // 若你希望更严格，这里可以直接 fatal
 
                 RecvItem it;
-                it.p = &p;
+                it.p = p.interface_patch;
                 it.buf = &buf;
                 it.rb = buf.box;
                 recvs.push_back(std::move(it));
@@ -223,9 +225,10 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        for (size_t ip = 0; ip < topo_->parallel_patches.size(); ++ip)
+        const auto parallel_faces = TOPO_VIEW::parallel_faces(*topo_);
+        for (size_t ip = 0; ip < parallel_faces.size(); ++ip)
         {
-            const TOPO::InterfacePatch &p = topo_->parallel_patches[ip];
+            const auto &p = parallel_faces[ip];
             if (!p.is_coupling)
                 continue;
 
@@ -251,7 +254,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     continue;
 
                 SendItem it;
-                it.p = &p;
+                it.p = p.interface_patch;
                 it.fid = fid;
                 it.this_block = p.this_block;
                 it.sb = sb;
@@ -272,7 +275,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     continue; // 若你希望更严格，这里可以直接 fatal
 
                 RecvItem it;
-                it.p = &p;
+                it.p = p.interface_patch;
                 it.buf = &buf;
                 it.rb = buf.box;
                 recvs.push_back(std::move(it));
@@ -427,7 +430,8 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
 
         // ---- 若 topo 根本没有该 pair 的 parallel coupling edge patch，就跳过（避免无谓 fatal）----
         bool has_any_patch = false;
-        for (const auto &ep : topo_->parallel_edge_patches)
+        const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+        for (const auto &ep : parallel_edges)
         {
             if (!ep.is_coupling)
                 continue;
@@ -668,7 +672,8 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
 
         // ---- 若 topo 根本没有该 pair 的 parallel coupling edge patch，就跳过（避免无谓 fatal）----
         bool has_any_patch = false;
-        for (const auto &ep : topo_->parallel_edge_patches)
+        const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+        for (const auto &ep : parallel_edges)
         {
             if (!ep.is_coupling)
                 continue;
@@ -908,7 +913,8 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
         const int ncomp = ch.ncomp;
 
         bool has_any_patch = false;
-        for (const auto &vp : topo_->parallel_vertex_patches)
+        const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+        for (const auto &vp : parallel_vertices)
         {
             if (!vp.is_coupling)
                 continue;
@@ -1141,7 +1147,8 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
         const int ncomp = ch.ncomp;
 
         bool has_any_patch = false;
-        for (const auto &vp : topo_->parallel_vertex_patches)
+        const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+        for (const auto &vp : parallel_vertices)
         {
             if (!vp.is_coupling)
                 continue;

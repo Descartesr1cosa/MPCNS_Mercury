@@ -1,4 +1,5 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
 #include "4_halo/detail/halo_build_tools.h"
@@ -22,7 +23,8 @@ void Halo::build_parallel_3DCorner_pattern(StaggerLocation loc, int nghost)
     // 每个 neighbor_rank 自增 tag
     std::map<int, int> next_tag;
 
-    for (TOPO::VertexPatch &vp : topo_->parallel_vertex_patches)
+    const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const auto &vp : parallel_vertices)
     {
         if (vp.is_coupling)
             continue;
@@ -169,7 +171,8 @@ void Halo::build_inner_3DCorner_pattern(StaggerLocation loc, int nghost)
     pat.location = loc;
     pat.nghost = nghost;
 
-    for (TOPO::VertexPatch &vp : topo_->inner_vertex_patches)
+    const auto &inner_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Inner);
+    for (const auto &vp : inner_vertices)
     {
         if (vp.is_coupling)
             continue;
