@@ -1,4 +1,5 @@
 #include "3_field/2_MPCNS_Field.h"
+#include "2_topology/TopologyView.h"
 #include "0_basic/Error.h"
 #include "0_basic/LayoutTraits.h"
 #include "1_grid/BlockTraits.h"
@@ -7,15 +8,19 @@ void Field::register_coupling_channel(const std::string &src,
                                       const std::string &dst,
                                       const std::string &tag,
                                       StaggerLocation location,
+                                      FieldValueKind value_kind,
                                       int ncomp,
-                                      int nghost)
+                                      int nghost,
+                                      bool orientation_aware)
 {
     if (has_field(tag))
     {
         const auto &desc = descriptor(field_id(tag));
         const bool same = desc.location == location &&
+                          desc.value_kind == value_kind &&
                           desc.ncomp == ncomp &&
-                          desc.nghost == nghost;
+                          desc.nghost == nghost &&
+                          desc.sync.orientation_aware == orientation_aware;
         if (!same)
         {
             ERROR::Abort("Field::register_coupling_channel: channel spec does not match field descriptor: " + tag);
@@ -42,8 +47,10 @@ void Field::register_coupling_channel(const std::string &src,
 
             const bool same =
                 (ch.location == location) &&
+                (ch.value_kind == value_kind) &&
                 (ch.ncomp == ncomp) &&
-                (ch.nghost == nghost);
+                (ch.nghost == nghost) &&
+                (ch.orientation_aware == orientation_aware);
 
             if (same)
                 return; // 幂等：重复注册同样的 channel，直接忽略
@@ -56,8 +63,10 @@ void Field::register_coupling_channel(const std::string &src,
         CouplingChannelSpec spec;
         spec.tag = tag;
         spec.location = location;
+        spec.value_kind = value_kind;
         spec.ncomp = ncomp;
         spec.nghost = nghost;
+        spec.orientation_aware = orientation_aware;
 
         pd.channels.push_back(spec);
     };
@@ -67,10 +76,25 @@ void Field::register_coupling_channel(const std::string &src,
 
 void Field::register_coupling_channel(const std::string &src,
                                       const std::string &dst,
+                                      const std::string &tag,
+                                      StaggerLocation location,
+                                      int ncomp,
+                                      int nghost)
+{
+    register_coupling_channel(src, dst, tag, location, FieldValueKind::Scalar, ncomp, nghost, false);
+}
+
+void Field::register_coupling_channel(const std::string &src,
+                                      const std::string &dst,
                                       const std::string &field_name)
 {
     const auto &desc = descriptor(field_name);
-    register_coupling_channel(src, dst, field_name, desc.location, desc.ncomp, desc.nghost);
+    register_coupling_channel(src, dst, field_name,
+                              desc.location,
+                              desc.value_kind,
+                              desc.ncomp,
+                              desc.nghost,
+                              desc.sync.orientation_aware);
 }
 
 void Field::register_declared_coupling_channels(const std::vector<PairKey> &directed_pairs)
@@ -119,6 +143,13 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
     // 0) 清空并为每个已注册 (src,dst) 建空壳
     coupling_buffers_.clear();
 
+    const std::vector<TOPO_VIEW::FacePatchView> inner_faces = TOPO_VIEW::inner_faces(topo);
+    const std::vector<TOPO_VIEW::FacePatchView> parallel_faces = TOPO_VIEW::parallel_faces(topo);
+    const auto &inner_edges = TOPO_VIEW::edge_patches(topo, TOPO::PatchKind::Inner);
+    const auto &parallel_edges = TOPO_VIEW::edge_patches(topo, TOPO::PatchKind::Parallel);
+    const auto &inner_vertices = TOPO_VIEW::vertex_patches(topo, TOPO::PatchKind::Inner);
+    const auto &parallel_vertices = TOPO_VIEW::vertex_patches(topo, TOPO::PatchKind::Parallel);
+
     // 1) 根据coupling_pairs_以及topo中patch的数量开辟[cid][ipatch]数组的空间
     for (const auto &kv : coupling_pairs_)
     {
@@ -130,14 +161,14 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 
         const int nc = (int)pd.channels.size();
 
-        bs.inner_face.assign(nc, std::vector<CouplingBufferBlock>(topo.inner_patches.size()));
-        bs.parallel_face.assign(nc, std::vector<CouplingBufferBlock>(topo.parallel_patches.size()));
+        bs.inner_face.assign(nc, std::vector<CouplingBufferBlock>(inner_faces.size()));
+        bs.parallel_face.assign(nc, std::vector<CouplingBufferBlock>(parallel_faces.size()));
 
-        bs.inner_edge.assign(nc, std::vector<CouplingBufferBlock>(topo.inner_edge_patches.size()));
-        bs.parallel_edge.assign(nc, std::vector<CouplingBufferBlock>(topo.parallel_edge_patches.size()));
+        bs.inner_edge.assign(nc, std::vector<CouplingBufferBlock>(inner_edges.size()));
+        bs.parallel_edge.assign(nc, std::vector<CouplingBufferBlock>(parallel_edges.size()));
 
-        bs.inner_vertex.assign(nc, std::vector<CouplingBufferBlock>(topo.inner_vertex_patches.size()));
-        bs.parallel_vertex.assign(nc, std::vector<CouplingBufferBlock>(topo.parallel_vertex_patches.size()));
+        bs.inner_vertex.assign(nc, std::vector<CouplingBufferBlock>(inner_vertices.size()));
+        bs.parallel_vertex.assign(nc, std::vector<CouplingBufferBlock>(parallel_vertices.size()));
 
         coupling_buffers_[key] = std::move(bs);
     }
@@ -161,47 +192,15 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 
         cb.tag = ch.tag;
         cb.location = ch.location;
+        cb.value_kind = ch.value_kind;
         cb.ncomp = ch.ncomp;
         cb.nghost = ch.nghost;
+        cb.orientation_aware = ch.orientation_aware;
 
         cb.box = box;
         cb.shift = Int3{-box.lo.i, -box.lo.j, -box.lo.k};
 
         cb.data.SetSize(Ni, Nj, Nk, 0, ch.ncomp);
-    };
-
-    auto detect_dir_code_from_node_box = [&](const Box3 &face_node_box, const Block &blk) -> int
-    {
-        // 假设 topo 的 node index 是本块局部索引：node i范围 [0, mx+1)
-        // 若你不是 0-based，把 0 和 (mx+1) 替换成 blk 的 node_lo / node_hi 即可
-        const int nx = blk.mx + 1;
-        const int ny = blk.my + 1;
-        const int nz = blk.mz + 1;
-
-        // 正常情况下 interface 的 node box 在法向方向厚度为 1
-        if (face_node_box.hi.i - face_node_box.lo.i == 1)
-        {
-            if (face_node_box.lo.i == 0)
-                return -1; // X-
-            if (face_node_box.hi.i == nx)
-                return +1; // X+
-        }
-        if (face_node_box.hi.j - face_node_box.lo.j == 1)
-        {
-            if (face_node_box.lo.j == 0)
-                return -2; // Y-
-            if (face_node_box.hi.j == ny)
-                return +2; // Y+
-        }
-        if (face_node_box.hi.k - face_node_box.lo.k == 1)
-        {
-            if (face_node_box.lo.k == 0)
-                return -3; // Z-
-            if (face_node_box.hi.k == nz)
-                return +3; // Z+
-        }
-
-        return 0; // 推不出来说明 this_box_node 不是贴边的“纯面”
     };
 
     // ---------- build for Interface (face) ----------
@@ -224,14 +223,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 
             const Block &blk = storage_.block(p.this_block);
 
-            // 这里要求dir_code =（±1/±2/±3）
-            int dir_code = detect_dir_code_from_node_box(p.this_box_node, blk);
-            if (dir_code == 0)
-            {
-                std::cout << "Error: cannot detect dir_code for coupling interface patch\n";
-                exit(-1);
-            }
-
             // 对于patch上的每一个channel开辟合适的空间
             for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
             {
@@ -240,15 +231,15 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                     GRID_TRAITS::cell_counts(blk),
                     ch.location,
                     p.this_box_node,
-                    dir_code,
+                    p.direction,
                     ch.nghost);
                 alloc_block(storage[cid][ip], kind, p.this_block, ch, box);
             }
         }
     };
 
-    build_face_list(topo.inner_patches, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_face);
-    build_face_list(topo.parallel_patches, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_face);
+    build_face_list(inner_faces, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_face);
+    build_face_list(parallel_faces, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_face);
 
     // ---------- build for Edge ----------
     if (dimension >= 2)
@@ -287,8 +278,8 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
             }
         };
 
-        build_edge_list(topo.inner_edge_patches, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_edge);
-        build_edge_list(topo.parallel_edge_patches, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_edge);
+        build_edge_list(inner_edges, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_edge);
+        build_edge_list(parallel_edges, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_edge);
     }
 
     // ---------- build for Vertex ----------
@@ -328,7 +319,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
             }
         };
 
-        build_vertex_list(topo.inner_vertex_patches, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_vertex);
-        build_vertex_list(topo.parallel_vertex_patches, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_vertex);
+        build_vertex_list(inner_vertices, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_vertex);
+        build_vertex_list(parallel_vertices, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_vertex);
     }
 }

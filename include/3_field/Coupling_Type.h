@@ -6,6 +6,7 @@
 #include "0_basic/StaggerLocation.h"
 #include "2_topology/TopologyTypes.h"
 #include "3_field/Field_Array.h"
+#include "3_field/FieldValueKind.h"
 
 // 一个“物理块对”的唯一标识：src -> dst
 struct PhysPair
@@ -25,9 +26,11 @@ struct CouplingChannelSpec
 {
     std::string tag;          // e.g. "T", "B", "J", "Ehall", "u_wall"
     StaggerLocation location; // Cell / FaceXi / FaceEt / FaceZe / EdgeXi / ...
+    FieldValueKind value_kind = FieldValueKind::Scalar;
 
     int ncomp = 0;  // 分量数：T=1, u=3, tensor=6, ...
     int nghost = 1; // 法向 slab 厚度（虚网格层数）
+    bool orientation_aware = false;
 };
 
 // (src->dst) 的耦合定义：唯一一条关系，但允许多个 channel
@@ -50,8 +53,10 @@ struct CouplingBufferBlock
     std::string tag;      // channel tag
 
     StaggerLocation location;
+    FieldValueKind value_kind = FieldValueKind::Scalar;
     int ncomp = 0;
     int nghost = 1;
+    bool orientation_aware = false;
 
     Box3 box;   // 该 location 逻辑索引空间的 slab 范围（允许 lo 为负）
     Int3 shift; // shift = -box.lo，用于把逻辑索引映射到 data 的 0-based

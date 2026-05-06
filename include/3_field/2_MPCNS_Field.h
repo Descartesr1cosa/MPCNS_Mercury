@@ -73,6 +73,14 @@ public:
     //===================================================================================
     // 为多物理场面耦合开辟缓冲区域
     //-----------------------------------------------------------------------------------
+    void register_coupling_channel(const std::string &src,
+                                   const std::string &dst,
+                                   const std::string &tag,
+                                   StaggerLocation location,
+                                   FieldValueKind value_kind,
+                                   int ncomp,
+                                   int nghost,
+                                   bool orientation_aware);
     void register_coupling_channel(const std::string &src,   // 源物理块
                                    const std::string &dst,   // 目标物理块
                                    const std::string &tag,   // 所需传输物理场的名称
