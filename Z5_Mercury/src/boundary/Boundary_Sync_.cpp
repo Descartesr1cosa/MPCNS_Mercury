@@ -93,6 +93,12 @@ void MercuryBoundary::ApplySameFieldHaloStage_(const BoundGroup &g, HaloLevel st
     if (!g.do_halo)
         return;
 
+    if (g.do_owner_edge_sync && g.owner_edge_is_1form)
+    {
+        halo_->data_trans_edge_1form_triplet(g.fields, stage);
+        return;
+    }
+
     for (const auto &fn : g.fields)
     {
         std::string field_name = fn;

@@ -40,6 +40,13 @@ public:
         exchange_inner_vertex(field_name);
         exchange_parallel_vertex(field_name);
     }
+
+    // Orientation-aware triplet halo for edge 1-forms such as E/J/dE.
+    // fields must be ordered {xi, eta, zeta}. Across block transforms, the
+    // source component is selected by IndexTransform::perm and multiplied by
+    // IndexTransform::sign.
+    void data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
+                                       HaloLevel stage);
     //=========================================================================
 
     //=========================================================================
@@ -102,6 +109,11 @@ private:
     // vertex
     void exchange_inner_vertex(std::string field_name);
     void exchange_parallel_vertex(std::string field_name);
+
+    void exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_face_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
     //=========================================================================
 
     //=========================================================================
