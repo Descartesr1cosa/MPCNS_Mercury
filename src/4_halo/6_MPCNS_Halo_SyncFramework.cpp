@@ -75,7 +75,27 @@ void Halo::sync_face_2form_triplet_(const HaloTripletRequest &tri)
     if (tri.xi.empty() || tri.eta.empty() || tri.zeta.empty())
         ERROR::Abort("[Halo] sync_face_2form_triplet_: incomplete triplet group: " + tri.group_name);
 
-    ERROR::Abort("[Halo] Face2FormTriplet sync is registered but not implemented yet: " + tri.group_name);
+    if (tri.value_kind != FieldValueKind::FaceContravariant2Form)
+        ERROR::Abort("[Halo] sync_face_2form_triplet_: group is not FaceContravariant2Form: " + tri.group_name);
+
+    if (!tri.orientation_aware)
+        ERROR::Abort("[Halo] sync_face_2form_triplet_: group is not orientation-aware: " + tri.group_name);
+
+    for (const std::string *field_name : {&tri.xi, &tri.eta, &tri.zeta})
+    {
+        const FieldHaloRequest &req = halo_request_(*field_name);
+        const std::string group = req.sync_group.empty() ? req.field_name : req.sync_group;
+        if (group != tri.group_name ||
+            req.nghost != tri.nghost ||
+            req.level != tri.level ||
+            req.value_kind != FieldValueKind::FaceContravariant2Form ||
+            !req.orientation_aware)
+        {
+            ERROR::Abort("[Halo] sync_face_2form_triplet_: inconsistent face 2-form triplet request: " + tri.group_name);
+        }
+    }
+
+    sync_face_2form_triplet_face_level_(tri);
 }
 
 void Halo::sync_face_2form_triplets_registered_()
