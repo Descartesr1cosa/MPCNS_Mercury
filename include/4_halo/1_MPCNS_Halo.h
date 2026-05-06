@@ -4,6 +4,8 @@
 #include "3_field/2_MPCNS_Field.h"
 #include "0_basic/MPI_WRAPPER.h"
 
+#include <iosfwd>
+
 class Halo
 {
 public:
@@ -31,6 +33,8 @@ public:
     void sync_field(const std::string &field_name);
 
     void sync_group(const std::string &group_name);
+
+    void dump_sync_registry(std::ostream &os) const;
 
     void set_topology_equiv(const TOPO::TopologyEquiv *equiv)
     {
@@ -225,6 +229,8 @@ private:
     void classify_registered_request_(const FieldHaloRequest &req);
 
     void validate_triplet_registry_() const;
+
+    void validate_sync_registry_consistency_() const;
 
     const FieldHaloRequest &halo_request_(const std::string &field_name) const;
 

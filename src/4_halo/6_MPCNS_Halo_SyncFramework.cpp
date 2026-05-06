@@ -1,7 +1,27 @@
 #include "4_halo/1_MPCNS_Halo.h"
 #include "0_basic/Error.h"
+#include "0_basic/LayoutTraits.h"
 
+#include <ostream>
 #include <vector>
+
+namespace
+{
+    const char *halo_level_name(HaloLevel level)
+    {
+        switch (level)
+        {
+        case HaloLevel::FaceOnly:
+            return "FaceOnly";
+        case HaloLevel::Edge:
+            return "Edge";
+        case HaloLevel::Vertex:
+            return "Vertex";
+        }
+
+        return "Unknown";
+    }
+}
 
 const FieldHaloRequest &Halo::halo_request_(const std::string &field_name) const
 {
@@ -95,6 +115,11 @@ void Halo::sync_face_2form_triplet_(const HaloTripletRequest &tri)
         }
     }
 
+    // TODO:
+    // Face2FormTriplet currently synchronizes only face-level interface regions.
+    // Edge/vertex corner synchronization for face 2-forms is not implemented yet.
+    // This is acceptable for the first CT-oriented validation step, but should be
+    // extended if B_face edge/vertex ghost values are consumed by stencils.
     sync_face_2form_triplet_face_level_(tri);
 }
 
@@ -178,6 +203,67 @@ bool Halo::field_is_component_copy_(const std::string &field_name) const
     }
 
     return false;
+}
+
+void Halo::dump_sync_registry(std::ostream &os) const
+{
+    os << "========== Halo Sync Registry ==========\n";
+
+    os << "ComponentCopy fields (" << component_copy_fields_.size() << "):\n";
+    for (const auto &name : component_copy_fields_)
+    {
+        const auto &req = halo_request_(name);
+        const std::string group = req.sync_group.empty() ? req.field_name : req.sync_group;
+
+        os << "  - " << name
+           << " group=" << group
+           << " loc=" << LAYOUT::location_name(req.location)
+           << " kind=" << field_value_kind_name(req.value_kind)
+           << " level=" << halo_level_name(req.level)
+           << " owner=" << owner_sync_policy_name(req.owner_sync)
+           << " orientation=" << (req.orientation_aware ? "true" : "false")
+           << "\n";
+    }
+
+    os << "Edge1FormTriplets (" << edge_1form_triplets_.size() << "):\n";
+    for (const auto &kv : edge_1form_triplets_)
+    {
+        const auto &tri = kv.second;
+        os << "  - " << kv.first
+           << " xi=" << tri.xi
+           << " eta=" << tri.eta
+           << " zeta=" << tri.zeta
+           << " level=" << halo_level_name(tri.level)
+           << " nghost=" << tri.nghost
+           << "\n";
+    }
+
+    os << "Face2FormTriplets (" << face_2form_triplets_.size() << "):\n";
+    for (const auto &kv : face_2form_triplets_)
+    {
+        const auto &tri = kv.second;
+        os << "  - " << kv.first
+           << " xi=" << tri.xi
+           << " eta=" << tri.eta
+           << " zeta=" << tri.zeta
+           << " level=" << halo_level_name(tri.level)
+           << " nghost=" << tri.nghost
+           << "\n";
+    }
+
+    os << "OwnerAlias requests (" << owner_sync_requests_.size() << "):\n";
+    for (const auto &own : owner_sync_requests_)
+    {
+        os << "  - field=" << own.field_name
+           << " group=" << own.sync_group
+           << " policy=" << owner_sync_policy_name(own.policy)
+           << " loc=" << LAYOUT::location_name(own.location)
+           << " kind=" << field_value_kind_name(own.value_kind)
+           << " orientation=" << (own.orientation_aware ? "true" : "false")
+           << "\n";
+    }
+
+    os << "========================================\n";
 }
 
 TOPO::EquivDofKind Halo::owner_policy_to_equiv_kind_(OwnerSyncPolicy policy) const

@@ -38,6 +38,46 @@ namespace
                a.owner_sync == b.owner_sync &&
                a.orientation_aware == b.orientation_aware;
     }
+
+    bool is_edge_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::EdgeXi ||
+               loc == StaggerLocation::EdgeEt ||
+               loc == StaggerLocation::EdgeZe;
+    }
+
+    bool is_face_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::FaceXi ||
+               loc == StaggerLocation::FaceEt ||
+               loc == StaggerLocation::FaceZe;
+    }
+
+    bool location_matches_triplet_axis(StaggerLocation loc,
+                                       int axis,
+                                       bool face)
+    {
+        if (face)
+        {
+            if (axis == 0)
+                return loc == StaggerLocation::FaceXi;
+            if (axis == 1)
+                return loc == StaggerLocation::FaceEt;
+            if (axis == 2)
+                return loc == StaggerLocation::FaceZe;
+        }
+        else
+        {
+            if (axis == 0)
+                return loc == StaggerLocation::EdgeXi;
+            if (axis == 1)
+                return loc == StaggerLocation::EdgeEt;
+            if (axis == 2)
+                return loc == StaggerLocation::EdgeZe;
+        }
+
+        return false;
+    }
 }
 
 Halo::HaloSyncSemantics Halo::sync_semantics_(const FieldHaloRequest &req) const
@@ -140,6 +180,7 @@ void Halo::rebuild_sync_registry_()
         classify_registered_request_(kv.second);
 
     validate_triplet_registry_();
+    validate_sync_registry_consistency_();
 }
 
 void Halo::validate_triplet_registry_() const
@@ -164,6 +205,116 @@ void Halo::validate_triplet_registry_() const
 
         if (tri.xi.empty() || tri.eta.empty() || tri.zeta.empty())
             ERROR::Abort("[Halo] incomplete face 2-form triplet group: " + kv.first);
+    }
+}
+
+void Halo::validate_sync_registry_consistency_() const
+{
+    for (const auto &field_name : component_copy_fields_)
+    {
+        const FieldHaloRequest &req = halo_request_(field_name);
+        if (sync_semantics_(req) != HaloSyncSemantics::ComponentCopy)
+        {
+            ERROR::Abort("[Halo] sync registry inconsistency: non-component field in component_copy_fields_: " +
+                         field_name);
+        }
+    }
+
+    for (const auto &kv : edge_1form_triplets_)
+    {
+        const HaloTripletRequest &tri = kv.second;
+        const std::string fields[3] = {tri.xi, tri.eta, tri.zeta};
+
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const std::string &field_name = fields[axis];
+            auto it = halo_registry_.find(field_name);
+            if (it == halo_registry_.end())
+                ERROR::Abort("[Halo] edge 1-form triplet field is not registered: " + field_name);
+
+            const FieldHaloRequest &req = it->second;
+            const std::string group = req.sync_group.empty() ? req.field_name : req.sync_group;
+
+            if (req.value_kind != FieldValueKind::EdgeCovariant1Form)
+                ERROR::Abort("[Halo] edge 1-form triplet field has wrong value_kind: " + field_name);
+
+            if (!req.orientation_aware)
+                ERROR::Abort("[Halo] edge 1-form triplet field is not orientation-aware: " + field_name);
+
+            if (group != kv.first)
+                ERROR::Abort("[Halo] edge 1-form triplet field has wrong sync_group: " + field_name);
+
+            if (req.nghost != tri.nghost)
+                ERROR::Abort("[Halo] edge 1-form triplet field has inconsistent nghost: " + field_name);
+
+            if (req.level != tri.level)
+                ERROR::Abort("[Halo] edge 1-form triplet field has inconsistent halo level: " + field_name);
+
+            if (!location_matches_triplet_axis(req.location, axis, false))
+                ERROR::Abort("[Halo] edge 1-form triplet field has wrong location: " + field_name);
+        }
+    }
+
+    for (const auto &kv : face_2form_triplets_)
+    {
+        const HaloTripletRequest &tri = kv.second;
+        const std::string fields[3] = {tri.xi, tri.eta, tri.zeta};
+
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const std::string &field_name = fields[axis];
+            auto it = halo_registry_.find(field_name);
+            if (it == halo_registry_.end())
+                ERROR::Abort("[Halo] face 2-form triplet field is not registered: " + field_name);
+
+            const FieldHaloRequest &req = it->second;
+            const std::string group = req.sync_group.empty() ? req.field_name : req.sync_group;
+
+            if (req.value_kind != FieldValueKind::FaceContravariant2Form)
+                ERROR::Abort("[Halo] face 2-form triplet field has wrong value_kind: " + field_name);
+
+            if (!req.orientation_aware)
+                ERROR::Abort("[Halo] face 2-form triplet field is not orientation-aware: " + field_name);
+
+            if (group != kv.first)
+                ERROR::Abort("[Halo] face 2-form triplet field has wrong sync_group: " + field_name);
+
+            if (req.nghost != tri.nghost)
+                ERROR::Abort("[Halo] face 2-form triplet field has inconsistent nghost: " + field_name);
+
+            if (req.level != tri.level)
+                ERROR::Abort("[Halo] face 2-form triplet field has inconsistent halo level: " + field_name);
+
+            if (!location_matches_triplet_axis(req.location, axis, true))
+                ERROR::Abort("[Halo] face 2-form triplet field has wrong location: " + field_name);
+        }
+    }
+
+    for (const auto &own : owner_sync_requests_)
+    {
+        if (halo_registry_.find(own.field_name) == halo_registry_.end())
+            ERROR::Abort("[Halo] owner sync field is not registered: " + own.field_name);
+
+        if (own.policy == OwnerSyncPolicy::None)
+            ERROR::Abort("[Halo] owner sync request has OwnerSyncPolicy::None: " + own.field_name);
+
+        if (own.policy == OwnerSyncPolicy::NodeOwner &&
+            own.location != StaggerLocation::Node)
+        {
+            ERROR::Abort("[Halo] NodeOwner sync request must use Node location: " + own.field_name);
+        }
+
+        if (own.policy == OwnerSyncPolicy::EdgeOwner &&
+            !is_edge_location(own.location))
+        {
+            ERROR::Abort("[Halo] EdgeOwner sync request must use edge location: " + own.field_name);
+        }
+
+        if (own.policy == OwnerSyncPolicy::FaceOwner &&
+            !is_face_location(own.location))
+        {
+            ERROR::Abort("[Halo] FaceOwner sync request must use face location: " + own.field_name);
+        }
     }
 }
 

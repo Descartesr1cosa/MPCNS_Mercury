@@ -302,24 +302,22 @@ void unpack_triplet_corner_recv(Field *fld,
 } // namespace
 
 void Halo::data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
-                                         HaloLevel stage)
+                                         HaloLevel level)
 {
-    if (stage == HaloLevel::FaceOnly)
-    {
-        exchange_inner_face_edge_1form_triplet_(fields);
-        exchange_parallel_face_edge_1form_triplet_(fields);
-        return;
-    }
+    exchange_inner_face_edge_1form_triplet_(fields);
+    exchange_parallel_face_edge_1form_triplet_(fields);
 
-    if (stage == HaloLevel::Edge)
+    if (halo_level_includes_edge_(level))
     {
         exchange_inner_edge_edge_1form_triplet_(fields);
         exchange_parallel_edge_edge_1form_triplet_(fields);
-        return;
     }
 
-    exchange_inner_vertex_edge_1form_triplet_(fields);
-    exchange_parallel_vertex_edge_1form_triplet_(fields);
+    if (halo_level_includes_vertex_(level))
+    {
+        exchange_inner_vertex_edge_1form_triplet_(fields);
+        exchange_parallel_vertex_edge_1form_triplet_(fields);
+    }
 }
 
 void Halo::exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields)
