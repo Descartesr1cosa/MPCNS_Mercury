@@ -113,7 +113,9 @@ private:
     void exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_parallel_face_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_inner_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_inner_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
     //=========================================================================
 
     //=========================================================================
