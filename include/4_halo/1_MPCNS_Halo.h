@@ -1,4 +1,5 @@
 #pragma once
+#include "2_topology/2_MPCNS_Topology_Equiv.h"
 #include "4_halo/Halo_Type.h"
 #include "3_field/2_MPCNS_Field.h"
 #include "0_basic/MPI_WRAPPER.h"
@@ -30,6 +31,16 @@ public:
     void sync_field(const std::string &field_name);
 
     void sync_group(const std::string &group_name);
+
+    void set_topology_equiv(const TOPO::TopologyEquiv *equiv)
+    {
+        equiv_ = equiv;
+    }
+
+    const TOPO::TopologyEquiv *topology_equiv() const
+    {
+        return equiv_;
+    }
 
     //=========================================================================
     // 普通面虚网格halo通信
@@ -156,6 +167,7 @@ private:
 private:
     Field *fld_;
     TOPO::Topology *topo_;
+    const TOPO::TopologyEquiv *equiv_ = nullptr;
 
     enum class HaloSyncSemantics
     {
@@ -189,6 +201,7 @@ private:
 
         FieldValueKind value_kind = FieldValueKind::Scalar;
         StaggerLocation location = StaggerLocation::Cell;
+        int ncomp = 1;
 
         bool orientation_aware = false;
     };
@@ -234,6 +247,24 @@ private:
     void sync_owner_alias_registered_();
 
     bool field_is_component_copy_(const std::string &field_name) const;
+
+    TOPO::EquivDofKind owner_policy_to_equiv_kind_(OwnerSyncPolicy policy) const;
+
+    void require_owner_equiv_available_(OwnerSyncPolicy policy,
+                                        const std::string &field_name) const;
+
+    int owner_alias_sign_(const HaloOwnerRequest &req,
+                          const TOPO::EquivMember &owner,
+                          const TOPO::EquivMember &alias) const;
+
+    bool owner_member_matches_field_(const HaloOwnerRequest &req,
+                                     const TOPO::EquivMember &m) const;
+
+    void copy_owner_to_alias_local_(const HaloOwnerRequest &req,
+                                    int fid,
+                                    const TOPO::EquivMember &owner,
+                                    const TOPO::EquivMember &alias,
+                                    int sign);
 
     bool halo_level_includes_edge_(HaloLevel level) const;
 

@@ -121,6 +121,7 @@ void Halo::classify_registered_request_(const FieldHaloRequest &req)
         own.policy = req.owner_sync;
         own.value_kind = req.value_kind;
         own.location = req.location;
+        own.ncomp = req.ncomp;
         own.orientation_aware = req.orientation_aware;
 
         owner_sync_requests_.push_back(own);

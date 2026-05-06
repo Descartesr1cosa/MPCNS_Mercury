@@ -109,7 +109,58 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
     if (req.policy == OwnerSyncPolicy::None)
         return;
 
-    ERROR::Abort("[Halo] OwnerAliasSync is registered but not implemented yet for field: " + req.field_name);
+    require_owner_equiv_available_(req.policy, req.field_name);
+
+    const int fid = fld_->field_id(req.field_name);
+    const TOPO::EquivDofKind kind = owner_policy_to_equiv_kind_(req.policy);
+    const auto &classes = equiv_->classes(kind);
+
+    int my_rank = 0;
+    PARALLEL::mpi_rank(&my_rank);
+
+    for (const auto &cls : classes)
+    {
+        const TOPO::EquivMember &owner = cls.owner;
+
+        if (!owner_member_matches_field_(req, owner))
+            continue;
+
+        bool has_local_alias = false;
+        for (const auto &member : cls.members)
+        {
+            if (member.rank == my_rank &&
+                !member.is_owner &&
+                owner_member_matches_field_(req, member))
+            {
+                has_local_alias = true;
+                break;
+            }
+        }
+
+        if (!has_local_alias)
+            continue;
+
+        if (owner.rank != my_rank)
+        {
+            ERROR::Abort("[Halo] cross-rank OwnerAliasSync is not implemented yet for field: " +
+                         req.field_name);
+        }
+
+        for (const auto &alias : cls.members)
+        {
+            if (alias.rank != my_rank)
+                continue;
+
+            if (alias.is_owner)
+                continue;
+
+            if (!owner_member_matches_field_(req, alias))
+                continue;
+
+            const int sign = owner_alias_sign_(req, owner, alias);
+            copy_owner_to_alias_local_(req, fid, owner, alias, sign);
+        }
+    }
 }
 
 void Halo::sync_owner_alias_registered_()
@@ -127,6 +178,106 @@ bool Halo::field_is_component_copy_(const std::string &field_name) const
     }
 
     return false;
+}
+
+TOPO::EquivDofKind Halo::owner_policy_to_equiv_kind_(OwnerSyncPolicy policy) const
+{
+    switch (policy)
+    {
+    case OwnerSyncPolicy::NodeOwner:
+        return TOPO::EquivDofKind::Node;
+    case OwnerSyncPolicy::EdgeOwner:
+        return TOPO::EquivDofKind::Edge;
+    case OwnerSyncPolicy::FaceOwner:
+        return TOPO::EquivDofKind::Face;
+    case OwnerSyncPolicy::None:
+        break;
+    }
+
+    ERROR::Abort("[Halo] owner_policy_to_equiv_kind_: invalid OwnerSyncPolicy");
+    return TOPO::EquivDofKind::Node;
+}
+
+void Halo::require_owner_equiv_available_(OwnerSyncPolicy policy,
+                                          const std::string &field_name) const
+{
+    if (policy == OwnerSyncPolicy::None)
+        return;
+
+    if (!equiv_)
+    {
+        ERROR::Abort("[Halo] OwnerAliasSync requested but TopologyEquiv is not bound. field=" +
+                     field_name);
+    }
+
+    if (policy == OwnerSyncPolicy::NodeOwner && !equiv_->has_node_equiv())
+    {
+        ERROR::Abort("[Halo] NodeOwner sync requested but node equivalence is not built. field=" +
+                     field_name);
+    }
+
+    if (policy == OwnerSyncPolicy::EdgeOwner && !equiv_->has_edge_equiv())
+    {
+        ERROR::Abort("[Halo] EdgeOwner sync requested but edge equivalence is not built. field=" +
+                     field_name);
+    }
+
+    if (policy == OwnerSyncPolicy::FaceOwner && !equiv_->has_face_equiv())
+    {
+        ERROR::Abort("[Halo] FaceOwner sync requested but face equivalence is not built. field=" +
+                     field_name);
+    }
+}
+
+int Halo::owner_alias_sign_(const HaloOwnerRequest &req,
+                            const TOPO::EquivMember &owner,
+                            const TOPO::EquivMember &alias) const
+{
+    if (!req.orientation_aware)
+        return +1;
+
+    if (req.policy == OwnerSyncPolicy::EdgeOwner &&
+        req.value_kind == FieldValueKind::EdgeCovariant1Form)
+    {
+        // orient_sign is relative to the canonical orientation. For signs in
+        // {+1, -1}, alias / owner is equivalent to alias * owner.
+        return alias.orient_sign * owner.orient_sign;
+    }
+
+    if (req.policy == OwnerSyncPolicy::FaceOwner &&
+        req.value_kind == FieldValueKind::FaceContravariant2Form)
+    {
+        // orient_sign is relative to the canonical orientation. For signs in
+        // {+1, -1}, alias / owner is equivalent to alias * owner.
+        return alias.orient_sign * owner.orient_sign;
+    }
+
+    return +1;
+}
+
+bool Halo::owner_member_matches_field_(const HaloOwnerRequest &req,
+                                       const TOPO::EquivMember &member) const
+{
+    return member.location == req.location;
+}
+
+void Halo::copy_owner_to_alias_local_(const HaloOwnerRequest &req,
+                                      int fid,
+                                      const TOPO::EquivMember &owner,
+                                      const TOPO::EquivMember &alias,
+                                      int sign)
+{
+    FieldBlock &owner_block = fld_->field(fid, owner.block);
+    FieldBlock &alias_block = fld_->field(fid, alias.block);
+
+    if (!owner_block.is_allocated() || !alias_block.is_allocated())
+        return;
+
+    for (int m = 0; m < req.ncomp; ++m)
+    {
+        alias_block(alias.i, alias.j, alias.k, m) =
+            static_cast<double>(sign) * owner_block(owner.i, owner.j, owner.k, m);
+    }
 }
 
 void Halo::sync_registered()
