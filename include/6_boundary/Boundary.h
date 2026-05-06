@@ -9,8 +9,12 @@
 
 #include "6_boundary/Boundary_Type.h"
 
-#include "2_topology/2_MPCNS_Topology.h"
 #include "1_grid/1_MPCNS_Grid.h"
+
+namespace TOPO
+{
+    struct Topology;
+}
 
 // 维护两个 registry：
 // PhysicalRegistry phy_reg_：(location, field_name, bc_name) → PhysicalHandler

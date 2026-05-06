@@ -2,7 +2,6 @@
 
 #include "0_basic/MPI_WRAPPER.h"
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/2_MPCNS_Topology.h"
 #include "3_field/2_MPCNS_Field.h"
 #include "4_halo/1_MPCNS_Halo.h"
 #include "5_io/RunData.h"

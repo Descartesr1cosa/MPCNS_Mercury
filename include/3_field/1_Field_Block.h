@@ -1,6 +1,6 @@
 #pragma once
+#include "0_basic/TYPES.h"
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/2_MPCNS_Topology.h"
 #include "3_field/Field_Type.h"
 #include "3_field/Field_Array.h"
 

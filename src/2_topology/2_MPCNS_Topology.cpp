@@ -2,318 +2,460 @@
 #include "2_topology/TopologyOps.h"
 
 #include "0_basic/MPI_WRAPPER.h"
+#include "0_basic/Error.h"
 
 #include <unordered_map>
 #include <algorithm>
 #include <limits>
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <string>
 
 namespace TOPO
 {
-    Topology build_topology(Grid &grid, int my_rank, int dimension)
+    namespace
     {
-        Topology topo;
+        // ============================================================
+        // Small utilities
+        // ============================================================
 
-        //=======================================================================
-        // Physic
-        for (int ib = 0; ib < grid.nblock; ++ib)
+        std::string parallel_rank_suffix(int r)
         {
-            const Block &blk = grid.grids(ib);
+            if (r < 10)
+                return "   " + std::to_string(r);
+            if (r < 100)
+                return "  " + std::to_string(r);
+            if (r < 1000)
+                return " " + std::to_string(r);
 
-            for (const auto &phy : blk.physical_bc)
+            return std::to_string(r);
+        }
+
+        std::string parallel_boundary_filename(int rank)
+        {
+            return "./CASE/geometry/boundary_condition/parallel" +
+                   parallel_rank_suffix(rank) + ".txt";
+        }
+
+        // ============================================================
+        // Patch factories
+        // ============================================================
+
+        PhysicalPatch make_physical_patch(const Physical_Boundary &phy,
+                                          int my_rank)
+        {
+            PhysicalPatch p;
+
+            p.this_rank = my_rank;
+            p.this_block = phy.this_block_num;
+            p.this_block_name = phy.this_block_name;
+
+            p.bc_id = phy.boundary_num;
+            p.bc_name = phy.boundary_name;
+
+            p.direction = phy.direction;
+            p.raw = &phy;
+
+            p.this_box_node = make_node_box_from_subsup(phy.sub, phy.sup);
+
+            return p;
+        }
+
+        InterfacePatch make_inner_interface_patch(const Inner_Boundary &inner,
+                                                  int my_rank,
+                                                  int dimension)
+        {
+            InterfacePatch interface;
+
+            interface.kind = PatchKind::Inner;
+
+            interface.this_rank = my_rank;
+            interface.nb_rank = my_rank;
+
+            interface.this_block = inner.this_block_num;
+            interface.nb_block = inner.tar_block_num;
+
+            interface.this_block_name = inner.this_block_name;
+            interface.nb_block_name = inner.target_block_name;
+
+            interface.is_coupling =
+                (interface.this_block_name != interface.nb_block_name);
+
+            interface.this_box_node =
+                make_node_box_from_subsup(inner.sub, inner.sup);
+
+            interface.nb_box_node =
+                make_node_box_from_subsup(inner.tar_sub, inner.tar_sup);
+
+            interface.direction = inner.direction;
+            interface.nb_direction = inner.tar_direction;
+
+            interface.trans = make_index_transform_from_boundary_arrays(
+                inner.sub,
+                inner.sup,
+                inner.Transform,
+                inner.tar_sub,
+                inner.tar_sup,
+                inner.tar_Transform,
+                inner.direction,
+                inner.tar_direction,
+                dimension,
+                "build_topology: inner interface");
+
+            interface.send_flag = 0;
+            interface.recv_flag = 0;
+
+            return interface;
+        }
+
+        InterfacePatch make_parallel_interface_patch(const Parallel_Boundary &para,
+                                                     const Parallel_Boundary &tar_para,
+                                                     int my_rank,
+                                                     int dimension)
+        {
+            InterfacePatch interface;
+
+            interface.kind = PatchKind::Parallel;
+
+            interface.this_rank = my_rank;
+            interface.nb_rank = para.tar_myid;
+
+            interface.this_block = para.this_block_num;
+            interface.nb_block = tar_para.this_block_num;
+
+            interface.this_block_name = para.this_block_name;
+            interface.nb_block_name = para.target_block_name;
+
+            interface.is_coupling =
+                (interface.this_block_name != interface.nb_block_name);
+
+            interface.this_box_node =
+                make_node_box_from_subsup(para.sub, para.sup);
+
+            interface.nb_box_node =
+                make_node_box_from_subsup(tar_para.sub, tar_para.sup);
+
+            interface.direction = para.direction;
+            interface.nb_direction = tar_para.direction;
+
+            interface.trans = make_index_transform_from_boundary_arrays(
+                para.sub,
+                para.sup,
+                para.Transform,
+                tar_para.sub,
+                tar_para.sup,
+                tar_para.Transform,
+                para.direction,
+                tar_para.direction,
+                dimension,
+                "build_topology: parallel interface");
+
+            interface.send_flag = para.send_flag;
+            interface.recv_flag = para.rece_flag;
+
+            return interface;
+        }
+
+        // ============================================================
+        // Physical patch stage
+        // ============================================================
+
+        void append_physical_patches(Grid &grid,
+                                     Topology &topo,
+                                     int my_rank)
+        {
+            for (int ib = 0; ib < grid.nblock; ++ib)
             {
-                PhysicalPatch p;
-                p.this_rank = my_rank;
-                p.this_block = phy.this_block_num;
-                p.this_block_name = phy.this_block_name;
-                p.bc_id = phy.boundary_num;
-                p.bc_name = phy.boundary_name;
-                p.direction = phy.direction;
-                p.raw = &phy;
+                const Block &blk = grid.grids(ib);
 
-                p.this_box_node = make_node_box_from_subsup(phy.sub, phy.sup);
-
-                topo.physical_patches.push_back(p);
+                for (const auto &phy : blk.physical_bc)
+                {
+                    topo.physical_patches.push_back(
+                        make_physical_patch(phy, my_rank));
+                }
             }
         }
 
-        // 构建完以后按优先级排序
+        void sort_physical_patches_by_priority(Grid &grid,
+                                               Topology &topo)
         {
             auto Priority = grid.par->GetInt_List("Boundary_Priority");
 
-            // name -> priority_value
             std::unordered_map<std::string, int32_t> pri;
             pri.reserve(Priority.data.size());
+
             for (const auto &kv : Priority.data)
                 pri.emplace(kv.first, kv.second);
 
-            // 不在 Priority 里的边界给一个很小的默认值
             auto get_pri = [&](const std::string &name) -> int32_t
             {
                 auto it = pri.find(name);
                 if (it != pri.end())
                     return it->second;
+
                 return std::numeric_limits<int32_t>::min();
             };
 
-            // “把高优先级往后挪”
-            // 即：priority 越大越靠后（最后应用/覆盖）
-            std::stable_sort(topo.physical_patches.begin(), topo.physical_patches.end(),
-                             [&](const PhysicalPatch &a, const PhysicalPatch &b)
-                             {
-                                 int32_t pa = get_pri(a.bc_name);
-                                 int32_t pb = get_pri(b.bc_name);
+            // priority 越大越靠后，也就是后应用/覆盖。
+            std::stable_sort(
+                topo.physical_patches.begin(),
+                topo.physical_patches.end(),
+                [&](const PhysicalPatch &a, const PhysicalPatch &b)
+                {
+                    const int32_t pa = get_pri(a.bc_name);
+                    const int32_t pb = get_pri(b.bc_name);
 
-                                 if (pa != pb)
-                                     return pa < pb; // 小的在前，大的在后
+                    if (pa != pb)
+                        return pa < pb;
 
-                                 // 可选：保证排序确定性
-                                 if (a.this_block != b.this_block)
-                                     return a.this_block < b.this_block;
-                                 if (a.direction != b.direction)
-                                     return a.direction < b.direction;
-                                 return a.bc_id < b.bc_id;
-                             });
+                    if (a.this_block != b.this_block)
+                        return a.this_block < b.this_block;
+
+                    if (a.direction != b.direction)
+                        return a.direction < b.direction;
+
+                    return a.bc_id < b.bc_id;
+                });
         }
 
-        //=======================================================================
+        // ============================================================
+        // Inner interface stage
+        // ============================================================
 
-        //=======================================================================
-        // Inner
-        for (int ib = 0; ib < grid.nblock; ++ib)
+        void append_inner_interface_patches(Grid &grid,
+                                            Topology &topo,
+                                            int my_rank,
+                                            int dimension)
         {
-            const Block &blk = grid.grids(ib);
-
-            for (const auto &inner : blk.inner_bc)
+            for (int ib = 0; ib < grid.nblock; ++ib)
             {
-                InterfacePatch interface;
+                const Block &blk = grid.grids(ib);
 
-                interface.kind = PatchKind::Inner;
-
-                interface.this_rank = my_rank;
-                interface.nb_rank = my_rank;
-
-                interface.this_block = inner.this_block_num;
-                interface.nb_block = inner.tar_block_num;
-
-                interface.this_block_name = inner.this_block_name;
-                interface.nb_block_name = inner.target_block_name;
-
-                interface.is_coupling = (interface.this_block_name != interface.nb_block_name);
-
-                interface.this_box_node = make_node_box_from_subsup(inner.sub, inner.sup);
-                interface.nb_box_node = make_node_box_from_subsup(inner.tar_sub, inner.tar_sup);
-
-                interface.direction = inner.direction;
-                interface.nb_direction = inner.tar_direction;
-
-                interface.trans = make_index_transform_from_boundary_arrays(
-                    inner.sub,
-                    inner.sup,
-                    inner.Transform,
-                    inner.tar_sub,
-                    inner.tar_sup,
-                    inner.tar_Transform,
-                    inner.direction,
-                    inner.tar_direction,
-                    dimension,
-                    "build_topology: inner interface");
-
-                topo.inner_patches.push_back(interface);
+                for (const auto &inner : blk.inner_bc)
+                {
+                    topo.inner_patches.push_back(
+                        make_inner_interface_patch(inner, my_rank, dimension));
+                }
             }
         }
-        //=======================================================================
 
-        //=======================================================================
-        //  Parallel
-        std::vector<std::vector<Parallel_Boundary>> parallel_bc_all;
-        // Read All para ** .txt
+        // ============================================================
+        // Parallel boundary reading stage
+        // ============================================================
 
+        std::vector<Parallel_Boundary>
+        read_parallel_boundaries_for_rank(int rank,
+                                          int dimension,
+                                          int my_rank_for_error)
         {
-            int rank_num;
+            const std::string filename = parallel_boundary_filename(rank);
+
+            std::ifstream grdfile(filename, std::ios_base::in);
+            if (!grdfile.is_open())
+            {
+                std::cout << "ERROR: cannot open " << filename
+                          << " when Read_All_Para(), myid = "
+                          << my_rank_for_error << std::endl;
+                exit(-1);
+            }
+
+            int blk_num_file = 0;
+            grdfile >> blk_num_file;
+
+            int num_parallel_face = 0;
+            grdfile >> num_parallel_face;
+
+            std::vector<int> nface(blk_num_file);
+            for (int izone = 0; izone < blk_num_file; ++izone)
+                grdfile >> nface[izone];
+
+            std::string dummy;
+            std::getline(grdfile, dummy);
+            std::getline(grdfile, dummy);
+
+            std::vector<Parallel_Boundary> result;
+            result.reserve(num_parallel_face);
+
+            for (int izone = 0; izone < blk_num_file; ++izone)
+            {
+                const int iface_num = nface[izone];
+
+                for (int iiface = 0; iiface < iface_num; ++iiface)
+                {
+                    Parallel_Boundary pbc;
+
+                    int pointst[3], pointed[3];
+                    int srid, sflag, rflag;
+                    std::string nameed;
+
+                    grdfile >> pointst[0] >> pointed[0] >> pointst[1] >> pointed[1] >> pointst[2] >> pointed[2] >> srid >> sflag >> rflag;
+
+                    grdfile >> nameed;
+
+                    pbc.this_myid = rank;
+                    pbc.tar_myid = srid;
+                    pbc.this_block_num = izone;
+
+                    for (int d = 0; d < 3; ++d)
+                    {
+                        pbc.sub[d] = pointst[d];
+                        pbc.sup[d] = pointed[d];
+                    }
+
+                    pbc.send_flag = sflag;
+                    pbc.rece_flag = rflag;
+
+                    pbc.this_block_name = "";
+                    pbc.target_block_name = nameed;
+
+                    int32_t dim32 = static_cast<int32_t>(dimension);
+                    pbc.Pre_process(dim32);
+
+                    result.push_back(pbc);
+                }
+            }
+
+            grdfile.close();
+            return result;
+        }
+
+        std::vector<std::vector<Parallel_Boundary>>
+        read_all_parallel_boundaries(int my_rank,
+                                     int dimension)
+        {
+            int rank_num = 0;
             PARALLEL::mpi_size(&rank_num);
-            // 清空并按 rank_num 分配
-            parallel_bc_all.clear();
+
+            std::vector<std::vector<Parallel_Boundary>> parallel_bc_all;
             parallel_bc_all.resize(rank_num);
 
             for (int r = 0; r < rank_num; ++r)
             {
-                std::string _my_id_s;
-                if (r < 10)
-                {
-                    _my_id_s = "   " + std::to_string(r);
-                }
-                else if (r < 100)
-                {
-                    _my_id_s = "  " + std::to_string(r);
-                }
-                else if (r < 1000)
-                {
-                    _my_id_s = " " + std::to_string(r);
-                }
-                else // 这说明并行进程数不得超过9999
-                {
-                    _my_id_s = std::to_string(r);
-                }
-
-                std::string filename = "./CASE/geometry/boundary_condition/parallel" + _my_id_s + ".txt";
-
-                std::ifstream grdfile(filename, std::ios_base::in);
-                if (!grdfile.is_open())
-                {
-                    std::cout << "ERROR: cannot open " << filename << " when Read_All_Para(), myid = "
-                              << my_rank << std::endl;
-                    exit(-1);
-                }
-
-                int blk_num_file = 0;
-                grdfile >> blk_num_file; // 该 rank 的块数
-
-                // 注意：blk_num_file 不一定等于本 rank 的 nblock（因为这是 rank r 的文件）
-                // 我们这里只是“搬运” parallel 信息，不需要和本地 nblock 比较
-
-                int num_parallel_face = 0;
-                grdfile >> num_parallel_face; // 该 rank 总共有多少个通信面（暂时用不到）
-
-                // 每个块的 parallel 面数
-                std::vector<int> nface(blk_num_file);
-                for (int izone = 0; izone < blk_num_file; ++izone)
-                    grdfile >> nface[izone];
-
-                std::string dummy;
-                std::getline(grdfile, dummy); // 读掉一行尾巴
-                std::getline(grdfile, dummy); // 注释行
-
-                // 依次读每个 block 的 parallel 面
-                for (int izone = 0; izone < blk_num_file; ++izone)
-                {
-                    int iface_num = nface[izone];
-
-                    for (int iiface = 0; iiface < iface_num; ++iiface)
-                    {
-                        Parallel_Boundary pbc;
-                        int pointst[3], pointed[3];
-                        int srid, sflag, rflag;
-                        std::string nameed;
-
-                        grdfile >> pointst[0] >> pointed[0] >> pointst[1] >> pointed[1] >> pointst[2] >> pointed[2] >> srid >> sflag >> rflag;
-                        grdfile >> nameed;
-
-                        // 这是文件中写的：本块在 rank r 上，目标是 rank srid
-                        pbc.this_myid = r;
-                        pbc.tar_myid = srid;
-                        pbc.this_block_num = izone;
-
-                        for (int i = 0; i < 3; ++i)
-                        {
-                            pbc.sub[i] = pointst[i];
-                            pbc.sup[i] = pointed[i];
-                        }
-
-                        pbc.send_flag = sflag;
-                        pbc.rece_flag = rflag;
-
-                        // 块名暂时只能从文件读到 target_block_name，
-                        // this_block_name 在原来的 Grid 里是从 Block 取的，这里并不知道，
-                        // 可以先留空或用一个占位符
-                        pbc.this_block_name = ""; // 如果需要可以后续通过 block_name 映射补
-                        pbc.target_block_name = nameed;
-
-                        // 和 Grid::Read_Parallel_Boundary 一样，做预处理
-                        pbc.Pre_process(dimension);
-
-                        // 存入 parallel_bc_all[r]
-                        parallel_bc_all[r].push_back(pbc);
-                    }
-                }
-
-                grdfile.close();
+                parallel_bc_all[r] =
+                    read_parallel_boundaries_for_rank(r, dimension, my_rank);
             }
 
             if (my_rank == 0)
-                std::cout << "\t--> Building TOPO Para Interface: Read all parallel_*.txt successfully!\n";
+            {
+                std::cout << "\t--> Building TOPO Para Interface: "
+                          << "Read all parallel_*.txt successfully!\n";
+            }
+
+            return parallel_bc_all;
         }
 
-        // Building parallel_patches
-        for (int ib = 0; ib < grid.nblock; ++ib)
+        Parallel_Boundary *
+        find_matching_parallel_boundary(std::vector<Parallel_Boundary> &candidates,
+                                        const Parallel_Boundary &para)
         {
-            const Block &blk = grid.grids(ib);
-
-            for (const auto &para : blk.parallel_bc)
+            // 保持原有行为：只用 send/recv flag 互相匹配。
+            // 后续可以升级为 flag + block name + direction + box 的强匹配。
+            for (auto &tar_para_temp : candidates)
             {
-                //-------------------------------------------------------------
-                // Find tar_para
-                Parallel_Boundary *tar_para_pointer = nullptr;
-                bool if_find = false;
-                for (auto &tar_para_temp : parallel_bc_all[para.tar_myid])
+                if (tar_para_temp.rece_flag == para.send_flag &&
+                    tar_para_temp.send_flag == para.rece_flag)
                 {
-                    if (tar_para_temp.rece_flag == para.send_flag && tar_para_temp.send_flag == para.rece_flag)
+                    return &tar_para_temp;
+                }
+            }
+
+            return nullptr;
+        }
+
+        // ============================================================
+        // Parallel interface stage
+        // ============================================================
+
+        void append_parallel_interface_patches(
+            Grid &grid,
+            Topology &topo,
+            std::vector<std::vector<Parallel_Boundary>> &parallel_bc_all,
+            int my_rank,
+            int dimension)
+        {
+            for (int ib = 0; ib < grid.nblock; ++ib)
+            {
+                const Block &blk = grid.grids(ib);
+
+                for (const auto &para : blk.parallel_bc)
+                {
+                    if (para.tar_myid < 0 ||
+                        para.tar_myid >= static_cast<int>(parallel_bc_all.size()))
                     {
-                        tar_para_pointer = &tar_para_temp;
-                        if_find = true;
-                        break;
+                        ERROR::Abort("build_topology: para.tar_myid out of range");
                     }
+
+                    Parallel_Boundary *tar_para_pointer =
+                        find_matching_parallel_boundary(
+                            parallel_bc_all[para.tar_myid],
+                            para);
+
+                    if (!tar_para_pointer)
+                    {
+                        std::cout << "FATAL Error, Can not find corresponding PARA info!\n";
+                        exit(-1);
+                    }
+
+                    Parallel_Boundary &tar_para = *tar_para_pointer;
+
+                    topo.parallel_patches.push_back(
+                        make_parallel_interface_patch(
+                            para,
+                            tar_para,
+                            my_rank,
+                            dimension));
                 }
-                if (!if_find)
-                {
-                    std::cout << "FATAL Error, Can not find corresponding PARA info!\n";
-                    exit(-1);
-                }
-                Parallel_Boundary &tar_para = *tar_para_pointer;
-                tar_para_pointer = nullptr;
-                //-------------------------------------------------------------
-
-                InterfacePatch interface;
-
-                interface.kind = PatchKind::Parallel;
-
-                interface.this_rank = my_rank;
-                interface.nb_rank = para.tar_myid;
-
-                interface.this_block = para.this_block_num;
-                interface.nb_block = tar_para.this_block_num;
-
-                interface.this_block_name = para.this_block_name;
-                interface.nb_block_name = para.target_block_name;
-
-                interface.is_coupling = (interface.this_block_name != interface.nb_block_name);
-
-                interface.this_box_node = make_node_box_from_subsup(para.sub, para.sup);
-                interface.nb_box_node = make_node_box_from_subsup(tar_para.sub, tar_para.sup);
-
-                interface.direction = para.direction;
-                interface.nb_direction = tar_para.direction;
-
-                interface.trans = make_index_transform_from_boundary_arrays(
-                    para.sub,
-                    para.sup,
-                    para.Transform,
-                    tar_para.sub,
-                    tar_para.sup,
-                    tar_para.Transform,
-                    para.direction,
-                    tar_para.direction,
-                    dimension,
-                    "build_topology: parallel interface");
-
-                // 存入send/recv_flag
-                interface.send_flag = para.send_flag;
-                interface.recv_flag = para.rece_flag;
-                //
-                topo.parallel_patches.push_back(interface);
             }
         }
-        //=======================================================================
 
-        build_edge_patches(grid, topo, dimension);
-        build_vertex_patches(grid, topo, dimension);
+        // ============================================================
+        // Derived patch stage
+        // ============================================================
 
-        // 追加 Coupled-* 到 physical_patches（不影响上面角区构建）
-        append_coupling_faces_as_physical_patches(grid, topo, dimension, "Coupled-");
+        void build_derived_topology_patches(Grid &grid,
+                                            Topology &topo,
+                                            int dimension)
+        {
+            build_edge_patches(grid, topo, dimension);
+            build_vertex_patches(grid, topo, dimension);
+
+            // 追加 Coupled-* 到 physical_patches。
+            // 保持原有行为：不重新排序 physical_patches。
+            append_coupling_faces_as_physical_patches(
+                grid,
+                topo,
+                dimension,
+                "Coupled-");
+        }
+    }
+
+    Topology build_topology(Grid &grid, int my_rank, int dimension)
+    {
+        Topology topo;
+
+        append_physical_patches(grid, topo, my_rank);
+        sort_physical_patches_by_priority(grid, topo);
+
+        append_inner_interface_patches(grid, topo, my_rank, dimension);
+
+        auto parallel_bc_all =
+            read_all_parallel_boundaries(my_rank, dimension);
+
+        append_parallel_interface_patches(
+            grid,
+            topo,
+            parallel_bc_all,
+            my_rank,
+            dimension);
+
+        build_derived_topology_patches(grid, topo, dimension);
 
         if (my_rank == 0)
         {
             std::cout << "*************Finish the Topology Manipulating Process! !**************\n\n";
         }
+
         return topo;
     }
 }

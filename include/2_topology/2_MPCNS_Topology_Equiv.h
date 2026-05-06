@@ -7,7 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "2_topology/2_MPCNS_Topology.h"
+#include "2_topology/TopologyTypes.h"
+
+class Grid;
 
 namespace TOPO
 {

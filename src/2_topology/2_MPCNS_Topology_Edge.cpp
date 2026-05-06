@@ -63,7 +63,6 @@ namespace TOPO
             {
                 FaceOnBlock f;
 
-                // ======= 下面这些字段名按你真实定义改 =======
                 f.kind = p.kind; // PatchKind::Inner / Parallel
                 f.this_rank = p.this_rank;
                 f.nb_rank = p.nb_rank;
@@ -78,7 +77,6 @@ namespace TOPO
                 f.recv_flag = p.recv_flag;
 
                 f.is_coupling = p.is_coupling;
-                // ============================================
 
                 f.dir_code = p.direction;
 
@@ -102,7 +100,6 @@ namespace TOPO
             {
                 FaceOnBlock f;
 
-                // ======= 下面这些字段名按你真实定义改 =======
                 f.kind = PatchKind::Physical;
                 f.this_rank = p.this_rank;
                 f.nb_rank = -1;
@@ -122,7 +119,6 @@ namespace TOPO
 
                 if (!DIR::is_valid(f.dir_code))
                     ERROR::Abort("[build_edge_patches] PhysicalPatch has invalid direction");
-                // ============================================
 
                 faces_of_block[f.this_block].push_back(f);
             }

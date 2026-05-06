@@ -3,6 +3,7 @@
 
 #include "0_basic/MPI_WRAPPER.h"
 #include "0_basic/BoxOps.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 #include <sstream>
 #include <stdexcept>

@@ -6,6 +6,7 @@
 #include "0_basic/Error.h"
 #include "0_basic/LayoutTraits.h"
 #include "1_grid/BlockTraits.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 #include <iostream>
 #include <sstream>
