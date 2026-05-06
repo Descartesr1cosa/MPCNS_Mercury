@@ -13,12 +13,13 @@ public:
     };
 
     // 记录哪个物理场需要 halo，做到哪个 corner 等级
+    void register_halo_field(const FieldHaloRequest &request);
     void register_halo_field(const std::string &field_name,
                              HaloLevel level = HaloLevel::Vertex);
     void register_halo_fields(const std::vector<FieldHaloRequest> &requests)
     {
         for (const auto &request : requests)
-            register_halo_field(request.field_name, request.level);
+            register_halo_field(request);
     }
 
     // 统一构建 pattern（只构建 registry 中需要的）
@@ -148,7 +149,7 @@ private:
     TOPO::Topology *topo_;
 
     // 同一个 field_name 多次注册时取更高等级（FaceOnly < Edge < Vertex）
-    std::unordered_map<std::string, HaloLevel> halo_registry_;
+    std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
 
     // key = (StaggerLocation, nghost)，value = HaloPattern
     using PatternKey = std::pair<StaggerLocation, int>;

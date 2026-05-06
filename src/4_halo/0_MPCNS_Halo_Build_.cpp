@@ -1,28 +1,61 @@
 #include "4_halo/1_MPCNS_Halo.h"
+#include "0_basic/Error.h"
+
+#include <algorithm>
 #include <set>
 
-void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
+namespace
 {
-    // 1) 防止拼错名字导致 silent 插入
-    if (!fld_->has_field(field_name))
+    bool same_halo_request_metadata(const FieldHaloRequest &a, const FieldHaloRequest &b)
     {
-        std::cout << "[Halo] ERROR: register_halo_field: field_name = "
-                  << field_name << " not registered in Field.\n";
-        std::exit(-1);
+        return a.location == b.location &&
+               a.value_kind == b.value_kind &&
+               a.ncomp == b.ncomp &&
+               a.nghost == b.nghost &&
+               a.owner_sync == b.owner_sync &&
+               a.orientation_aware == b.orientation_aware;
     }
+}
 
-    // 2) 升级策略：同名多次注册取更高等级
-    auto it = halo_registry_.find(field_name);
+void Halo::register_halo_field(const FieldHaloRequest &request)
+{
+    // 防止拼错名字导致 silent 插入
+    if (!fld_->has_field(request.field_name))
+        ERROR::Abort("[Halo] register_halo_field: field_name not registered in Field: " + request.field_name);
+
+    // 升级策略：同名多次注册取更高等级，其他 metadata 必须一致。
+    auto it = halo_registry_.find(request.field_name);
     if (it == halo_registry_.end())
     {
-        halo_registry_.emplace(field_name, level);
+        halo_registry_.emplace(request.field_name, request);
     }
     else
     {
-        int old_lv = static_cast<int>(it->second);
-        int new_lv = static_cast<int>(level);
-        it->second = static_cast<HaloLevel>(std::max(old_lv, new_lv));
+        FieldHaloRequest &old = it->second;
+        if (!same_halo_request_metadata(old, request))
+            ERROR::Abort("[Halo] register_halo_field: duplicate field has inconsistent halo request metadata: " + request.field_name);
+
+        const int old_lv = static_cast<int>(old.level);
+        const int new_lv = static_cast<int>(request.level);
+        old.level = static_cast<HaloLevel>(std::max(old_lv, new_lv));
     }
+}
+
+void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
+{
+    const FieldDescriptor &desc = fld_->descriptor(field_name);
+
+    FieldHaloRequest request;
+    request.field_name = field_name;
+    request.location = desc.location;
+    request.value_kind = desc.value_kind;
+    request.ncomp = desc.ncomp;
+    request.nghost = desc.nghost;
+    request.level = level;
+    request.owner_sync = desc.sync.owner_sync;
+    request.orientation_aware = desc.sync.orientation_aware;
+
+    register_halo_field(request);
 }
 
 void Halo::build_registered_patterns()
@@ -52,19 +85,15 @@ void Halo::build_registered_patterns()
     // 1) 收集 keys
     for (const auto &kv : halo_registry_)
     {
-        const std::string &fname = kv.first;
-        HaloLevel lv = kv.second;
+        const FieldHaloRequest &req = kv.second;
 
-        int fid = fld_->field_id(fname); // 这里要求 field_id 不产生副作用；最好配合 has_field
-        const auto &desc = fld_->descriptor(fid);
-
-        PatternKey key = {desc.location, desc.nghost};
+        PatternKey key = {req.location, req.nghost};
         face_keys.insert(key);
 
-        if (dim >= 2 && static_cast<int>(lv) >= static_cast<int>(HaloLevel::Edge))
+        if (dim >= 2 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Edge))
             edge_keys.insert(key);
 
-        if (dim >= 3 && static_cast<int>(lv) >= static_cast<int>(HaloLevel::Vertex))
+        if (dim >= 3 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Vertex))
             vertex_keys.insert(key);
     }
 
