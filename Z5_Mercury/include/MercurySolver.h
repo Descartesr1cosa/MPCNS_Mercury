@@ -59,7 +59,7 @@ public:
 
     static void RegisterFields(Field *fld, int ngg);
     static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
-    static void RegisterHaloFields(Halo *halo);
+    static void RegisterHaloFields(Field *fld, Halo *halo);
 
     void Advance();
 

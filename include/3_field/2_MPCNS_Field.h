@@ -41,6 +41,11 @@ public:
 
     const FieldDescriptor &descriptor(int32_t fid) const { return field_descs_[fid]; }
     const FieldDescriptor &descriptor(const std::string &field_name) const { return descriptor(field_id(field_name)); }
+    const std::vector<FieldDescriptor> &descriptors() const { return field_descs_; }
+
+    std::vector<std::string> boundary_field_names() const;
+    std::vector<std::string> coupled_field_names() const;
+    std::vector<HaloFieldRequest> halo_requests() const;
 
     // 按 ID 访问所有block
     std::vector<FieldBlock> &field(int32_t fid)
@@ -79,6 +84,7 @@ public:
     void register_coupling_channel(const std::string &src,
                                    const std::string &dst,
                                    const std::string &field_name);
+    void register_declared_coupling_channels(const std::vector<PairKey> &directed_pairs);
     //-----------------------------------------------------------------------------------
     // 为所注册的耦合方式（Channel）开辟缓冲空间，调用一次即可
     void build_coupling_buffers(const TOPO::Topology &topo, int dimension);

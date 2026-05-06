@@ -34,7 +34,10 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
     {
         // 0) the definition of coupling src--dst should have been done + build_coupling_buffers
         if (!fld_->has_coupling_pair(coupling_pair.first, coupling_pair.second))
-            return;
+        {
+            ERROR::Abort("AddGroup: missing coupling pair for group=" + configured.name +
+                         " pair=" + coupling_pair.first + "->" + coupling_pair.second);
+        }
 
         const CouplingPairDesc &desc = fld_->coupling_pair(coupling_pair.first, coupling_pair.second); // description
         auto &ch = desc.channels;

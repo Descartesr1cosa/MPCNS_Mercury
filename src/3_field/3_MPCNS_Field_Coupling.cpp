@@ -71,6 +71,16 @@ void Field::register_coupling_channel(const std::string &src,
     register_coupling_channel(src, dst, field_name, desc.location, desc.ncomp, desc.nghost);
 }
 
+void Field::register_declared_coupling_channels(const std::vector<PairKey> &directed_pairs)
+{
+    const std::vector<std::string> names = coupled_field_names();
+    for (const auto &pair : directed_pairs)
+    {
+        for (const auto &field_name : names)
+            register_coupling_channel(pair.first, pair.second, field_name);
+    }
+}
+
 bool Field::has_coupling_pair(const std::string &src, const std::string &dst) const
 {
     return coupling_pairs_.count(PairKey{src, dst}) > 0;

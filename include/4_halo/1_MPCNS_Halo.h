@@ -15,6 +15,11 @@ public:
     // 记录哪个物理场需要 halo，做到哪个 corner 等级
     void register_halo_field(const std::string &field_name,
                              HaloLevel level = HaloLevel::Vertex);
+    void register_halo_fields(const std::vector<HaloFieldRequest> &requests)
+    {
+        for (const auto &request : requests)
+            register_halo_field(request.field_name, request.level);
+    }
 
     // 统一构建 pattern（只构建 registry 中需要的）
     void build_registered_patterns();

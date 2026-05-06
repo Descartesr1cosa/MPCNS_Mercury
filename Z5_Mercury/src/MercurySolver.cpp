@@ -73,7 +73,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     // ---- Boundary ----
     {
-        std::vector<std::string> bnd_fields = MERCURY_FIELD::BoundaryFieldNames();
+        std::vector<std::string> bnd_fields = fld_->boundary_field_names();
         mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields, edge_owner_pat_);
     }
 

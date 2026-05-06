@@ -45,7 +45,12 @@ void Field::register_field(const FieldDescriptor &desc)
         const bool same = old.location == desc.location &&
                           old.ncomp == desc.ncomp &&
                           old.nghost == desc.nghost &&
-                          old.physics == desc.physics;
+                          old.physics == desc.physics &&
+                          old.sync.group == desc.sync.group &&
+                          old.sync.do_coupling == desc.sync.do_coupling &&
+                          old.sync.do_physical == desc.sync.do_physical &&
+                          old.sync.do_halo == desc.sync.do_halo &&
+                          old.sync.halo_level == desc.sync.halo_level;
         if (same)
             return;
 
@@ -89,4 +94,42 @@ void Field::allocate(int32_t fieldID)
         else
             tmp[b].bind_inactive(blk, desc);
     }
+}
+
+std::vector<std::string> Field::boundary_field_names() const
+{
+    std::vector<std::string> names;
+    for (const auto &desc : field_descs_)
+    {
+        if (desc.sync.do_physical)
+            names.push_back(desc.name);
+    }
+    return names;
+}
+
+std::vector<std::string> Field::coupled_field_names() const
+{
+    std::vector<std::string> names;
+    for (const auto &desc : field_descs_)
+    {
+        if (desc.sync.do_coupling)
+            names.push_back(desc.name);
+    }
+    return names;
+}
+
+std::vector<HaloFieldRequest> Field::halo_requests() const
+{
+    std::vector<HaloFieldRequest> requests;
+    for (const auto &desc : field_descs_)
+    {
+        if (!desc.sync.do_halo)
+            continue;
+
+        HaloFieldRequest req;
+        req.field_name = desc.name;
+        req.level = desc.sync.halo_level;
+        requests.push_back(req);
+    }
+    return requests;
 }

@@ -59,7 +59,7 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build Halo Communicator
         Halo *hal = new Halo(fld, &topology);
-        MercurySolver::RegisterHaloFields(hal);
+        MercurySolver::RegisterHaloFields(fld, hal);
         //--------------------------------------------------------------------------
         // Build owner sync pattern once; both explicit and implicit edge fields use it.
         HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pattern;

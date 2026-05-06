@@ -16,7 +16,7 @@ void MercurySolver::RegisterCouplingChannels(Field *fld, const TOPO::Topology &t
     MERCURY_FIELD::RegisterCouplingChannels(fld, topology, dimension);
 }
 
-void MercurySolver::RegisterHaloFields(Halo *halo)
+void MercurySolver::RegisterHaloFields(Field *fld, Halo *halo)
 {
-    MERCURY_FIELD::RegisterHaloFields(halo);
+    MERCURY_FIELD::RegisterHaloFields(fld, halo);
 }

@@ -86,16 +86,3 @@ struct VertexMeta
 
     int tag; // 这一条 edge 通信的唯一标识，在 recv_rank 本地编号后写进去
 };
-
-enum class HaloLevel : int
-{
-    FaceOnly = 1, // 只需要 1D（面）halo
-    Edge = 2,     // 需要到 2D corner（棱）
-    Vertex = 3    // 需要到 3D corner（角点）
-};
-
-struct HaloFieldRequest
-{
-    std::string field_name;
-    HaloLevel level = HaloLevel::Vertex;
-};

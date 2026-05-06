@@ -218,7 +218,7 @@ void MercuryBoundary::InstallCouplingHandlers_()
         BoundaryCore::DefaultCouplingCopy(Udst, fld, buf, src, dst, tag);
     };
 
-    for (const auto &field_name : MERCURY_FIELD::CoupledFieldNames())
+    for (const auto &field_name : fld_->coupled_field_names())
     {
         const auto &desc = fld_->descriptor(field_name);
         RegisterCoupling_("Solid", "Fluid", desc.location, field_name, field_name, ccopy);
@@ -232,8 +232,8 @@ void MercuryBoundary::InstallDefaultGroups()
     {
         std::vector<std::string> fields;
         fields.reserve(group.fields.size());
-        for (const char *name : group.fields)
-            fields.emplace_back(name);
+        for (const auto &name : group.fields)
+            fields.push_back(name);
 
         AddStandardGroup_(group.name,
                           fields,
