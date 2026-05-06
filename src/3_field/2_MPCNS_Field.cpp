@@ -1,5 +1,14 @@
 // 2_Fields.cpp
 #include "3_field/2_MPCNS_Field.h"
+#include "0_basic/Error.h"
+
+int Field::field_id(const std::string &field_name) const
+{
+    auto it = name_to_id_.find(field_name);
+    if (it == name_to_id_.end())
+        ERROR::Abort("Field::field_id: unknown field name: " + field_name);
+    return it->second;
+}
 
 void Field::set_blocks(Grid *grd)
 {
@@ -29,6 +38,20 @@ void Field::set_blocks(Grid *grd)
 
 void Field::register_field(const FieldDescriptor &desc)
 {
+    auto existing = name_to_id_.find(desc.name);
+    if (existing != name_to_id_.end())
+    {
+        const FieldDescriptor &old = field_descs_[existing->second];
+        const bool same = old.location == desc.location &&
+                          old.ncomp == desc.ncomp &&
+                          old.nghost == desc.nghost &&
+                          old.physics == desc.physics;
+        if (same)
+            return;
+
+        ERROR::Abort("Field::register_field: duplicate field has different descriptor: " + desc.name);
+    }
+
     int32_t fid = static_cast<int32_t>(field_descs_.size());
     field_descs_.push_back(desc);
     name_to_id_[desc.name] = fid;

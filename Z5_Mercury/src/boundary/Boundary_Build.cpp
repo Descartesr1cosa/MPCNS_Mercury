@@ -1,6 +1,7 @@
 #include "1_Boundary.h"
 #include "0_basic/Error.h"
 #include "00_Mercury_Const.h"
+#include "0_MercuryFieldCatalog.h"
 
 void MercuryBoundary::InstallHandlers()
 {
@@ -217,76 +218,30 @@ void MercuryBoundary::InstallCouplingHandlers_()
         BoundaryCore::DefaultCouplingCopy(Udst, fld, buf, src, dst, tag);
     };
 
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceXi, "B_xi", "B_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceEt, "B_eta", "B_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceZe, "B_zeta", "B_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceXi, "B_xi", "B_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceEt, "B_eta", "B_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceZe, "B_zeta", "B_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceXi, "Badd_xi", "Badd_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceEt, "Badd_eta", "Badd_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceZe, "Badd_zeta", "Badd_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceXi, "Badd_xi", "Badd_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceEt, "Badd_eta", "Badd_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceZe, "Badd_zeta", "Badd_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeXi, "J_xi", "J_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeEt, "J_eta", "J_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeZe, "J_zeta", "J_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeXi, "J_xi", "J_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeEt, "J_eta", "J_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeZe, "J_zeta", "J_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceXi, "Eface_xi", "Eface_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceEt, "Eface_eta", "Eface_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceZe, "Eface_zeta", "Eface_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceXi, "Eface_xi", "Eface_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceEt, "Eface_eta", "Eface_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::FaceZe, "Eface_zeta", "Eface_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeXi, "E_xi", "E_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeEt, "E_eta", "E_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeZe, "E_zeta", "E_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeXi, "E_xi", "E_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeEt, "E_eta", "E_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeZe, "E_zeta", "E_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeXi, "Ehall_xi", "Ehall_xi", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeEt, "Ehall_eta", "Ehall_eta", ccopy);
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::EdgeZe, "Ehall_zeta", "Ehall_zeta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeXi, "Ehall_xi", "Ehall_xi", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeEt, "Ehall_eta", "Ehall_eta", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::EdgeZe, "Ehall_zeta", "Ehall_zeta", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::Cell, "B_cell", "B_cell", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::Cell, "B_cell", "B_cell", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::Cell, "J_cell", "J_cell", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::Cell, "J_cell", "J_cell", ccopy);
-
-    RegisterCoupling_("Solid", "Fluid", StaggerLocation::Cell, "Bind_cell", "Bind_cell", ccopy);
-    RegisterCoupling_("Fluid", "Solid", StaggerLocation::Cell, "Bind_cell", "Bind_cell", ccopy);
+    for (const auto &field_name : MERCURY_FIELD::CoupledFieldNames())
+    {
+        const auto &desc = fld_->descriptor(field_name);
+        RegisterCoupling_("Solid", "Fluid", desc.location, field_name, field_name, ccopy);
+        RegisterCoupling_("Fluid", "Solid", desc.location, field_name, field_name, ccopy);
+    }
 }
 
 void MercuryBoundary::InstallDefaultGroups()
 {
-    AddStandardGroup_("Ucell", {"U_H", "U_Na"}, false);
-    AddStandardGroup_("Jedge", {"J_xi", "J_eta", "J_zeta"}, true);
-    AddStandardGroup_("Eedge", {"E_xi", "E_eta", "E_zeta"}, true);
-    AddStandardGroup_("Ehall", {"Ehall_xi", "Ehall_eta", "Ehall_zeta"}, true);
-    AddStandardGroup_("Bface", {"B_xi", "B_eta", "B_zeta"}, true);
-    AddStandardGroup_("Eface", {"Eface_xi", "Eface_eta", "Eface_zeta"}, true);
-    AddStandardGroup_("B_cell", {"B_cell", "Bind_cell"}, true);
-    AddStandardGroup_("J_cell", {"J_cell"}, true);
+    for (const auto &group : MERCURY_FIELD::SyncGroups())
+    {
+        std::vector<std::string> fields;
+        fields.reserve(group.fields.size());
+        for (const char *name : group.fields)
+            fields.emplace_back(name);
 
-    AddStandardGroup_("dE", {"dE_xi", "dE_eta", "dE_zeta"}, true);
-    AddStandardGroup_("dB", {"dB_xi", "dB_eta", "dB_zeta"}, true);
-    AddStandardGroup_("dJ", {"dJ_xi", "dJ_eta", "dJ_zeta"}, true);
-    AddStandardGroup_("dJcell", {"dJ_cell"}, true);
-    AddStandardGroup_("dEpre", {"dEpre_xi", "dEpre_eta", "dEpre_zeta"}, true);
-
-    AddStandardGroup_("Badd", {"Badd_xi", "Badd_eta", "Badd_zeta"}, true);
+        AddStandardGroup_(group.name,
+                          fields,
+                          group.do_coupling,
+                          group.do_physical,
+                          group.do_halo,
+                          group.halo_level);
+    }
 }
 
 void MercuryBoundary::Build(bool strict_check)

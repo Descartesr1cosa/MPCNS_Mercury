@@ -31,7 +31,7 @@ public:
     // 分配所有 fieldid 下 block 的数据
     void allocate(int32_t fieldID);
 
-    int field_id(std::string field_name) { return name_to_id_[field_name]; }
+    int field_id(const std::string &field_name) const;
     bool has_field(const std::string &name) const
     {
         return name_to_id_.find(name) != name_to_id_.end();
@@ -40,6 +40,7 @@ public:
     int num_blocks() const { return static_cast<int>(blocks_.size()); }
 
     const FieldDescriptor &descriptor(int32_t fid) const { return field_descs_[fid]; }
+    const FieldDescriptor &descriptor(const std::string &field_name) const { return descriptor(field_id(field_name)); }
 
     // 按 ID 访问所有block
     std::vector<FieldBlock> &field(int32_t fid)
@@ -52,14 +53,14 @@ public:
         return field_blocks_[fid][iblock];
     }
     // 按名字访问所有block
-    std::vector<FieldBlock> &field(std::string name)
+    std::vector<FieldBlock> &field(const std::string &name)
     {
-        return field(name_to_id_.at(name));
+        return field(field_id(name));
     }
     // 按名字访问
-    FieldBlock &field(std::string name, int iblock)
+    FieldBlock &field(const std::string &name, int iblock)
     {
-        return field(name_to_id_.at(name), iblock);
+        return field(field_id(name), iblock);
     }
 
     //===================================================================================
@@ -75,6 +76,9 @@ public:
                                    StaggerLocation location, // 物理场挂载的几何位置
                                    int ncomp,
                                    int nghost);
+    void register_coupling_channel(const std::string &src,
+                                   const std::string &dst,
+                                   const std::string &field_name);
     //-----------------------------------------------------------------------------------
     // 为所注册的耦合方式（Channel）开辟缓冲空间，调用一次即可
     void build_coupling_buffers(const TOPO::Topology &topo, int dimension);

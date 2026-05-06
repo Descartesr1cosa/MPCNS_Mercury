@@ -8,6 +8,18 @@ void Field::register_coupling_channel(const std::string &src,
                                       int ncomp,
                                       int nghost)
 {
+    if (has_field(tag))
+    {
+        const auto &desc = descriptor(field_id(tag));
+        const bool same = desc.location == location &&
+                          desc.ncomp == ncomp &&
+                          desc.nghost == nghost;
+        if (!same)
+        {
+            ERROR::Abort("Field::register_coupling_channel: channel spec does not match field descriptor: " + tag);
+        }
+    }
+
     auto add_one = [&](const std::string &a, const std::string &b)
     {
         PairKey key{a, b};
@@ -49,6 +61,14 @@ void Field::register_coupling_channel(const std::string &src,
     };
 
     add_one(src, dst);
+}
+
+void Field::register_coupling_channel(const std::string &src,
+                                      const std::string &dst,
+                                      const std::string &field_name)
+{
+    const auto &desc = descriptor(field_name);
+    register_coupling_channel(src, dst, field_name, desc.location, desc.ncomp, desc.nghost);
 }
 
 bool Field::has_coupling_pair(const std::string &src, const std::string &dst) const

@@ -6,6 +6,7 @@
 
 // Z4_Mercury
 #include "MercurySolver.h"
+#include "0_MercuryFieldCatalog.h"
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
@@ -72,47 +73,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     // ---- Boundary ----
     {
-        // 0) 需要添加边界的物理场
-        std::vector<std::string> bnd_fields = {
-            "U_H",
-            "U_Na",
-            "B_xi",
-            "B_eta",
-            "B_zeta",
-            "Badd_xi",
-            "Badd_eta",
-            "Badd_zeta",
-            "B_cell",
-            "J_xi",
-            "J_eta",
-            "J_zeta",
-            "E_xi",
-            "E_eta",
-            "E_zeta",
-            "Eface_xi",
-            "Eface_eta",
-            "Eface_zeta",
-            "Ehall_xi",
-            "Ehall_eta",
-            "Ehall_zeta",
-            "Bind_cell",
-            "J_cell",
-            "dJ_xi",
-            "dJ_eta",
-            "dJ_zeta",
-            "dE_xi",
-            "dE_eta",
-            "dE_zeta",
-            "dB_xi",
-            "dB_eta",
-            "dB_zeta",
-            "dJ_cell",
-            "dEpre_xi",
-            "dEpre_eta",
-            "dEpre_zeta",
-        };
-
-        // 1) 初始化 Mercury Boundary
+        std::vector<std::string> bnd_fields = MERCURY_FIELD::BoundaryFieldNames();
         mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields, edge_owner_pat_);
     }
 
