@@ -1,5 +1,8 @@
 #include "2_topology/2_MPCNS_Topology.h"
+#include "2_topology/TopologyOps.h"
+
 #include "0_basic/MPI_WRAPPER.h"
+
 #include <unordered_map>
 #include <algorithm>
 #include <limits>
@@ -27,7 +30,7 @@ namespace TOPO
                 p.direction = phy.direction;
                 p.raw = &phy;
 
-                node_box_from_subsup(phy.sub, phy.sup, p.this_box_node);
+                p.this_box_node = make_node_box_from_subsup(phy.sub, phy.sup);
 
                 topo.physical_patches.push_back(p);
             }
@@ -97,74 +100,24 @@ namespace TOPO
 
                 interface.is_coupling = (interface.this_block_name != interface.nb_block_name);
 
-                node_box_from_subsup(inner.sub, inner.sup, interface.this_box_node);
-                node_box_from_subsup(inner.tar_sub, inner.tar_sup, interface.nb_box_node);
+                interface.this_box_node = make_node_box_from_subsup(inner.sub, inner.sup);
+                interface.nb_box_node = make_node_box_from_subsup(inner.tar_sub, inner.tar_sup);
 
                 interface.direction = inner.direction;
                 interface.nb_direction = inner.tar_direction;
 
-                //=======================================================================
-                // 获取IndexTransform
-                //-------------------------------------------------------------
-                // 根据映射Transform -> mid state -> inver_Transform -> tar
-                // 获取perm
-                int inver_Transform[3];
-                for (int d = 0; d < 3; ++d)
-                    inver_Transform[inner.tar_Transform[d]] = d;
-                for (int d = 0; d < 3; ++d)
-                    interface.trans.perm[d] = inver_Transform[inner.Transform[d]];
-                //-------------------------------------------------------------
-                // 获取sign[3]
-                for (int d = 0; d < 3; ++d)
-                {
-                    int my_sub, my_sup, tar_sub, tar_sup;
-                    my_sub = abs(inner.sub[d]);
-                    my_sup = abs(inner.sup[d]);
-                    tar_sub = abs(inner.tar_sub[interface.trans.perm[d]]);
-                    tar_sup = abs(inner.tar_sup[interface.trans.perm[d]]);
+                interface.trans = make_index_transform_from_boundary_arrays(
+                    inner.sub,
+                    inner.sup,
+                    inner.Transform,
+                    inner.tar_sub,
+                    inner.tar_sup,
+                    inner.tar_Transform,
+                    inner.direction,
+                    inner.tar_direction,
+                    dimension,
+                    "build_topology: inner interface");
 
-                    if (my_sub == my_sup && d < dimension)
-                    {
-                        if (tar_sub != tar_sup)
-                        {
-                            // For Check Security
-                            std::cout << "\tDirection is not right when building inner interface\n";
-                            exit(-1);
-                        }
-
-                        interface.trans.sign[d] = (inner.direction * inner.tar_direction > 0) ? -1 : 1;
-                        continue;
-                    }
-
-                    if (dimension == 2 && d == 2)
-                    {
-                        interface.trans.sign[d] = 0;
-                        interface.trans.offset.k = 0;
-                        continue;
-                    }
-
-                    if (abs(my_sup - my_sub) != abs(tar_sup - tar_sub))
-                    {
-                        // For Check Security
-                        std::cout << "\tDirection is not right when building inner interface\t" << d << std::endl;
-                        exit(-1);
-                    }
-                    else
-                        interface.trans.sign[d] = ((my_sup - my_sub) * (tar_sup - tar_sub) > 0) ? 1 : -1;
-                }
-                //-------------------------------------------------------------
-                // 获取offset
-                int offset[3] = {0, 0, 0};
-                for (int d = 0; d < 3; ++d)
-                {
-                    int my_sub, tar_sub;
-                    my_sub = abs(inner.sub[d]);
-                    tar_sub = abs(inner.tar_sub[interface.trans.perm[d]]);
-
-                    offset[d] = -interface.trans.sign[d] * my_sub + tar_sub;
-                }
-                interface.trans.offset = {offset[0], offset[1], offset[2]};
-                //-------------------------------------------------------------
                 topo.inner_patches.push_back(interface);
             }
         }
@@ -324,73 +277,24 @@ namespace TOPO
 
                 interface.is_coupling = (interface.this_block_name != interface.nb_block_name);
 
-                node_box_from_subsup(para.sub, para.sup, interface.this_box_node);
-                node_box_from_subsup(tar_para.sub, tar_para.sup, interface.nb_box_node);
+                interface.this_box_node = make_node_box_from_subsup(para.sub, para.sup);
+                interface.nb_box_node = make_node_box_from_subsup(tar_para.sub, tar_para.sup);
 
                 interface.direction = para.direction;
                 interface.nb_direction = tar_para.direction;
-                //=======================================================================
-                // 获取IndexTransform
-                //-------------------------------------------------------------
-                // 根据映射Transform -> mid state -> inver_Transform -> tar
-                // 获取perm
-                int inver_Transform[3];
-                for (int d = 0; d < 3; ++d)
-                    inver_Transform[tar_para.Transform[d]] = d;
-                for (int d = 0; d < 3; ++d)
-                    interface.trans.perm[d] = inver_Transform[para.Transform[d]];
-                //-------------------------------------------------------------
-                // 获取sign[3]
-                for (int d = 0; d < 3; ++d)
-                {
-                    int my_sub, my_sup, tar_sub, tar_sup;
-                    my_sub = abs(para.sub[d]);
-                    my_sup = abs(para.sup[d]);
-                    tar_sub = abs(tar_para.sub[interface.trans.perm[d]]);
-                    tar_sup = abs(tar_para.sup[interface.trans.perm[d]]);
 
-                    if (my_sub == my_sup && d < dimension)
-                    {
-                        if (tar_sub != tar_sup)
-                        {
-                            // For Check Security
-                            std::cout << "\tDirection is not right when building para interface\n";
-                            exit(-1);
-                        }
+                interface.trans = make_index_transform_from_boundary_arrays(
+                    para.sub,
+                    para.sup,
+                    para.Transform,
+                    tar_para.sub,
+                    tar_para.sup,
+                    tar_para.Transform,
+                    para.direction,
+                    tar_para.direction,
+                    dimension,
+                    "build_topology: parallel interface");
 
-                        interface.trans.sign[d] = (para.direction * tar_para.direction > 0) ? -1 : 1;
-                        continue;
-                    }
-
-                    if (dimension == 2 && d == 2)
-                    {
-                        interface.trans.sign[d] = 0;
-                        interface.trans.offset.k = 0;
-                        continue;
-                    }
-
-                    if (abs(my_sup - my_sub) != abs(tar_sup - tar_sub))
-                    {
-                        // For Check Security
-                        std::cout << "\tDirection is not right when building para interface\t" << d << std::endl;
-                        exit(-1);
-                    }
-                    else
-                        interface.trans.sign[d] = ((my_sup - my_sub) * (tar_sup - tar_sub) > 0) ? 1 : -1;
-                }
-                //-------------------------------------------------------------
-                // 获取offset
-                int offset[3] = {0, 0, 0};
-                for (int d = 0; d < 3; ++d)
-                {
-                    int my_sub, tar_sub;
-                    my_sub = abs(para.sub[d]);
-                    tar_sub = abs(tar_para.sub[interface.trans.perm[d]]);
-
-                    offset[d] = -interface.trans.sign[d] * my_sub + tar_sub;
-                }
-                interface.trans.offset = {offset[0], offset[1], offset[2]};
-                //-------------------------------------------------------------
                 // 存入send/recv_flag
                 interface.send_flag = para.send_flag;
                 interface.recv_flag = para.rece_flag;

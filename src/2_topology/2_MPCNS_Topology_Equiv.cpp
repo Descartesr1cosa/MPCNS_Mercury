@@ -1,5 +1,8 @@
 #include "2_topology/2_MPCNS_Topology_Equiv.h"
+#include "2_topology/TopologyOps.h"
+
 #include "0_basic/MPI_WRAPPER.h"
+#include "0_basic/BoxOps.h"
 
 #include <sstream>
 #include <stdexcept>
@@ -13,47 +16,6 @@ namespace TOPO
         // ============================================================
         // small internal helpers
         // ============================================================
-
-        inline int get_comp(const Int3 &x, int d)
-        {
-            if (d == 0)
-                return x.i;
-            if (d == 1)
-                return x.j;
-            return x.k;
-        }
-
-        inline void set_comp(Int3 &x, int d, int v)
-        {
-            if (d == 0)
-                x.i = v;
-            else if (d == 1)
-                x.j = v;
-            else
-                x.k = v;
-        }
-
-        inline bool in_box(const Box3 &box, const Int3 &p)
-        {
-            return (box.lo.i <= p.i && p.i < box.hi.i) &&
-                   (box.lo.j <= p.j && p.j < box.hi.j) &&
-                   (box.lo.k <= p.k && p.k < box.hi.k);
-        }
-
-        inline Int3 map_node_by_transform(const Int3 &p_local, const IndexTransform &tr)
-        {
-            // nb[ perm[a] ] = sign[a] * local[a] + offset[a]
-            int lv[3] = {p_local.i, p_local.j, p_local.k};
-            Int3 p_nb{0, 0, 0};
-
-            for (int a = 0; a < 3; ++a)
-            {
-                const int b = tr.perm[a];
-                const int v = tr.sign[a] * lv[a] + get_comp(tr.offset, a);
-                set_comp(p_nb, b, v);
-            }
-            return p_nb;
-        }
 
         struct UnionFind
         {
@@ -200,9 +162,9 @@ namespace TOPO
                         for (int k = patch.this_box_node.lo.k; k < patch.this_box_node.hi.k; ++k)
                         {
                             Int3 p_this{i, j, k};
-                            Int3 p_nb = map_node_by_transform(p_this, patch.trans);
+                            Int3 p_nb = map_node_point(p_this, patch.trans);
 
-                            if (!in_box(patch.nb_box_node, p_nb))
+                            if (!BOX::contains_point(patch.nb_box_node, p_nb))
                             {
                                 std::ostringstream oss;
                                 oss << "build_topology_equiv: mapped node out of nb_box_node. "
