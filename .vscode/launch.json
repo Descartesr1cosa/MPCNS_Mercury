@@ -1,0 +1,35 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "cppdbg",
+            "request": "launch",
+            "name": "Launch Program (MSYS2 MINGW64)",
+            // "program": "${workspaceFolder}/build/MPCNS.exe",
+            "program": "${workspaceFolder}/build/Z4_MHD/Z7_MHD_Astro/MPCNS_AstroMHD.exe",
+            "cwd": "${workspaceFolder}/build/Z4_MHD/Z7_MHD_Astro",
+            // 关键：指定 gdb
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/msys64/mingw64/bin/gdb.exe",
+            // 关键：不要用 VS Code 自己的 shell，而是用 MSYS2 的环境变量
+            "environment": [
+                {
+                    "name": "MSYSTEM",
+                    "value": "MINGW64"
+                },
+                {
+                    "name": "CHERE_INVOKING",
+                    "value": "1"
+                }
+            ],
+            // 如果你的程序需要命令行参数可以写这里
+            "args": [],
+            // 推荐：调试时不要自动跳进系统库
+            "stopAtEntry": false,
+            "externalConsole": false
+        }
+    ]
+}
