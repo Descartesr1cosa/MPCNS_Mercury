@@ -172,10 +172,10 @@ namespace TOPO
             edge_owner_gid.clear();
             gid2edge_owner.clear();
 
-            int n_local_edge_owner = 0;
-            int n_global_edge_owner = 0;
-            int edge_owner_gid_begin = 0;
-            int edge_owner_gid_end = 0; // half-open: [begin, end)
+            n_local_edge_owner = 0;
+            n_global_edge_owner = 0;
+            edge_owner_gid_begin = 0;
+            edge_owner_gid_end = 0; // half-open: [begin, end)
         }
     };
 
