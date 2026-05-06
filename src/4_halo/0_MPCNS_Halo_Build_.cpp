@@ -175,6 +175,7 @@ void Halo::rebuild_sync_registry_()
     face_2form_triplets_.clear();
     owner_sync_requests_.clear();
     field_to_group_.clear();
+    owner_sync_patterns_.clear();
 
     for (const auto &kv : halo_registry_)
         classify_registered_request_(kv.second);
@@ -383,6 +384,7 @@ void Halo::build_registered_patterns()
     coupling_parallel_edge_patterns_recv.clear();
     coupling_parallel_vertex_patterns_send.clear();
     coupling_parallel_vertex_patterns_recv.clear();
+    owner_sync_patterns_.clear();
 
     // 维度
     const int dim = fld_->grd->dimension;
@@ -478,4 +480,6 @@ void Halo::build_registered_patterns()
             }
         }
     }
+
+    build_owner_sync_patterns_();
 }

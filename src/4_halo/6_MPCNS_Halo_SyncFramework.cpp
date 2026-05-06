@@ -134,58 +134,14 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
     if (req.policy == OwnerSyncPolicy::None)
         return;
 
-    require_owner_equiv_available_(req.policy, req.field_name);
+    auto it = owner_sync_patterns_.find(req.field_name);
+    if (it == owner_sync_patterns_.end())
+        ERROR::Abort("[Halo] owner sync pattern not built for field: " + req.field_name);
 
-    const int fid = fld_->field_id(req.field_name);
-    const TOPO::EquivDofKind kind = owner_policy_to_equiv_kind_(req.policy);
-    const auto &classes = equiv_->classes(kind);
+    OwnerSyncPattern &pat = it->second;
 
-    int my_rank = 0;
-    PARALLEL::mpi_rank(&my_rank);
-
-    for (const auto &cls : classes)
-    {
-        const TOPO::EquivMember &owner = cls.owner;
-
-        if (!owner_member_matches_field_(req, owner))
-            continue;
-
-        bool has_local_alias = false;
-        for (const auto &member : cls.members)
-        {
-            if (member.rank == my_rank &&
-                !member.is_owner &&
-                owner_member_matches_field_(req, member))
-            {
-                has_local_alias = true;
-                break;
-            }
-        }
-
-        if (!has_local_alias)
-            continue;
-
-        if (owner.rank != my_rank)
-        {
-            ERROR::Abort("[Halo] cross-rank OwnerAliasSync is not implemented yet for field: " +
-                         req.field_name);
-        }
-
-        for (const auto &alias : cls.members)
-        {
-            if (alias.rank != my_rank)
-                continue;
-
-            if (alias.is_owner)
-                continue;
-
-            if (!owner_member_matches_field_(req, alias))
-                continue;
-
-            const int sign = owner_alias_sign_(req, owner, alias);
-            copy_owner_to_alias_local_(req, fid, owner, alias, sign);
-        }
-    }
+    execute_owner_sync_local_ops_(pat);
+    execute_owner_sync_mpi_ops_(pat);
 }
 
 void Halo::sync_owner_alias_registered_()
@@ -260,6 +216,18 @@ void Halo::dump_sync_registry(std::ostream &os) const
            << " loc=" << LAYOUT::location_name(own.location)
            << " kind=" << field_value_kind_name(own.value_kind)
            << " orientation=" << (own.orientation_aware ? "true" : "false")
+           << "\n";
+    }
+
+    os << "OwnerSyncPatterns (" << owner_sync_patterns_.size() << "):\n";
+    for (const auto &kv : owner_sync_patterns_)
+    {
+        const auto &pat = kv.second;
+        os << "  - field=" << pat.field_name
+           << " group=" << pat.sync_group
+           << " local_ops=" << pat.local_ops.size()
+           << " send_ops=" << pat.send_ops.size()
+           << " recv_ops=" << pat.recv_ops.size()
            << "\n";
     }
 
@@ -364,6 +332,246 @@ void Halo::copy_owner_to_alias_local_(const HaloOwnerRequest &req,
         alias_block(alias.i, alias.j, alias.k, m) =
             static_cast<double>(sign) * owner_block(owner.i, owner.j, owner.k, m);
     }
+}
+
+void Halo::build_owner_sync_patterns_()
+{
+    owner_sync_patterns_.clear();
+
+    for (const auto &req : owner_sync_requests_)
+    {
+        OwnerSyncPattern pat = build_owner_sync_pattern_for_request_(req);
+        owner_sync_patterns_[req.field_name] = pat;
+    }
+}
+
+Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwnerRequest &req) const
+{
+    require_owner_equiv_available_(req.policy, req.field_name);
+
+    OwnerSyncPattern pat;
+    pat.field_name = req.field_name;
+    pat.sync_group = req.sync_group;
+    pat.policy = req.policy;
+    pat.value_kind = req.value_kind;
+    pat.location = req.location;
+    pat.orientation_aware = req.orientation_aware;
+
+    const int fid = fld_->field_id(req.field_name);
+    const TOPO::EquivDofKind kind = owner_policy_to_equiv_kind_(req.policy);
+    const auto &classes = equiv_->classes(kind);
+
+    int my_rank = 0;
+    PARALLEL::mpi_rank(&my_rank);
+
+    for (const auto &cls : classes)
+    {
+        const TOPO::EquivMember &owner = cls.owner;
+
+        if (!owner_member_matches_field_(req, owner))
+            continue;
+
+        for (const auto &alias : cls.members)
+        {
+            if (alias.is_owner)
+                continue;
+
+            if (!owner_member_matches_field_(req, alias))
+                continue;
+
+            const int sign = owner_alias_sign_(req, owner, alias);
+
+            if (owner.rank == my_rank && alias.rank == my_rank)
+            {
+                OwnerSyncLocalOp op;
+                op.fid = fid;
+                op.owner_block = owner.block;
+                op.owner_i = owner.i;
+                op.owner_j = owner.j;
+                op.owner_k = owner.k;
+                op.alias_block = alias.block;
+                op.alias_i = alias.i;
+                op.alias_j = alias.j;
+                op.alias_k = alias.k;
+                op.ncomp = req.ncomp;
+                op.sign = sign;
+                pat.local_ops.push_back(op);
+            }
+            else if (owner.rank == my_rank && alias.rank != my_rank)
+            {
+                if (cls.global_id < 0)
+                    ERROR::Abort("[Halo] cross-rank OwnerAliasSync requires EquivClass::global_id >= 0 for field: " +
+                                 req.field_name);
+
+                OwnerSyncSendOp op;
+                op.fid = fid;
+                op.owner_block = owner.block;
+                op.owner_i = owner.i;
+                op.owner_j = owner.j;
+                op.owner_k = owner.k;
+                op.ncomp = req.ncomp;
+                op.sign_for_alias = sign;
+                op.dst_rank = alias.rank;
+                op.tag = owner_sync_tag_(req, cls.global_id, alias.rank);
+                pat.send_ops.push_back(op);
+            }
+            else if (owner.rank != my_rank && alias.rank == my_rank)
+            {
+                if (cls.global_id < 0)
+                    ERROR::Abort("[Halo] cross-rank OwnerAliasSync requires EquivClass::global_id >= 0 for field: " +
+                                 req.field_name);
+
+                OwnerSyncRecvOp op;
+                op.fid = fid;
+                op.alias_block = alias.block;
+                op.alias_i = alias.i;
+                op.alias_j = alias.j;
+                op.alias_k = alias.k;
+                op.ncomp = req.ncomp;
+                op.src_rank = owner.rank;
+                op.tag = owner_sync_tag_(req, cls.global_id, alias.rank);
+                pat.recv_ops.push_back(op);
+            }
+        }
+    }
+
+    resize_owner_sync_buffers_(pat);
+    return pat;
+}
+
+int Halo::owner_sync_tag_(const HaloOwnerRequest &req,
+                          int class_gid,
+                          int alias_rank) const
+{
+    if (class_gid < 0)
+        ERROR::Abort("[Halo] owner_sync_tag_: invalid EquivClass::global_id for field: " + req.field_name);
+
+    const int fid = fld_->field_id(req.field_name);
+    // TODO: replace this formula with a centralized tag allocator for
+    // production scaling. It assumes class global ids are consistent across
+    // ranks and reserves a high tag range away from ordinary topology flags.
+    return owner_sync_tag_base_ +
+           fid * 1000000 +
+           (class_gid % 1000) * 1000 +
+           (alias_rank % 1000);
+}
+
+void Halo::resize_owner_sync_buffers_(OwnerSyncPattern &pat) const
+{
+    int send_size = 0;
+    for (auto &op : pat.send_ops)
+    {
+        op.buffer_offset = send_size;
+        send_size += op.ncomp;
+    }
+
+    int recv_size = 0;
+    for (auto &op : pat.recv_ops)
+    {
+        op.buffer_offset = recv_size;
+        recv_size += op.ncomp;
+    }
+
+    pat.send_buffer.resize(send_size);
+    pat.recv_buffer.resize(recv_size);
+}
+
+void Halo::execute_owner_sync_local_ops_(const OwnerSyncPattern &pat)
+{
+    for (const auto &op : pat.local_ops)
+    {
+        FieldBlock &owner_block = fld_->field(op.fid, op.owner_block);
+        FieldBlock &alias_block = fld_->field(op.fid, op.alias_block);
+
+        if (!owner_block.is_allocated() || !alias_block.is_allocated())
+            continue;
+
+        for (int m = 0; m < op.ncomp; ++m)
+        {
+            alias_block(op.alias_i, op.alias_j, op.alias_k, m) =
+                static_cast<double>(op.sign) *
+                owner_block(op.owner_i, op.owner_j, op.owner_k, m);
+        }
+    }
+}
+
+void Halo::pack_owner_sync_send_buffer_(OwnerSyncPattern &pat)
+{
+    for (const auto &op : pat.send_ops)
+    {
+        FieldBlock &owner_block = fld_->field(op.fid, op.owner_block);
+
+        if (!owner_block.is_allocated())
+            ERROR::Abort("[Halo] owner sync send op references inactive owner field: " + pat.field_name);
+
+        for (int m = 0; m < op.ncomp; ++m)
+        {
+            pat.send_buffer[op.buffer_offset + m] =
+                static_cast<double>(op.sign_for_alias) *
+                owner_block(op.owner_i, op.owner_j, op.owner_k, m);
+        }
+    }
+}
+
+void Halo::unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat)
+{
+    for (const auto &op : pat.recv_ops)
+    {
+        FieldBlock &alias_block = fld_->field(op.fid, op.alias_block);
+
+        if (!alias_block.is_allocated())
+            continue;
+
+        for (int m = 0; m < op.ncomp; ++m)
+        {
+            alias_block(op.alias_i, op.alias_j, op.alias_k, m) =
+                pat.recv_buffer[op.buffer_offset + m];
+        }
+    }
+}
+
+void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
+{
+    if (pat.send_ops.empty() && pat.recv_ops.empty())
+        return;
+
+    // First implementation uses one MPI message per owner-alias op. Future
+    // optimization can aggregate ops by rank/tag group into compact batches.
+    pack_owner_sync_send_buffer_(pat);
+
+    std::vector<MPI_Request> recv_requests(pat.recv_ops.size());
+    std::vector<MPI_Request> send_requests(pat.send_ops.size());
+    std::vector<MPI_Status> recv_statuses(pat.recv_ops.size());
+    std::vector<MPI_Status> send_statuses(pat.send_ops.size());
+
+    for (std::size_t i = 0; i < pat.recv_ops.size(); ++i)
+    {
+        const OwnerSyncRecvOp &op = pat.recv_ops[i];
+        PARALLEL::mpi_data_recv(op.src_rank,
+                                op.tag,
+                                pat.recv_buffer.data() + op.buffer_offset,
+                                op.ncomp,
+                                &recv_requests[i]);
+    }
+
+    for (std::size_t i = 0; i < pat.send_ops.size(); ++i)
+    {
+        const OwnerSyncSendOp &op = pat.send_ops[i];
+        PARALLEL::mpi_data_send(op.dst_rank,
+                                op.tag,
+                                pat.send_buffer.data() + op.buffer_offset,
+                                op.ncomp,
+                                &send_requests[i]);
+    }
+
+    int nrecv = static_cast<int>(recv_requests.size());
+    int nsend = static_cast<int>(send_requests.size());
+    if (nrecv > 0)
+        PARALLEL::mpi_wait(nrecv, recv_requests.data(), recv_statuses.data());
+    if (nsend > 0)
+        PARALLEL::mpi_wait(nsend, send_requests.data(), send_statuses.data());
+
+    unpack_owner_sync_recv_buffer_(pat);
 }
 
 void Halo::sync_registered()

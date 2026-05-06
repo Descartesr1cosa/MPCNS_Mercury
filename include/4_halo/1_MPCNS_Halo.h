@@ -210,6 +210,77 @@ private:
         bool orientation_aware = false;
     };
 
+    struct OwnerSyncLocalOp
+    {
+        int fid = -1;
+
+        int owner_block = -1;
+        int owner_i = 0;
+        int owner_j = 0;
+        int owner_k = 0;
+
+        int alias_block = -1;
+        int alias_i = 0;
+        int alias_j = 0;
+        int alias_k = 0;
+
+        int ncomp = 1;
+        int sign = +1;
+    };
+
+    struct OwnerSyncSendOp
+    {
+        int fid = -1;
+
+        int owner_block = -1;
+        int owner_i = 0;
+        int owner_j = 0;
+        int owner_k = 0;
+
+        int ncomp = 1;
+        int sign_for_alias = +1;
+
+        int dst_rank = -1;
+        int tag = -1;
+        int buffer_offset = 0;
+    };
+
+    struct OwnerSyncRecvOp
+    {
+        int fid = -1;
+
+        int alias_block = -1;
+        int alias_i = 0;
+        int alias_j = 0;
+        int alias_k = 0;
+
+        int ncomp = 1;
+
+        int src_rank = -1;
+        int tag = -1;
+        int buffer_offset = 0;
+    };
+
+    struct OwnerSyncPattern
+    {
+        std::string field_name;
+        std::string sync_group;
+
+        OwnerSyncPolicy policy = OwnerSyncPolicy::None;
+
+        FieldValueKind value_kind = FieldValueKind::Scalar;
+        StaggerLocation location = StaggerLocation::Cell;
+
+        bool orientation_aware = false;
+
+        std::vector<OwnerSyncLocalOp> local_ops;
+        std::vector<OwnerSyncSendOp> send_ops;
+        std::vector<OwnerSyncRecvOp> recv_ops;
+
+        std::vector<double> send_buffer;
+        std::vector<double> recv_buffer;
+    };
+
     // 同一个 field_name 多次注册时取更高等级（FaceOnly < Edge < Vertex）
     std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
 
@@ -221,6 +292,10 @@ private:
     std::vector<HaloOwnerRequest> owner_sync_requests_;
 
     std::unordered_map<std::string, std::string> field_to_group_;
+
+    std::unordered_map<std::string, OwnerSyncPattern> owner_sync_patterns_;
+
+    int owner_sync_tag_base_ = 700000;
 
     HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
 
@@ -271,6 +346,24 @@ private:
                                     const TOPO::EquivMember &owner,
                                     const TOPO::EquivMember &alias,
                                     int sign);
+
+    void build_owner_sync_patterns_();
+
+    OwnerSyncPattern build_owner_sync_pattern_for_request_(const HaloOwnerRequest &req) const;
+
+    int owner_sync_tag_(const HaloOwnerRequest &req,
+                        int class_gid,
+                        int alias_rank) const;
+
+    void resize_owner_sync_buffers_(OwnerSyncPattern &pat) const;
+
+    void execute_owner_sync_local_ops_(const OwnerSyncPattern &pat);
+
+    void pack_owner_sync_send_buffer_(OwnerSyncPattern &pat);
+
+    void unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat);
+
+    void execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat);
 
     bool halo_level_includes_edge_(HaloLevel level) const;
 
