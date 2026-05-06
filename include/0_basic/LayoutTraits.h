@@ -32,6 +32,18 @@ namespace LAYOUT
     // EdgeZe : {0,0,1}
     Int3 dof_delta(StaggerLocation loc);
 
+    const char *location_name(StaggerLocation loc);
+
+    bool is_cell_location(StaggerLocation loc);
+    bool is_node_location(StaggerLocation loc);
+    bool is_face_location(StaggerLocation loc);
+    bool is_edge_location(StaggerLocation loc);
+
+    int face_axis(StaggerLocation loc);
+    int edge_axis(StaggerLocation loc);
+
+    int codim(StaggerLocation loc);
+
     // owned DOF box，不含 ghost
     Box3 owned_box_from_cells(const Int3 &ncells,
                               StaggerLocation loc);
@@ -137,6 +149,9 @@ namespace LAYOUT
 
     void assert_valid_box(const Box3 &b,
                           const char *where);
+
+    void assert_nonempty_box(const Box3 &b,
+                             const char *where);
 
     void assert_box_inside(const Box3 &inner,
                            const Box3 &outer,

@@ -45,6 +45,17 @@ namespace TOPO
         Box3 this_box_node; // 本块 interface 上的 node 区域
         Box3 nb_box_node;   // 对方块对应区域（Inner 可填，Parallel 暂时可留空或等于 this_box）
 
+        // 本块接口面的方向，约定：
+        //   -1 XMinus, +1 XPlus
+        //   -2 YMinus, +2 YPlus
+        //   -3 ZMinus, +3 ZPlus
+        int direction = 0;
+
+        // 邻居块对应接口面的方向，同样使用 ±1/±2/±3。
+        // 对 Inner/Parallel 都应该填。
+        // 对将来 coupling / validation 很有用。
+        int nb_direction = 0;
+
         // 从本块 (i,j,k) 到邻居块 (i',j',k') 的映射
         IndexTransform trans;
 

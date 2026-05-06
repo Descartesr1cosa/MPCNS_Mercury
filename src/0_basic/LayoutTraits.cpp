@@ -1,5 +1,6 @@
 #include "0_basic/LayoutTraits.h"
 
+#include "0_basic/BoxOps.h"
 #include "0_basic/Error.h"
 
 namespace
@@ -179,6 +180,99 @@ namespace LAYOUT
         default:
             ERROR::Abort("LAYOUT::dof_delta: unsupported StaggerLocation");
         }
+    }
+
+    const char *location_name(StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::Cell:
+            return "Cell";
+        case StaggerLocation::Node:
+            return "Node";
+        case StaggerLocation::FaceXi:
+            return "FaceXi";
+        case StaggerLocation::FaceEt:
+            return "FaceEt";
+        case StaggerLocation::FaceZe:
+            return "FaceZe";
+        case StaggerLocation::EdgeXi:
+            return "EdgeXi";
+        case StaggerLocation::EdgeEt:
+            return "EdgeEt";
+        case StaggerLocation::EdgeZe:
+            return "EdgeZe";
+        default:
+            return "Unknown";
+        }
+    }
+
+    bool is_cell_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::Cell;
+    }
+
+    bool is_node_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::Node;
+    }
+
+    bool is_face_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::FaceXi ||
+               loc == StaggerLocation::FaceEt ||
+               loc == StaggerLocation::FaceZe;
+    }
+
+    bool is_edge_location(StaggerLocation loc)
+    {
+        return loc == StaggerLocation::EdgeXi ||
+               loc == StaggerLocation::EdgeEt ||
+               loc == StaggerLocation::EdgeZe;
+    }
+
+    int face_axis(StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::FaceXi:
+            return 0;
+        case StaggerLocation::FaceEt:
+            return 1;
+        case StaggerLocation::FaceZe:
+            return 2;
+        default:
+            ERROR::Abort("LAYOUT::face_axis: location is not a face");
+        }
+    }
+
+    int edge_axis(StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::EdgeXi:
+            return 0;
+        case StaggerLocation::EdgeEt:
+            return 1;
+        case StaggerLocation::EdgeZe:
+            return 2;
+        default:
+            ERROR::Abort("LAYOUT::edge_axis: location is not an edge");
+        }
+    }
+
+    int codim(StaggerLocation loc)
+    {
+        if (is_cell_location(loc))
+            return 0;
+        if (is_face_location(loc))
+            return 1;
+        if (is_edge_location(loc))
+            return 2;
+        if (is_node_location(loc))
+            return 3;
+
+        ERROR::Abort("LAYOUT::codim: unsupported StaggerLocation");
     }
 
     Box3 owned_box_from_cells(const Int3 &ncells, StaggerLocation loc)
@@ -428,6 +522,11 @@ namespace LAYOUT
         {
             ERROR::Abort(where ? where : "LAYOUT::assert_valid_box");
         }
+    }
+
+    void assert_nonempty_box(const Box3 &b, const char *where)
+    {
+        BOX::assert_nonempty(b, where ? where : "LAYOUT::assert_nonempty_box");
     }
 
     void assert_box_inside(const Box3 &inner, const Box3 &outer, const char *where)

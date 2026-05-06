@@ -158,6 +158,11 @@ void BoundaryCore::ApplyPhysical(const std::string &field_name)
     {
         FieldBlock &U = fld_->field(fid, cached.this_block);
 
+        // 多物理场情况下，某些 field 在某些 block 上可能 inactive。
+        // 物理边界不能对未分配 FieldBlock 调 handler。
+        if (!U.is_allocated())
+            continue;
+
         // 运行时仅 O(1)：inner_slab -> ghost_slab
         BOUND::PhysicalRegion work = cached;
         work.box = MakeGhostSlabFromInner(cached.inner_slab, cached.direction, nghost);

@@ -5,47 +5,47 @@
 #include <stdexcept>
 namespace TOPO
 {
-    // 推断一个 face patch 的 direction：±1/±2/±3
-    // 依据：this_box_node 在某一维厚度为 1，且贴在该维的 0 或 max（max=imax/jmax/kmax）
-    static int infer_face_direction_from_node_box(const Block &blk,
-                                                  const Box3 &b,
-                                                  int dimension)
-    {
-        auto extent_i = b.hi.i - b.lo.i;
-        auto extent_j = b.hi.j - b.lo.j;
-        auto extent_k = b.hi.k - b.lo.k;
+    // // 推断一个 face patch 的 direction：±1/±2/±3
+    // // 依据：this_box_node 在某一维厚度为 1，且贴在该维的 0 或 max（max=imax/jmax/kmax）
+    // static int infer_face_direction_from_node_box(const Block &blk,
+    //                                               const Box3 &b,
+    //                                               int dimension)
+    // {
+    //     auto extent_i = b.hi.i - b.lo.i;
+    //     auto extent_j = b.hi.j - b.lo.j;
+    //     auto extent_k = b.hi.k - b.lo.k;
 
-        // 只在 active 维度里找法向：2D 只考虑 i/j；3D 考虑 i/j/k
-        if (dimension >= 1 && extent_i == 1)
-        {
-            if (b.lo.i == 0)
-                return -1;
-            if (b.lo.i == blk.mx)
-                return +1;
-        }
-        if (dimension >= 2 && extent_j == 1)
-        {
-            if (b.lo.j == 0)
-                return -2;
-            if (b.lo.j == blk.my)
-                return +2;
-        }
-        if (dimension >= 3 && extent_k == 1)
-        {
-            if (b.lo.k == 0)
-                return -3;
-            if (b.lo.k == blk.mz)
-                return +3;
-        }
+    //     // 只在 active 维度里找法向：2D 只考虑 i/j；3D 考虑 i/j/k
+    //     if (dimension >= 1 && extent_i == 1)
+    //     {
+    //         if (b.lo.i == 0)
+    //             return -1;
+    //         if (b.lo.i == blk.mx)
+    //             return +1;
+    //     }
+    //     if (dimension >= 2 && extent_j == 1)
+    //     {
+    //         if (b.lo.j == 0)
+    //             return -2;
+    //         if (b.lo.j == blk.my)
+    //             return +2;
+    //     }
+    //     if (dimension >= 3 && extent_k == 1)
+    //     {
+    //         if (b.lo.k == 0)
+    //             return -3;
+    //         if (b.lo.k == blk.mz)
+    //             return +3;
+    //     }
 
-        std::ostringstream oss;
-        oss << "[append_coupling_faces_as_physical_patches] cannot infer direction. "
-            << "dim=" << dimension
-            << " box=[(" << b.lo.i << "," << b.lo.j << "," << b.lo.k << ")->("
-            << b.hi.i << "," << b.hi.j << "," << b.hi.k << ")] "
-            << "blk(max)=(" << blk.imax << "," << blk.jmax << "," << blk.kmax << ")";
-        ERROR::Abort(oss.str());
-    }
+    //     std::ostringstream oss;
+    //     oss << "[append_coupling_faces_as_physical_patches] cannot infer direction. "
+    //         << "dim=" << dimension
+    //         << " box=[(" << b.lo.i << "," << b.lo.j << "," << b.lo.k << ")->("
+    //         << b.hi.i << "," << b.hi.j << "," << b.hi.k << ")] "
+    //         << "blk(max)=(" << blk.imax << "," << blk.jmax << "," << blk.kmax << ")";
+    //     ERROR::Abort(oss.str());
+    // }
 
     // 生成一个去重 key：block + dir + bc_name + box
     static std::string make_physical_key(const PhysicalPatch &p)
@@ -91,7 +91,10 @@ namespace TOPO
             p.bc_name = prefix + iface.nb_block_name;
 
             p.this_box_node = iface.this_box_node;
-            p.direction = infer_face_direction_from_node_box(blk, p.this_box_node, dimension);
+            p.direction = iface.direction;
+
+            if (p.direction == 0)
+                ERROR::Abort("[append_coupling_faces_as_physical_patches] iface.direction is zero");
 
             p.raw = nullptr; // 不修改 PhysicalPatch 类型：Coupled-* 没有对应 Physical_Boundary*
 

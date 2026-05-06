@@ -100,6 +100,9 @@ namespace TOPO
                 node_box_from_subsup(inner.sub, inner.sup, interface.this_box_node);
                 node_box_from_subsup(inner.tar_sub, inner.tar_sup, interface.nb_box_node);
 
+                interface.direction = inner.direction;
+                interface.nb_direction = inner.tar_direction;
+
                 //=======================================================================
                 // 获取IndexTransform
                 //-------------------------------------------------------------
@@ -324,6 +327,8 @@ namespace TOPO
                 node_box_from_subsup(para.sub, para.sup, interface.this_box_node);
                 node_box_from_subsup(tar_para.sub, tar_para.sup, interface.nb_box_node);
 
+                interface.direction = para.direction;
+                interface.nb_direction = tar_para.direction;
                 //=======================================================================
                 // 获取IndexTransform
                 //-------------------------------------------------------------

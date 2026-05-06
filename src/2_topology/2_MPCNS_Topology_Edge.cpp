@@ -1,6 +1,11 @@
 #include "2_topology/2_MPCNS_Topology.h"
+#include "0_basic/BoxOps.h"
+#include "0_basic/Direction.h"
+#include "0_basic/Error.h"
+
 #include <map>
 #include <algorithm>
+#include <iostream>
 
 namespace TOPO
 {
@@ -46,36 +51,6 @@ namespace TOPO
         // 工具函数
         // ============================
 
-        // Box 交集
-        auto intersect_box = [](const Box3 &a, const Box3 &b) -> Box3
-        {
-            Box3 c;
-            c.lo.i = std::max(a.lo.i, b.lo.i);
-            c.lo.j = std::max(a.lo.j, b.lo.j);
-            c.lo.k = std::max(a.lo.k, b.lo.k);
-            c.hi.i = std::min(a.hi.i, b.hi.i);
-            c.hi.j = std::min(a.hi.j, b.hi.j);
-            c.hi.k = std::min(a.hi.k, b.hi.k);
-            return c;
-        };
-
-        auto empty_box = [](const Box3 &b) -> bool
-        {
-            return (b.hi.i <= b.lo.i) || (b.hi.j <= b.lo.j) || (b.hi.k <= b.lo.k);
-        };
-
-        // |dir_code| = 1 -> X, 2 -> Y, 3 -> Z
-        auto axis_of = [](int dir_code) -> int
-        {
-            return std::abs(dir_code);
-        };
-
-        // 两个方向是否是不同轴（X vs Y, Y vs Z, Z vs X）
-        auto perpendicular_dir = [&](int d1, int d2) -> bool
-        {
-            return axis_of(d1) != axis_of(d2);
-        };
-
         // 按优先级 Inner > Parallel > Physical
         auto kind_priority = [](PatchKind k) -> int
         {
@@ -94,55 +69,6 @@ namespace TOPO
             // non_cpl: 1(非耦合) > 0(耦合)
             int non_cpl = is_coupling ? 0 : 1;
             return non_cpl * 10 + kind_priority(k); // 10 只要大于 kind_priority 最大值即可
-        };
-
-        // 从本块的 node 范围 + face 的 node_box 推断面是 X±/Y±/Z±
-        // 你需要根据 Block 的实际成员把这里 TODO 改完
-        auto detect_dir_code_from_node_box =
-            [&](const Box3 &face_node_box, const Block &blk) -> int
-        {
-            // ===== 根据你自己的 Block / Grid接口改这里 =====
-            // 假设 Block 里有 node_box 或者 node_sub/node_sup 之类：
-            //   Box3 nb = blk.node_box;
-            // 下面只是示意：
-
-            Box3 nb;
-            nb.lo.i = 0;
-            nb.lo.j = 0;
-            nb.lo.k = 0;
-            nb.hi.i = blk.mx + 1; // node
-            nb.hi.j = blk.my + 1; // node
-            nb.hi.k = blk.mz + 1; // node
-
-            // X-
-            if (face_node_box.lo.i == nb.lo.i &&
-                face_node_box.hi.i == nb.lo.i + 1)
-                return -1;
-            // X+
-            if (face_node_box.hi.i == nb.hi.i &&
-                face_node_box.lo.i == nb.hi.i - 1)
-                return +1;
-
-            // Y-
-            if (face_node_box.lo.j == nb.lo.j &&
-                face_node_box.hi.j == nb.lo.j + 1)
-                return -2;
-            // Y+
-            if (face_node_box.hi.j == nb.hi.j &&
-                face_node_box.lo.j == nb.hi.j - 1)
-                return +2;
-
-            // Z-
-            if (face_node_box.lo.k == nb.lo.k &&
-                face_node_box.hi.k == nb.lo.k + 1)
-                return -3;
-            // Z+
-            if (face_node_box.hi.k == nb.hi.k &&
-                face_node_box.lo.k == nb.hi.k - 1)
-                return +3;
-
-            // 如果没贴在边界，说明不是纯面 patch，按需要可以 assert 或返回 0
-            return 0;
         };
 
         // 把 node_edge 按 IndexTransform 映射到 nb_block 的 node 空间
@@ -172,6 +98,11 @@ namespace TOPO
             out.hi.j = std::max(p_lo.j, p_hi.j) + 1; // 恢复开区间
             out.hi.k = std::max(p_lo.k, p_hi.k) + 1; // 恢复开区间
             return out;
+        };
+
+        auto perpendicular_dir = [](int d1, int d2) -> bool
+        {
+            return DIR::distinct_axes(d1, d2);
         };
 
         //==============================
@@ -206,7 +137,12 @@ namespace TOPO
                 // ============================================
 
                 const Block &blk = grid.grids(f.this_block); // TODO: 按你 Grid 改
-                f.dir_code = detect_dir_code_from_node_box(f.this_box_node, blk);
+                f.dir_code = p.direction;
+
+                if (!DIR::is_valid(f.dir_code))
+                {
+                    ERROR::Abort("[build_edge_patches] InterfacePatch has invalid direction");
+                }
 
                 faces_of_block[f.this_block].push_back(f);
             }
@@ -240,6 +176,9 @@ namespace TOPO
                 f.is_coupling = false; // 物理边界不是“跨物理耦合面”
                 // 假设 PhysicalPatch 里有 int direction 字段（±1/±2/±3）
                 f.dir_code = p.direction;
+
+                if (!DIR::is_valid(f.dir_code))
+                    ERROR::Abort("[build_edge_patches] PhysicalPatch has invalid direction");
                 // ============================================
 
                 faces_of_block[f.this_block].push_back(f);
@@ -272,8 +211,8 @@ namespace TOPO
                         continue;
 
                     // 在本块 node 空间里的交集，就是这一条棱的 node strip
-                    Box3 node_edge = intersect_box(f1.this_box_node, f2.this_box_node);
-                    if (empty_box(node_edge))
+                    Box3 node_edge = BOX::intersect(f1.this_box_node, f2.this_box_node);
+                    if (BOX::empty(node_edge))
                         continue;
 
                     //==============================
@@ -353,23 +292,6 @@ namespace TOPO
         // 工具函数
         // ============================
 
-        auto intersect_box = [](const Box3 &a, const Box3 &b) -> Box3
-        {
-            Box3 c;
-            c.lo.i = std::max(a.lo.i, b.lo.i);
-            c.lo.j = std::max(a.lo.j, b.lo.j);
-            c.lo.k = std::max(a.lo.k, b.lo.k);
-            c.hi.i = std::min(a.hi.i, b.hi.i);
-            c.hi.j = std::min(a.hi.j, b.hi.j);
-            c.hi.k = std::min(a.hi.k, b.hi.k);
-            return c;
-        };
-
-        auto empty_box = [](const Box3 &b) -> bool
-        {
-            return (b.hi.i <= b.lo.i) || (b.hi.j <= b.lo.j) || (b.hi.k <= b.lo.k);
-        };
-
         auto kind_priority = [](PatchKind k) -> int
         {
             if (k == PatchKind::Inner)
@@ -418,18 +340,23 @@ namespace TOPO
         // edge 自身是沿哪一个轴（1=X, 2=Y, 3=Z）
         auto edge_axis = [](const EdgePatch &e) -> int
         {
-            bool has_x = (std::abs(e.dir1) == 1) || (std::abs(e.dir2) == 1);
-            bool has_y = (std::abs(e.dir1) == 2) || (std::abs(e.dir2) == 2);
-            bool has_z = (std::abs(e.dir1) == 3) || (std::abs(e.dir2) == 3);
+            if (!DIR::is_valid(e.dir1) || !DIR::is_valid(e.dir2))
+                ERROR::Abort("[build_vertex_patches] invalid edge direction");
 
-            // 哪个轴没参与，这条 edge 就沿哪个轴
-            if (!has_x)
+            bool has_axis[4] = {false, false, false, false};
+
+            has_axis[DIR::axis1(e.dir1)] = true;
+            has_axis[DIR::axis1(e.dir2)] = true;
+
+            if (!has_axis[1])
                 return 1;
-            if (!has_y)
+            if (!has_axis[2])
                 return 2;
-            if (!has_z)
+            if (!has_axis[3])
                 return 3;
-            return 0; // 理论上不会出现
+
+            ERROR::Abort("[build_vertex_patches] cannot infer edge axis");
+            return 0;
         };
 
         //==============================
@@ -477,8 +404,8 @@ namespace TOPO
                         continue;
 
                     // 在本块 node 空间里的交集
-                    Box3 node_vert = intersect_box(e1.this_box_node, e2.this_box_node);
-                    if (empty_box(node_vert))
+                    Box3 node_vert = BOX::intersect(e1.this_box_node, e2.this_box_node);
+                    if (BOX::empty(node_vert))
                         continue;
 
                     int len_i = node_vert.hi.i - node_vert.lo.i;
@@ -519,8 +446,8 @@ namespace TOPO
                         if (&ek == &e1 || &ek == &e2)
                             continue;
 
-                        Box3 inter3 = intersect_box(ek.this_box_node, node_vert);
-                        if (!empty_box(inter3))
+                        Box3 inter3 = BOX::intersect(ek.this_box_node, node_vert);
+                        if (!BOX::empty(inter3))
                             candidates.push_back(&ek);
                     }
 
@@ -572,10 +499,11 @@ namespace TOPO
 
                     auto try_add_dir = [&](int dir)
                     {
-                        int ax = std::abs(dir);
-                        if (ax < 1 || ax > 3)
+                        if (!DIR::is_valid(dir))
                             return;
-                        // 当前 block 的这个顶点，在同一轴上应该只有一个方向（X- 或 X+）
+
+                        const int ax = DIR::axis1(dir);
+
                         if (dir_by_axis[ax] == 0)
                             dir_by_axis[ax] = dir;
                     };
