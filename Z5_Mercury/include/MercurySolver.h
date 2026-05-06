@@ -1,13 +1,15 @@
 #pragma once
 
+#include "00_Mercury_Const.h"
 #include "5_io/IOModule.h"
 
 #include "1_Boundary.h"
 #include "0_SolverFields.h"
 #include "2_Initial.h"
 #include "3_Control.h"
+#include "4_Hall_Implicit_Type.h"
 
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
 #include "4_Hall_Implicit.h"
 #endif
 
@@ -47,12 +49,16 @@ class MercurySolver
 {
 public:
     MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
                   ,
                   TOPO::TopologyEquiv *topo_equiv,
                   HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat
 #endif
     );
+
+    static void RegisterFields(Field *fld, int ngg);
+    static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
+    static void RegisterHaloFields(Halo *halo);
 
     void Advance();
 
@@ -64,7 +70,7 @@ private:
     Halo *halo_{nullptr};
     Param *par_{nullptr};
 
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
     TOPO::TopologyEquiv *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
     ImplicitHallSolver hall_implicit_;
@@ -116,10 +122,10 @@ private:
     double inver_MA2{0.0};
     double inver_Rem{0.0};
 
-#ifdef HALL_IMPLICIT
-
     std::vector<HallFaceScratchBlock_> hall_face_scratch_;
     void SetupHallFaceScratch_();
+
+#if HALL_IMPLICIT == 1
 
     void FillFrozenBflatFromCurrentBcell_()
     {

@@ -4,6 +4,7 @@
 #include <array>
 
 // Core
+#include "00_Mercury_Const.h"
 #include "3_field/2_MPCNS_Field.h"
 #include "4_halo/Halo_EdgeOwner_Type.h"
 
@@ -261,5 +262,10 @@ struct SolverFields
 
         // require_id(fid_RHS_U, "RHS");
         // fid_RHS_Bface.require_all("RHS_B_face(RHS_xi/eta/zeta)");
+        fid_dJ.require_all("dJ_xi/dJ_eta/dJ_zeta");
+        fid_dB.require_all("dB_xi/dB_eta/dB_zeta");
+        fid_dE.require_all("dE_xi/dE_eta/dE_zeta");
+        fid_dEpre.require_all("dEpre_xi/dEpre_eta/dEpre_zeta");
+        require_id(fid_dJcell, "dJ_cell");
     }
 };

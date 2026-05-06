@@ -55,6 +55,9 @@ void MercurySolver::AddHallEdgeEMF_()
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
 {
+    if (static_cast<int>(hall_face_scratch_.size()) != fld_->num_blocks())
+        SetupHallFaceScratch_();
+
     constexpr double eps = 1e-14;
     const double Cwh = 0.1; // 先沿用你原来的 whistler-LLF 系数
 
@@ -512,6 +515,9 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_()
 {
+    if (static_cast<int>(hall_face_scratch_.size()) != fld_->num_blocks())
+        SetupHallFaceScratch_();
+
     constexpr double eps = 1e-14;
     const double Cwh = 0.5;
     const double hall_coef_abs = std::abs(hall_coef);

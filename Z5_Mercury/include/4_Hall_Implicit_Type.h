@@ -1,10 +1,8 @@
 #pragma once
 
-#include "00_Mercury_Const.h"
 #include "3_field/Field_Array.h"
 #include "0_basic/TYPES.h"
 
-#ifdef HALL_IMPLICIT
 struct HallFaceScratchBlock_ // For Rusanov Scheme
 {
     Int3 clo{}, chi{};
@@ -36,4 +34,3 @@ struct HallFaceScratchBlock_ // For Rusanov Scheme
     Vector dr_eta;  // edge direction vector on eta-edges, vec_length = 3
     Vector dr_zeta; // edge direction vector on zeta-edges, vec_length = 3
 };
-#endif

@@ -2,7 +2,7 @@
 
 #include "00_Mercury_Const.h"
 
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
 
 #include <functional>
 #include <vector>

@@ -1,5 +1,5 @@
 #include "4_Hall_Implicit.h"
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
 
 void ImplicitHallSolver::ClearEdgeTriplet_(const IdTriplet &fid_triplet)
 {

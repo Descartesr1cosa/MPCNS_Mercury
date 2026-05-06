@@ -9,7 +9,7 @@
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
                              ,
                              TOPO::TopologyEquiv *topo_equiv,
                              HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat
@@ -20,7 +20,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
       fld_(fld),
       halo_(halo),
       par_(par)
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
       ,
       topo_equiv_(topo_equiv),
       edge_owner_pat_(edge_owner_pat)
@@ -116,7 +116,8 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
             "dJ_cell",
             "dEpre_xi",
             "dEpre_eta",
-            "dEpre_zeta"};
+            "dEpre_zeta",
+        };
 
         // 1) 初始化 Mercury Boundary
         mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields);
@@ -158,7 +159,9 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     runtime_data_->Begin(*run_data_, par_, count_global_cells());
 
-#ifdef HALL_IMPLICIT
+    SetupHallFaceScratch_();
+
+#if HALL_IMPLICIT == 1
     if (!topo_equiv_ || !edge_owner_pat_)
         throw std::runtime_error("MercurySolver: hall implicit topology/pattern is null.");
 
@@ -224,11 +227,9 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     hall_implicit_.SetTheta(1.0); // BE //midpoint
     hall_implicit_.InitializePetsc();
 
-    SetupHallFaceScratch_(); // setup temp block data for Rusanov Scheme
 #endif
 }
 
-#ifdef HALL_IMPLICIT
 void MercurySolver::SetupHallFaceScratch_()
 {
     const int nb = fld_->num_blocks();
@@ -2104,4 +2105,3 @@ void MercurySolver::SetupHallFaceScratch_()
         }
     }
 }
-#endif

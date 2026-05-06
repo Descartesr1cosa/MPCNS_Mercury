@@ -42,12 +42,13 @@ aux_source_directory(./src/physics  SRC_PHY)
 # aux_source_directory(./src/4_solver  SRC3)
 aux_source_directory(./src/tools  SRC_TOOL)
 aux_source_directory(./src/implicit  SRC_IMP)
+set(SRC_SETUP ./src/MercurySolver_Setup.cpp)
 
 # build the executable program
 add_executable(Mercury main.cpp 
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4} ${DIRSRCS5} ${DIRSRCS6} ${SRC}
- ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
+ ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP} ${SRC_SETUP})
 #  ${SRC0} ${SRC1} ${SRC2} ${SRC3} ${SRC4} ${SRC5} ${SRC6})
 
 # add the mpi linkings

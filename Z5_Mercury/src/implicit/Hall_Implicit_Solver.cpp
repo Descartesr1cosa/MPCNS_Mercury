@@ -1,6 +1,6 @@
 #include "4_Hall_Implicit.h"
 
-#ifdef HALL_IMPLICIT
+#if HALL_IMPLICIT == 1
 
 #include <cmath>
 #include <cstdio>

@@ -1744,6 +1744,7 @@ void MercurySolver::Debug_TestJOperator_Manufactured(int test_id)
 
     auto diagnose_Jcell_weights = [&](const std::string &mode_label)
     {
+#if HALL_IMPLICIT == 1
         double maxWx_all = -1.0, maxWy_all = -1.0, maxWz_all = -1.0;
         double maxWx_safe = -1.0, maxWy_safe = -1.0, maxWz_safe = -1.0;
 
@@ -1850,6 +1851,9 @@ void MercurySolver::Debug_TestJOperator_Manufactured(int test_id)
             << " block=" << iby_safe << " idx=(" << iy_safe << "," << jy_safe << "," << ky_safe << ")\n";
         out << "  SAFE max sum|W_Jz| = " << maxWz_safe
             << " block=" << ibz_safe << " idx=(" << iz_safe << "," << jz_safe << "," << kz_safe << ")\n";
+#else
+        out << "\n[JTEST][" << mode_label << "] dJcell_w conditioning skipped: HALL_IMPLICIT=0\n";
+#endif
     };
 
     auto run_one_test = [&](int tid)
