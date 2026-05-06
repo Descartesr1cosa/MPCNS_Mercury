@@ -201,18 +201,11 @@ private:
     void calc_Jcell_from_Bcell_metric_();
     //=========================================================================
 
-    //=========================================================================
-    bool StepOnce();
-    //---------------------------------------------------------------
     void Compute_Timestep();
     bool UpdateControlAndOutput();
-    //=========================================================================
 
     //=========================================================================
-    void Time_Advance();
-    //---------------------------------------------------------------
     void ZeroRHS_();
-    void AssembleRHS_Fluid_();
     void AssembleRHS_Induction_CT_();
     void ApplyUpdate_Euler_();
     //---------------------------------------------------------------
@@ -221,7 +214,6 @@ private:
     void AddSourceToRHS_Fluid();
     //---------------------------------------------------------------
     // For Magnetic
-    void Build_E_explicit_edge_();
     void AddResistiveEdgeEMF_();
     void AddPoleResistiveEdgeEMF_FromJcell_();
     void AddIdealEdgeEMF_();

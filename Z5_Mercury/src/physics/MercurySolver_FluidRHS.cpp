@@ -1,11 +1,5 @@
 #include "MercurySolver.h"
 
-void MercurySolver::AssembleRHS_Fluid_()
-{
-    Scheme_U_();
-    AddSourceToRHS_Fluid();
-}
-
 void MercurySolver::Scheme_U_()
 {
     auto calc_Jac_radius_GCL = [&](double &out,
