@@ -31,9 +31,14 @@ inline const char *owner_sync_policy_name(OwnerSyncPolicy p)
 struct FieldHaloRequest
 {
     std::string field_name;
-    StaggerLocation location;
+
+    // 用于把同一个几何对象的多个分量组成同步组。
+    // 普通 field 可以使用自己的 field_name 作为 group。
+    std::string sync_group;
+
+    StaggerLocation location = StaggerLocation::Cell;
     FieldValueKind value_kind = FieldValueKind::Scalar;
-    int ncomp = 0;
+    int ncomp = 1;
     int nghost = 0;
     HaloLevel level = HaloLevel::Vertex;
     OwnerSyncPolicy owner_sync = OwnerSyncPolicy::None;

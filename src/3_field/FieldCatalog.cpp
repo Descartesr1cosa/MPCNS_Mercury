@@ -104,6 +104,7 @@ std::vector<FieldHaloRequest> FieldCatalog::halo_requests() const
 
         FieldHaloRequest req;
         req.field_name = desc.name;
+        req.sync_group = desc.sync.group.empty() ? desc.name : desc.sync.group;
         req.location = desc.location;
         req.value_kind = desc.value_kind;
         req.ncomp = desc.ncomp;

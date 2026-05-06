@@ -8,7 +8,8 @@ namespace
 {
     bool same_halo_request_metadata(const FieldHaloRequest &a, const FieldHaloRequest &b)
     {
-        return a.location == b.location &&
+        return a.sync_group == b.sync_group &&
+               a.location == b.location &&
                a.value_kind == b.value_kind &&
                a.ncomp == b.ncomp &&
                a.nghost == b.nghost &&
@@ -19,24 +20,28 @@ namespace
 
 void Halo::register_halo_field(const FieldHaloRequest &request)
 {
+    FieldHaloRequest normalized = request;
+    if (normalized.sync_group.empty())
+        normalized.sync_group = normalized.field_name;
+
     // 防止拼错名字导致 silent 插入
-    if (!fld_->has_field(request.field_name))
-        ERROR::Abort("[Halo] register_halo_field: field_name not registered in Field: " + request.field_name);
+    if (!fld_->has_field(normalized.field_name))
+        ERROR::Abort("[Halo] register_halo_field: field_name not registered in Field: " + normalized.field_name);
 
     // 升级策略：同名多次注册取更高等级，其他 metadata 必须一致。
-    auto it = halo_registry_.find(request.field_name);
+    auto it = halo_registry_.find(normalized.field_name);
     if (it == halo_registry_.end())
     {
-        halo_registry_.emplace(request.field_name, request);
+        halo_registry_.emplace(normalized.field_name, normalized);
     }
     else
     {
         FieldHaloRequest &old = it->second;
-        if (!same_halo_request_metadata(old, request))
-            ERROR::Abort("[Halo] register_halo_field: duplicate field has inconsistent halo request metadata: " + request.field_name);
+        if (!same_halo_request_metadata(old, normalized))
+            ERROR::Abort("[Halo] register_halo_field: duplicate field has inconsistent halo request metadata: " + normalized.field_name);
 
         const int old_lv = static_cast<int>(old.level);
-        const int new_lv = static_cast<int>(request.level);
+        const int new_lv = static_cast<int>(normalized.level);
         old.level = static_cast<HaloLevel>(std::max(old_lv, new_lv));
     }
 }
@@ -47,6 +52,7 @@ void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
 
     FieldHaloRequest request;
     request.field_name = field_name;
+    request.sync_group = desc.sync.group.empty() ? field_name : desc.sync.group;
     request.location = desc.location;
     request.value_kind = desc.value_kind;
     request.ncomp = desc.ncomp;

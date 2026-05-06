@@ -258,6 +258,7 @@ inline std::vector<FieldHaloRequest> HaloRequests()
                 index_by_name[name] = requests.size();
                 FieldHaloRequest request;
                 request.field_name = name;
+                request.sync_group = name;
                 request.level = group.halo_level;
                 requests.push_back(request);
                 continue;

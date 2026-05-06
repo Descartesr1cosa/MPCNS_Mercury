@@ -3,6 +3,7 @@
 
 #include "0_basic/MPI_WRAPPER.h"
 #include "0_basic/BoxOps.h"
+#include "0_basic/Error.h"
 #include "1_grid/1_MPCNS_Grid.h"
 
 #include <sstream>
@@ -556,6 +557,106 @@ namespace TOPO
         }
     }
 
+    namespace
+    {
+        StaggerLocation edge_location_from_dir(int dir)
+        {
+            switch (dir)
+            {
+            case 1:
+                return StaggerLocation::EdgeXi;
+            case 2:
+                return StaggerLocation::EdgeEt;
+            case 3:
+                return StaggerLocation::EdgeZe;
+            default:
+                ERROR::Abort("TopologyEquiv: invalid edge dir");
+                return StaggerLocation::Cell;
+            }
+        }
+
+        EquivMember make_edge_member(const EdgeLocalID &e, int orient_sign, bool is_owner)
+        {
+            EquivMember m;
+            m.rank = e.rank;
+            m.block = e.gblock;
+            m.location = edge_location_from_dir(e.dir);
+            m.i = e.i;
+            m.j = e.j;
+            m.k = e.k;
+            m.orient_sign = orient_sign;
+            m.is_owner = is_owner;
+            return m;
+        }
+    }
+
+    const std::vector<EquivClass> &TopologyEquiv::classes(EquivDofKind kind) const
+    {
+        switch (kind)
+        {
+        case EquivDofKind::Node:
+            return node_classes;
+        case EquivDofKind::Edge:
+            return edge_classes_general;
+        case EquivDofKind::Face:
+            return face_classes;
+        }
+
+        ERROR::Abort("TopologyEquiv::classes: invalid EquivDofKind");
+        return node_classes;
+    }
+
+    void TopologyEquiv::mirror_legacy_edge_equiv_to_general()
+    {
+        edge_classes_general.clear();
+        edge_classes_general.reserve(edge_members.size());
+
+        for (const auto &[key, members] : edge_members)
+        {
+            EquivClass cls;
+            cls.kind = EquivDofKind::Edge;
+
+            auto owner_it = edge_owner.find(key);
+            const bool has_owner = (owner_it != edge_owner.end());
+            EdgeLocalID owner{};
+
+            if (has_owner)
+            {
+                owner = owner_it->second;
+                auto gid_it = edge_owner_gid.find(owner);
+                if (gid_it != edge_owner_gid.end())
+                    cls.global_id = gid_it->second;
+
+                int owner_sign = +1;
+                auto sign_it = edge2sign.find(owner);
+                if (sign_it != edge2sign.end())
+                    owner_sign = static_cast<int>(sign_it->second);
+
+                cls.owner = make_edge_member(owner, owner_sign, true);
+            }
+
+            cls.members.reserve(members.size());
+            for (const auto &e : members)
+            {
+                int orient_sign = +1;
+                auto sign_it = edge2sign.find(e);
+                if (sign_it != edge2sign.end())
+                    orient_sign = static_cast<int>(sign_it->second);
+
+                bool is_owner = false;
+                auto owner_flag_it = edge_is_owner.find(e);
+                if (owner_flag_it != edge_is_owner.end())
+                    is_owner = owner_flag_it->second;
+                else if (has_owner)
+                    is_owner = (e == owner);
+
+                cls.members.push_back(make_edge_member(e, orient_sign, is_owner));
+            }
+
+            edge_classes_general.push_back(cls);
+        }
+    }
+
     void build_topology_equiv(
         const Topology &topo,
         Grid &grid,
@@ -573,6 +674,43 @@ namespace TOPO
 
         select_edge_owner_parallel_impl(equiv);
         build_edge_owner_gid_impl(my_rank, equiv);
+        equiv.mirror_legacy_edge_equiv_to_general();
+    }
+
+    void build_node_equivalence(
+        const Topology &topo,
+        Grid &grid,
+        int my_rank,
+        int dimension,
+        TopologyEquiv &equiv)
+    {
+        (void)topo;
+        (void)grid;
+        (void)my_rank;
+        (void)dimension;
+        (void)equiv;
+        // TODO:
+        // Build node equivalence classes for node-based owner sync.
+        // This is reserved for Halo OwnerSyncPolicy::NodeOwner.
+        // Current behavior unchanged.
+    }
+
+    void build_face_equivalence(
+        const Topology &topo,
+        Grid &grid,
+        int my_rank,
+        int dimension,
+        TopologyEquiv &equiv)
+    {
+        (void)topo;
+        (void)grid;
+        (void)my_rank;
+        (void)dimension;
+        (void)equiv;
+        // TODO:
+        // Build face equivalence classes for face 2-form / face-owner sync.
+        // This is reserved for Halo OwnerSyncPolicy::FaceOwner.
+        // Current behavior unchanged.
     }
 
 } // namespace TOPO

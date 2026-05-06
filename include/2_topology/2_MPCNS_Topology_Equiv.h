@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "0_basic/StaggerLocation.h"
 #include "2_topology/TopologyTypes.h"
 
 class Grid;
@@ -133,6 +134,40 @@ namespace TOPO
     // equivalence-class containers
     // ============================================================
 
+    enum class EquivDofKind
+    {
+        Node,
+        Edge,
+        Face
+    };
+
+    struct EquivMember
+    {
+        int rank = 0;
+        int block = -1;
+
+        StaggerLocation location = StaggerLocation::Cell;
+
+        int i = 0;
+        int j = 0;
+        int k = 0;
+
+        // member 相对 canonical orientation 的符号。
+        int orient_sign = +1;
+
+        bool is_owner = false;
+    };
+
+    struct EquivClass
+    {
+        EquivDofKind kind = EquivDofKind::Node;
+
+        int global_id = -1;
+
+        EquivMember owner;
+        std::vector<EquivMember> members;
+    };
+
     struct TopologyEquiv
     {
         // local node -> canonical node equivalence id
@@ -162,6 +197,21 @@ namespace TOPO
         int edge_owner_gid_begin = 0;
         int edge_owner_gid_end = 0; // half-open: [begin, end)
 
+        std::vector<EquivClass> node_classes;
+        std::vector<EquivClass> edge_classes_general;
+        std::vector<EquivClass> face_classes;
+
+        bool has_node_equiv() const { return !node_classes.empty(); }
+        bool has_edge_equiv() const
+        {
+            return !edge_classes_general.empty() || !edge_owner.empty();
+        }
+        bool has_face_equiv() const { return !face_classes.empty(); }
+
+        const std::vector<EquivClass> &classes(EquivDofKind kind) const;
+
+        void mirror_legacy_edge_equiv_to_general();
+
         void clear()
         {
             node2eq.clear();
@@ -178,6 +228,10 @@ namespace TOPO
             n_global_edge_owner = 0;
             edge_owner_gid_begin = 0;
             edge_owner_gid_end = 0; // half-open: [begin, end)
+
+            node_classes.clear();
+            edge_classes_general.clear();
+            face_classes.clear();
         }
     };
 
@@ -215,6 +269,20 @@ namespace TOPO
     // ============================================================
 
     void build_topology_equiv(
+        const Topology &topo,
+        Grid &grid,
+        int my_rank,
+        int dimension,
+        TopologyEquiv &equiv);
+
+    void build_node_equivalence(
+        const Topology &topo,
+        Grid &grid,
+        int my_rank,
+        int dimension,
+        TopologyEquiv &equiv);
+
+    void build_face_equivalence(
         const Topology &topo,
         Grid &grid,
         int my_rank,
