@@ -1,7 +1,8 @@
 #pragma once
 #include "0_basic/TYPES.h"
+#include "0_basic/StaggerLocation.h"
 #include "2_topology/2_MPCNS_Topology.h"
-#include "3_field/Field_Type.h"
+#include <utility>
 #include <vector>
 
 struct HaloRegion

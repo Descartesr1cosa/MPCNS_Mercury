@@ -1,4 +1,6 @@
 #include "3_field/1_Field_Block.h"
+#include "0_basic/LayoutTraits.h"
+#include "1_grid/BlockTraits.h"
 
 void FieldBlock::allocate(const Block &blk, const FieldDescriptor &desc_in)
 {
@@ -50,83 +52,11 @@ void FieldBlock::bind_inactive(const Block &blk, const FieldDescriptor &desc_in)
 // 然后再在三方向都各加 desc.nghost 层 ghost。
 void FieldBlock::compute_extent(const Block &blk)
 {
-    auto block_node_size = [](const Block &blk) -> Int3
-    {
-        return {blk.mx, blk.my, blk.mz};
-    };
-    Int3 nc = block_node_size(blk); // {Ni, Nj, Nk}
-    const int Ni = nc.i;
-    const int Nj = nc.j;
-    const int Nk = nc.k;
+    const Box3 box = LAYOUT::allocated_box_from_cells(
+        GRID_TRAITS::cell_counts(blk),
+        desc.location,
+        desc.nghost);
 
-    const int g = desc.nghost;
-
-    switch (desc.location)
-    {
-    case StaggerLocation::Cell:
-        // cell-centered：内部 [0..Ni-1]，加 ghost 后：
-        // 逻辑 index i ∈ [-g .. Ni+g-1]，写成 [lo, hi) = [-g, Ni+g)
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + g, Nj + g, Nk + g};
-        break;
-
-    case StaggerLocation::Node:
-        // node: 内部 [0..Ni]，共 Ni+1 个点
-        // 逻辑 index i ∈ [-g .. Ni+g]，即 [lo, hi) = [-g, Ni+1+g)
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + 1 + g, Nj + 1 + g, Nk + 1 + g};
-        break;
-
-    case StaggerLocation::FaceXi:
-        // Xi-face：i 有 Ni+1 个，j,k 和 cell 一样
-        // i: [-g .. Ni+g], j: [-g .. Nj+g-1], k: [-g .. Nk+g-1]
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + 1 + g, Nj + g, Nk + g};
-        break;
-
-    case StaggerLocation::FaceEt:
-        // Eta-face：j 有 Nj+1 个
-        // i: [-g .. Ni+g-1], j: [-g .. Nj+g], k: [-g .. Nk+g-1]
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + g, Nj + 1 + g, Nk + g};
-        break;
-
-    case StaggerLocation::FaceZe:
-        // Zeta-face：k 有 Nk+1 个
-        // i: [-g .. Ni+g-1], j: [-g .. Nj+g-1], k: [-g .. Nk+g]
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + g, Nj + g, Nk + 1 + g};
-        break;
-
-    case StaggerLocation::EdgeXi:
-        // 沿 xi 的棱：
-        //   i cell-based: [0..Ni-1]
-        //   j,k node-based: [0..Nj], [0..Nk]
-        // 加 ghost 后：
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + g, Nj + 1 + g, Nk + 1 + g};
-        break;
-
-    case StaggerLocation::EdgeEt:
-        // 沿 eta 的棱：
-        //   j cell-based: [0..Nj-1]
-        //   i,k node-based: [0..Ni], [0..Nk]
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + 1 + g, Nj + g, Nk + 1 + g};
-        break;
-
-    case StaggerLocation::EdgeZe:
-        // 沿 zeta 的棱：
-        //   k cell-based: [0..Nk-1]
-        //   i,j node-based: [0..Ni], [0..Nj]
-        lo = Int3{-g, -g, -g};
-        hi = Int3{Ni + 1 + g, Nj + 1 + g, Nk + g};
-        break;
-
-    default:
-        // 防御式编程：如果以后加枚举忘了处理
-        lo = Int3{0, 0, 0};
-        hi = Int3{0, 0, 0};
-        break;
-    }
+    lo = box.lo;
+    hi = box.hi;
 }

@@ -1,5 +1,7 @@
 #include "3_field/2_MPCNS_Field.h"
 #include "0_basic/Error.h"
+#include "0_basic/LayoutTraits.h"
+#include "1_grid/BlockTraits.h"
 
 void Field::register_coupling_channel(const std::string &src,
                                       const std::string &dst,
@@ -140,214 +142,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
         coupling_buffers_[key] = std::move(bs);
     }
 
-    // ---------- lambdas: location geometry ----------
-    auto loc_delta = [](StaggerLocation loc) -> Int3
-    {
-        // delta=1 表示该轴是 cell-like（比 node 少1）；delta=0 表示 node-like
-        switch (loc)
-        {
-        case StaggerLocation::Cell:
-            return {1, 1, 1};
-        case StaggerLocation::Node:
-            return {0, 0, 0};
-        case StaggerLocation::FaceXi:
-            return {0, 1, 1};
-        case StaggerLocation::FaceEt:
-            return {1, 0, 1};
-        case StaggerLocation::FaceZe:
-            return {1, 1, 0};
-        case StaggerLocation::EdgeXi:
-            return {1, 0, 0};
-        case StaggerLocation::EdgeEt:
-            return {0, 1, 0};
-        case StaggerLocation::EdgeZe:
-            return {0, 0, 1};
-        }
-        return {0, 0, 0};
-    };
-
-    auto loc_inner_hi = [&](const Block &blk, StaggerLocation loc) -> Int3
-    {
-        const Int3 nodes = {blk.mx + 1, blk.my + 1, blk.mz + 1}; // node counts
-        const Int3 d = loc_delta(loc);
-        return {nodes.i - d.i, nodes.j - d.j, nodes.k - d.k}; // half-open [0,hi)
-    };
-
-    auto convert_tangent = [](int lo_n, int hi_n, int delta, int &lo, int &hi)
-    {
-        lo = lo_n;
-        hi = (delta == 0) ? hi_n : (hi_n - 1);
-    };
-
-    // ---------- slab box makers (face/edge/vertex) ----------
-    auto make_face_slab_box = [&](const Block &blk, StaggerLocation loc,
-                                  const Box3 &face_node_box, int dir_code, int nghost) -> Box3
-    {
-        int ax = std::abs(dir_code); // 1,2,3
-        int sgn = (dir_code > 0) ? +1 : -1;
-
-        const Int3 hi_in = loc_inner_hi(blk, loc);
-        const Int3 d = loc_delta(loc);
-
-        int t1, t2;
-        if (ax == 1)
-        {
-            t1 = 2;
-            t2 = 3;
-        }
-        else if (ax == 2)
-        {
-            t1 = 1;
-            t2 = 3;
-        }
-        else
-        {
-            t1 = 1;
-            t2 = 2;
-        }
-
-        Box3 b{};
-        // normal ghost
-        if (ax == 1)
-        {
-            b.lo.i = (sgn < 0) ? -nghost : hi_in.i;
-            b.hi.i = (sgn < 0) ? 0 : hi_in.i + nghost;
-        }
-        if (ax == 2)
-        {
-            b.lo.j = (sgn < 0) ? -nghost : hi_in.j;
-            b.hi.j = (sgn < 0) ? 0 : hi_in.j + nghost;
-        }
-        if (ax == 3)
-        {
-            b.lo.k = (sgn < 0) ? -nghost : hi_in.k;
-            b.hi.k = (sgn < 0) ? 0 : hi_in.k + nghost;
-        }
-
-        // tangential from node box -> loc box
-        auto set_tangent = [&](int t)
-        {
-            int lo, hi;
-            if (t == 1)
-                convert_tangent(face_node_box.lo.i, face_node_box.hi.i, d.i, lo, hi);
-            if (t == 2)
-                convert_tangent(face_node_box.lo.j, face_node_box.hi.j, d.j, lo, hi);
-            if (t == 3)
-                convert_tangent(face_node_box.lo.k, face_node_box.hi.k, d.k, lo, hi);
-
-            if (t == 1)
-            {
-                b.lo.i = lo;
-                b.hi.i = hi;
-            }
-            if (t == 2)
-            {
-                b.lo.j = lo;
-                b.hi.j = hi;
-            }
-            if (t == 3)
-            {
-                b.lo.k = lo;
-                b.hi.k = hi;
-            }
-        };
-        set_tangent(t1);
-        set_tangent(t2);
-
-        return b;
-    };
-
-    auto make_edge_slab_box = [&](const Block &blk, StaggerLocation loc,
-                                  const Box3 &edge_node_box, int dir1, int dir2, int nghost) -> Box3
-    {
-        int a1 = std::abs(dir1), a2 = std::abs(dir2);
-        int s1 = (dir1 > 0) ? +1 : -1;
-        int s2 = (dir2 > 0) ? +1 : -1;
-
-        int ae = 6 - a1 - a2; // remaining axis (1+2+3=6)
-
-        const Int3 hi_in = loc_inner_hi(blk, loc);
-        const Int3 d = loc_delta(loc);
-
-        Box3 b{};
-
-        auto set_ghost = [&](int ax, int sgn)
-        {
-            if (ax == 1)
-            {
-                b.lo.i = (sgn < 0) ? -nghost : hi_in.i;
-                b.hi.i = (sgn < 0) ? 0 : hi_in.i + nghost;
-            }
-            if (ax == 2)
-            {
-                b.lo.j = (sgn < 0) ? -nghost : hi_in.j;
-                b.hi.j = (sgn < 0) ? 0 : hi_in.j + nghost;
-            }
-            if (ax == 3)
-            {
-                b.lo.k = (sgn < 0) ? -nghost : hi_in.k;
-                b.hi.k = (sgn < 0) ? 0 : hi_in.k + nghost;
-            }
-        };
-        set_ghost(a1, s1);
-        set_ghost(a2, s2);
-
-        // along-edge axis range from node box -> loc box
-        {
-            int lo, hi;
-            if (ae == 1)
-                convert_tangent(edge_node_box.lo.i, edge_node_box.hi.i, d.i, lo, hi);
-            if (ae == 2)
-                convert_tangent(edge_node_box.lo.j, edge_node_box.hi.j, d.j, lo, hi);
-            if (ae == 3)
-                convert_tangent(edge_node_box.lo.k, edge_node_box.hi.k, d.k, lo, hi);
-
-            if (ae == 1)
-            {
-                b.lo.i = lo;
-                b.hi.i = hi;
-            }
-            if (ae == 2)
-            {
-                b.lo.j = lo;
-                b.hi.j = hi;
-            }
-            if (ae == 3)
-            {
-                b.lo.k = lo;
-                b.hi.k = hi;
-            }
-        }
-
-        return b;
-    };
-
-    auto make_vertex_slab_box = [&](const Block &blk, StaggerLocation loc,
-                                    int dir1, int dir2, int dir3, int nghost) -> Box3
-    {
-        const Int3 hi_in = loc_inner_hi(blk, loc);
-
-        auto ghost_rng = [&](int dir, int hi_axis, int &lo, int &hi)
-        {
-            if (dir < 0)
-            {
-                lo = -nghost;
-                hi = 0;
-            }
-            else
-            {
-                lo = hi_axis;
-                hi = hi_axis + nghost;
-            }
-        };
-
-        Box3 b{};
-        ghost_rng(dir1, hi_in.i, b.lo.i, b.hi.i);
-        ghost_rng(dir2, hi_in.j, b.lo.j, b.hi.j);
-        ghost_rng(dir3, hi_in.k, b.lo.k, b.hi.k);
-        return b;
-    };
-
     // ---------- allocate one buffer block ----------
     auto alloc_block = [&](CouplingBufferBlock &cb,
                            TOPO::PatchKind kind,
@@ -442,7 +236,12 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
             for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
             {
                 const auto &ch = bs.desc.channels[cid];
-                Box3 box = make_face_slab_box(blk, ch.location, p.this_box_node, dir_code, ch.nghost);
+                Box3 box = LAYOUT::coupling_face_ghost_slab_from_cells(
+                    GRID_TRAITS::cell_counts(blk),
+                    ch.location,
+                    p.this_box_node,
+                    dir_code,
+                    ch.nghost);
                 alloc_block(storage[cid][ip], kind, p.this_block, ch, box);
             }
         }
@@ -476,7 +275,13 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
                 {
                     const auto &ch = bs.desc.channels[cid];
-                    Box3 box = make_edge_slab_box(blk, ch.location, e.this_box_node, e.dir1, e.dir2, ch.nghost);
+                    Box3 box = LAYOUT::coupling_edge_ghost_slab_from_cells(
+                        GRID_TRAITS::cell_counts(blk),
+                        ch.location,
+                        e.this_box_node,
+                        e.dir1,
+                        e.dir2,
+                        ch.nghost);
                     alloc_block(storage[cid][ie], kind, e.this_block, ch, box);
                 }
             }
@@ -511,7 +316,13 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
                 {
                     const auto &ch = bs.desc.channels[cid];
-                    Box3 box = make_vertex_slab_box(blk, ch.location, v.dir1, v.dir2, v.dir3, ch.nghost);
+                    Box3 box = LAYOUT::coupling_vertex_ghost_slab_from_cells(
+                        GRID_TRAITS::cell_counts(blk),
+                        ch.location,
+                        v.dir1,
+                        v.dir2,
+                        v.dir3,
+                        ch.nghost);
                     alloc_block(storage[cid][iv], kind, v.this_block, ch, box);
                 }
             }

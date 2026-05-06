@@ -3,8 +3,8 @@
 #include <vector>
 #include <string>
 
+#include "0_basic/StaggerLocation.h"
 #include "2_topology/2_MPCNS_Topology.h"
-#include "3_field/Field_Type.h"
 #include "3_field/Field_Array.h"
 
 // 一个“物理块对”的唯一标识：src -> dst
