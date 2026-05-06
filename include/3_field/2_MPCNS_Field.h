@@ -5,7 +5,7 @@
 
 #include "1_grid/1_MPCNS_Grid.h"   // Block
 #include "3_field/1_Field_Block.h" // FieldBlock
-#include "3_field/Field_Type.h"    // FieldDescriptor
+#include "3_field/FieldCatalog.h"
 #include "3_field/Coupling_Type.h"
 
 class Field
@@ -31,17 +31,17 @@ public:
     // 分配所有 fieldid 下 block 的数据
     void allocate(int32_t fieldID);
 
-    int field_id(const std::string &field_name) const;
+    int field_id(const std::string &field_name) const { return catalog_.field_id(field_name); }
     bool has_field(const std::string &name) const
     {
-        return name_to_id_.find(name) != name_to_id_.end();
+        return catalog_.has_field(name);
     }
-    int num_fields() const { return static_cast<int>(field_descs_.size()); }
+    int num_fields() const { return catalog_.size(); }
     int num_blocks() const { return static_cast<int>(blocks_.size()); }
 
-    const FieldDescriptor &descriptor(int32_t fid) const { return field_descs_[fid]; }
-    const FieldDescriptor &descriptor(const std::string &field_name) const { return descriptor(field_id(field_name)); }
-    const std::vector<FieldDescriptor> &descriptors() const { return field_descs_; }
+    const FieldDescriptor &descriptor(int32_t fid) const { return catalog_.descriptor(fid); }
+    const FieldDescriptor &descriptor(const std::string &field_name) const { return catalog_.descriptor(field_name); }
+    const std::vector<FieldDescriptor> &descriptors() const { return catalog_.descriptors(); }
 
     std::vector<std::string> boundary_field_names() const;
     std::vector<std::string> coupled_field_names() const;
@@ -103,9 +103,7 @@ private:
     // 这个 rank 上的所有 Block（只存指针，不拥有）
     std::vector<Block *> blocks_;
 
-    // 所有场的描述
-    std::vector<FieldDescriptor> field_descs_;
-    std::unordered_map<std::string, int32_t> name_to_id_;
+    FieldCatalog catalog_;
 
     std::unordered_map<std::string, std::vector<int>> blocks_by_name_;
 
