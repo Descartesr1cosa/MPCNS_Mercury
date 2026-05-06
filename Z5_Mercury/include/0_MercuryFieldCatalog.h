@@ -239,9 +239,9 @@ inline std::vector<std::string> CoupledFieldNames()
     return names;
 }
 
-inline std::vector<HaloFieldRequest> HaloRequests()
+inline std::vector<FieldHaloRequest> HaloRequests()
 {
-    std::vector<HaloFieldRequest> requests;
+    std::vector<FieldHaloRequest> requests;
     std::map<std::string, std::size_t> index_by_name;
 
     for (const auto &group : SyncGroups())
@@ -256,7 +256,10 @@ inline std::vector<HaloFieldRequest> HaloRequests()
             if (it == index_by_name.end())
             {
                 index_by_name[name] = requests.size();
-                requests.push_back(HaloFieldRequest{name, group.halo_level});
+                FieldHaloRequest request;
+                request.field_name = name;
+                request.level = group.halo_level;
+                requests.push_back(request);
                 continue;
             }
 

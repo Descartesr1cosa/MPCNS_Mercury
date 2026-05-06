@@ -45,7 +45,7 @@ public:
 
     std::vector<std::string> boundary_field_names() const;
     std::vector<std::string> coupled_field_names() const;
-    std::vector<HaloFieldRequest> halo_requests() const;
+    std::vector<FieldHaloRequest> halo_requests() const;
 
     // 按 ID 访问所有block
     std::vector<FieldBlock> &field(int32_t fid)

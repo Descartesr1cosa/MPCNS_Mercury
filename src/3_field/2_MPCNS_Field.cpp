@@ -46,11 +46,14 @@ void Field::register_field(const FieldDescriptor &desc)
                           old.ncomp == desc.ncomp &&
                           old.nghost == desc.nghost &&
                           old.physics == desc.physics &&
+                          old.value_kind == desc.value_kind &&
                           old.sync.group == desc.sync.group &&
                           old.sync.do_coupling == desc.sync.do_coupling &&
                           old.sync.do_physical == desc.sync.do_physical &&
                           old.sync.do_halo == desc.sync.do_halo &&
-                          old.sync.halo_level == desc.sync.halo_level;
+                          old.sync.halo_level == desc.sync.halo_level &&
+                          old.sync.owner_sync == desc.sync.owner_sync &&
+                          old.sync.orientation_aware == desc.sync.orientation_aware;
         if (same)
             return;
 
@@ -118,17 +121,23 @@ std::vector<std::string> Field::coupled_field_names() const
     return names;
 }
 
-std::vector<HaloFieldRequest> Field::halo_requests() const
+std::vector<FieldHaloRequest> Field::halo_requests() const
 {
-    std::vector<HaloFieldRequest> requests;
+    std::vector<FieldHaloRequest> requests;
     for (const auto &desc : field_descs_)
     {
         if (!desc.sync.do_halo)
             continue;
 
-        HaloFieldRequest req;
+        FieldHaloRequest req;
         req.field_name = desc.name;
+        req.location = desc.location;
+        req.value_kind = desc.value_kind;
+        req.ncomp = desc.ncomp;
+        req.nghost = desc.nghost;
         req.level = desc.sync.halo_level;
+        req.owner_sync = desc.sync.owner_sync;
+        req.orientation_aware = desc.sync.orientation_aware;
         requests.push_back(req);
     }
     return requests;
