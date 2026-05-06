@@ -39,6 +39,11 @@ class Grid;
 namespace TOPO
 {
     class Topology;
+    struct TopologyEquiv;
+}
+namespace HALO_OWNER
+{
+    struct EdgeOwnerSyncPattern;
 }
 class Field;
 class Halo;
@@ -48,13 +53,9 @@ class FieldBlock;
 class MercurySolver
 {
 public:
-    MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par
-#if HALL_IMPLICIT == 1
-                  ,
-                  TOPO::TopologyEquiv *topo_equiv,
-                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat
-#endif
-    );
+    MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
+                  TOPO::TopologyEquiv *topo_equiv = nullptr,
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
 
     static void RegisterFields(Field *fld, int ngg);
     static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
@@ -70,9 +71,9 @@ private:
     Halo *halo_{nullptr};
     Param *par_{nullptr};
 
-#if HALL_IMPLICIT == 1
     TOPO::TopologyEquiv *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
+#if HALL_IMPLICIT == 1
     ImplicitHallSolver hall_implicit_;
 #endif
     // --- components ---

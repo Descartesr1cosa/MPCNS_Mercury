@@ -8,23 +8,16 @@
 #include "MercurySolver.h"
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
-                             Param *par
-#if HALL_IMPLICIT == 1
-                             ,
+                             Param *par,
                              TOPO::TopologyEquiv *topo_equiv,
-                             HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat
-#endif
-                             )
+                             HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat)
     : grd_(grd),
       topo_(topo),
       fld_(fld),
       halo_(halo),
-      par_(par)
-#if HALL_IMPLICIT == 1
-      ,
+      par_(par),
       topo_equiv_(topo_equiv),
       edge_owner_pat_(edge_owner_pat)
-#endif
 {
     // ---- Cache field ids ----
     fid_.Init(fld_);
@@ -120,7 +113,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         };
 
         // 1) 初始化 Mercury Boundary
-        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields);
+        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields, edge_owner_pat_);
     }
 
     // ---- Initialization ----

@@ -1,5 +1,6 @@
 #include "1_Boundary.h"
 #include "0_basic/Error.h"
+#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
 
 #include <ostream>
 
@@ -25,9 +26,11 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
     if (!halo_)
         ERROR::Abort("AddGroup: call Setup first");
 
-    groups_[g.name] = g;
+    BoundGroup configured = g;
+    ConfigureOwnerSync_(configured);
+    groups_[configured.name] = configured;
 
-    for (auto &coupling_pair : g.coupling_pairs)
+    for (auto &coupling_pair : configured.coupling_pairs)
     {
         // 0) the definition of coupling src--dst should have been done + build_coupling_buffers
         if (!fld_->has_coupling_pair(coupling_pair.first, coupling_pair.second))
@@ -38,7 +41,7 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
         std::vector<int32_t> temp_cids;
         temp_cids.resize(0);
 
-        for (auto field_name : g.fields)
+        for (auto field_name : configured.fields)
         {
             int temp_num = -1;
             for (int cid = 0; cid < static_cast<int>(ch.size()); cid++)
@@ -57,7 +60,7 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
             }
         }
 
-        groups_[g.name].fields_cids[coupling_pair] = temp_cids;
+        groups_[configured.name].fields_cids[coupling_pair] = temp_cids;
     }
 
     // if (g.do_halo)
@@ -106,6 +109,12 @@ void MercuryBoundary::DescribeGroups(std::ostream &os) const
             os << "physical";
             need_sep = true;
         }
+        if (g.do_owner_edge_sync)
+        {
+            os << (need_sep ? ", " : "") << "owner-edge:"
+               << (g.owner_edge_is_1form ? "1form" : "vec");
+            need_sep = true;
+        }
         if (g.do_halo)
         {
             os << (need_sep ? ", " : "") << "halo:" << HaloLevelName(g.halo_level);
@@ -127,6 +136,38 @@ void MercuryBoundary::DescribeGroups(std::ostream &os) const
             os << "}";
         }
         os << "\n";
+    }
+}
+
+bool MercuryBoundary::IsEdgeTripletGroup_(const std::vector<std::string> &fields) const
+{
+    if (!fld_ || fields.size() != 3)
+        return false;
+
+    for (const auto &fn : fields)
+    {
+        if (!fld_->has_field(fn))
+            return false;
+    }
+
+    const auto loc0 = fld_->descriptor(fld_->field_id(fields[0])).location;
+    const auto loc1 = fld_->descriptor(fld_->field_id(fields[1])).location;
+    const auto loc2 = fld_->descriptor(fld_->field_id(fields[2])).location;
+
+    return loc0 == StaggerLocation::EdgeXi &&
+           loc1 == StaggerLocation::EdgeEt &&
+           loc2 == StaggerLocation::EdgeZe;
+}
+
+void MercuryBoundary::ConfigureOwnerSync_(BoundGroup &g) const
+{
+    if (!edge_owner_pat_)
+        return;
+
+    if (IsEdgeTripletGroup_(g.fields))
+    {
+        g.do_owner_edge_sync = true;
+        g.owner_edge_is_1form = true;
     }
 }
 

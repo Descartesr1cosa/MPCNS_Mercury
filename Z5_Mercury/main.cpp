@@ -8,14 +8,14 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "2_topology/2_MPCNS_Topology.h"
+#include "2_topology/2_MPCNS_Topology_Equiv.h"
 #include "3_field/2_MPCNS_Field.h"
 #include "4_halo/1_MPCNS_Halo.h"
+#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
 
 #include "MercurySolver.h"
 
 #if HALL_IMPLICIT == 1
-#include "2_topology/2_MPCNS_Topology_Equiv.h"
-#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
 // #include "4_solver/ImplicitHall_Solver.h"
 #endif
 //==============================================================================
@@ -48,10 +48,8 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build topology
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));
-#if HALL_IMPLICIT == 1
         TOPO::TopologyEquiv topo_equiv;
         TOPO::build_topology_equiv(topology, *grd, myid, par->GetInt("dimension"), topo_equiv);
-#endif
         //--------------------------------------------------------------------------
         int ngg = par->GetInt("ngg");
         // Build Field
@@ -63,21 +61,15 @@ int main(int arg, char **argv)
         Halo *hal = new Halo(fld, &topology);
         MercurySolver::RegisterHaloFields(hal);
         //--------------------------------------------------------------------------
-        // Build Owner Sync Pattern for Hall Implicit Process
-#if HALL_IMPLICIT == 1
+        // Build owner sync pattern once; both explicit and implicit edge fields use it.
         HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pattern;
         HALO_OWNER::build_edge_owner_sync_pattern(topo_equiv, edge_owner_pattern);
-#endif
         //=============================================================================================
 
         //=============================================================================================
-        MercurySolver solver(grd, &topology, fld, hal, par
-#if HALL_IMPLICIT == 1
-                             ,
+        MercurySolver solver(grd, &topology, fld, hal, par,
                              &topo_equiv,
-                             &edge_owner_pattern
-#endif
-        );
+                             &edge_owner_pattern);
         solver.Advance();
         if (myid == 0)
             std::cout << "Program is finished normally ! !  ^_^\n"

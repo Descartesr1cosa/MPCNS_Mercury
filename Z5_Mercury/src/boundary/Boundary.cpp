@@ -1,13 +1,16 @@
 #include "1_Boundary.h"
 #include "0_basic/Error.h"
 
-void MercuryBoundary::Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par, const std::vector<std::string> &boundary_fields)
+void MercuryBoundary::Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par,
+                            const std::vector<std::string> &boundary_fields,
+                            HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat)
 {
     grd_ = grd;
     fld_ = fld;
     topo_ = topo;
     halo_ = halo;
     par_ = par;
+    edge_owner_pat_ = edge_owner_pat;
     boundary_fields_ = boundary_fields;
 
     if (!grd_ || !fld_ || !topo_ || !halo_ || !par_)

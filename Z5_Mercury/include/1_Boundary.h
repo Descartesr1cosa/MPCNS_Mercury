@@ -18,6 +18,10 @@ namespace TOPO
 {
     class Topology;
 }
+namespace HALO_OWNER
+{
+    struct EdgeOwnerSyncPattern;
+}
 class Param;
 
 class MercuryBoundary
@@ -27,7 +31,9 @@ public:
 
     // ----------------------------- Lifecycle --------------------------------
     // bind pointers + initialize BoundaryCore patterns cache (per location)
-    void Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par, const std::vector<std::string> &boundary_fields);
+    void Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par,
+               const std::vector<std::string> &boundary_fields,
+               HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
 
     // ----------------------------- Run-time API ------------------------------
     void Sync(const std::string &group_name);
@@ -61,6 +67,8 @@ private:
         bool do_coupling = false; // whether to apply coupling before physical BC
         bool do_physical = true;  // whether to apply physical BC
         bool do_halo = true;      // whether to halo-exchange
+        bool do_owner_edge_sync = false;
+        bool owner_edge_is_1form = true;
 
         HaloLevel halo_level = HaloLevel::Vertex;
         int ngh = 0; // reserved: boundary ngh (if BoundaryCore later supports per-call ngh)
@@ -76,6 +84,7 @@ private:
     TOPO::Topology *topo_{nullptr};
     Halo *halo_{nullptr};
     Param *par_{nullptr};
+    HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
     //  boundary core
     BoundaryCore bound_;
 
@@ -128,6 +137,11 @@ private:
 
     // ----------------------------- Sync pipeline (run-time) ------------------
     void Sync_(const BoundGroup &g);
+    bool IsEdgeTripletGroup_(const std::vector<std::string> &fields) const;
+    void ConfigureOwnerSync_(BoundGroup &g) const;
+    void ApplyOwnerEdgeSync_(const BoundGroup &g);
+    void ApplySameFieldHaloStage_(const BoundGroup &g, HaloLevel stage);
+    void ApplyCouplingStage_(const BoundGroup &g, HaloLevel stage);
 
     // -------------------------------  handlers -------------------------------
     void BC_UH_Farfield_H_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
