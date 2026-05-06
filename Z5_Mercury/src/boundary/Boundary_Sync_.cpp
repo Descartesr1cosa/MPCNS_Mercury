@@ -8,6 +8,12 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
     std::string field_name_temp;
     std::string field_name_temp2;
 
+    // Sync order is intentionally fixed:
+    // 1. apply physical boundary slabs/corners,
+    // 2. exchange same-field halo data,
+    // 3. copy coupled-interface buffers into destination ghosts.
+    // Edge/vertex stages extend the same sequence to wider corner regions.
+
     // ---------------- Stage 1: FaceOnly (1D) ----------------
     if (g.do_physical)
     {

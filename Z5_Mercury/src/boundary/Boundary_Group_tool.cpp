@@ -1,6 +1,25 @@
 #include "1_Boundary.h"
 #include "0_basic/Error.h"
 
+#include <ostream>
+
+namespace
+{
+const char *HaloLevelName(HaloLevel level)
+{
+    switch (level)
+    {
+    case HaloLevel::FaceOnly:
+        return "FaceOnly";
+    case HaloLevel::Edge:
+        return "Edge";
+    case HaloLevel::Vertex:
+        return "Vertex";
+    }
+    return "Unknown";
+}
+} // namespace
+
 void MercuryBoundary::AddGroup(const BoundGroup &g)
 {
     if (!halo_)
@@ -22,7 +41,7 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
         for (auto field_name : g.fields)
         {
             int temp_num = -1;
-            for (int cid = 0; ch.size(); cid++)
+            for (int cid = 0; cid < static_cast<int>(ch.size()); cid++)
             {
                 if (ch[cid].tag == field_name)
                 {
@@ -46,6 +65,69 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
     //     for (auto &fn : g.fields)
     //         halo_->register_halo_field(fn, g.halo_level);
     // }
+}
+
+void MercuryBoundary::AddStandardGroup_(const std::string &name,
+                                        const std::vector<std::string> &fields,
+                                        bool do_coupling,
+                                        bool do_physical,
+                                        bool do_halo,
+                                        HaloLevel halo_level)
+{
+    BoundGroup group;
+    group.name = name;
+    group.fields = fields;
+    group.do_coupling = do_coupling;
+    group.do_physical = do_physical;
+    group.do_halo = do_halo;
+    group.halo_level = halo_level;
+    if (do_coupling)
+        group.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
+    AddGroup(group);
+}
+
+void MercuryBoundary::DescribeGroups(std::ostream &os) const
+{
+    os << "[MercuryBoundary] Sync groups\n";
+    for (const auto &entry : groups_)
+    {
+        const auto &g = entry.second;
+        os << "  - " << g.name << ": fields={";
+        for (std::size_t n = 0; n < g.fields.size(); ++n)
+        {
+            if (n)
+                os << ", ";
+            os << g.fields[n];
+        }
+        os << "} stages={";
+        bool need_sep = false;
+        if (g.do_physical)
+        {
+            os << "physical";
+            need_sep = true;
+        }
+        if (g.do_halo)
+        {
+            os << (need_sep ? ", " : "") << "halo:" << HaloLevelName(g.halo_level);
+            need_sep = true;
+        }
+        if (g.do_coupling)
+            os << (need_sep ? ", " : "") << "coupling";
+        os << "}";
+
+        if (!g.coupling_pairs.empty())
+        {
+            os << " pairs={";
+            for (std::size_t n = 0; n < g.coupling_pairs.size(); ++n)
+            {
+                if (n)
+                    os << ", ";
+                os << g.coupling_pairs[n].first << "->" << g.coupling_pairs[n].second;
+            }
+            os << "}";
+        }
+        os << "\n";
+    }
 }
 
 void MercuryBoundary::RegisterPhysical_(const std::string &field, const std::string &region, PhysicalHandler h)

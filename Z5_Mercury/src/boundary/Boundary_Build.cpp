@@ -7,6 +7,20 @@ void MercuryBoundary::InstallHandlers()
     if (!par_)
         ERROR::Abort("InstallHandlers: call Setup first");
 
+    InstallPhysicalHandlers_();
+    InstallCouplingHandlers_();
+}
+
+void MercuryBoundary::InstallPhysicalHandlers_()
+{
+    InstallDefaultPhysicalHandlers_();
+    InstallFarfieldPhysicalHandlers_();
+    InstallCoupledPhysicalHandlers_();
+    InstallPolePhysicalHandlers_();
+}
+
+void MercuryBoundary::InstallDefaultPhysicalHandlers_()
+{
     auto copy = [](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
     {
         BoundaryCore::DefaultPhysicalCopy(U, fld, r, ngh);
@@ -14,7 +28,6 @@ void MercuryBoundary::InstallHandlers()
 
     auto nop = [](FieldBlock &, Field *, const BOUND::PhysicalRegion &, int) {};
 
-    // 1) 先给 boundary_fields_ 全部注册通用 handler（保证 CheckPhysicalHandlers 能过）
     for (auto &fn : boundary_fields_)
     {
         RegisterPhysical_(fn, "Outflow", copy);
@@ -23,8 +36,10 @@ void MercuryBoundary::InstallHandlers()
         RegisterPhysical_(fn, "Coupled-Solid", nop);
         RegisterPhysical_(fn, "Coupled-Fluid", nop);
     }
+}
 
-    // 2) 覆盖真正需要特殊处理的：
+void MercuryBoundary::InstallFarfieldPhysicalHandlers_()
+{
     RegisterPhysical_("U_H", "Farfield",
                       [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
                       {
@@ -36,7 +51,10 @@ void MercuryBoundary::InstallHandlers()
                       {
                           this->BC_UH_Farfield_Na_(U, fld, r, ngh);
                       });
+}
 
+void MercuryBoundary::InstallCoupledPhysicalHandlers_()
+{
     RegisterPhysical_("U_H", "Coupled-Solid",
                       [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
                       {
@@ -114,12 +132,10 @@ void MercuryBoundary::InstallHandlers()
     RegisterPhysical_("J_eta", "Coupled-Fluid", Eedge_buffer_eta_);
     RegisterPhysical_("J_zeta", "Coupled-Solid", Eedge_buffer_zeta_);
     RegisterPhysical_("J_zeta", "Coupled-Fluid", Eedge_buffer_zeta_);
+}
 
-    //=============================================================================================
-    // Pole Boundary
-    //-------------------------------------------------------------------------
-    // Edge
-    //-------------------------------------------------------------------------
+void MercuryBoundary::InstallPolePhysicalHandlers_()
+{
     auto Eedge_Pole_xi_ = [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
     {
         const int dir = std::abs(r.direction);
@@ -191,18 +207,16 @@ void MercuryBoundary::InstallHandlers()
                       { this->BC_Pole_Cell_(U, fld, r, ngh); });
     RegisterPhysical_("U_Na", "Pole", [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
                       { this->BC_Pole_Cell_(U, fld, r, ngh); });
+}
 
-    //=============================================================================================
-    // 3) coupling：按你的耦合 channel 注册（先 DefaultCouplingCopy）
+void MercuryBoundary::InstallCouplingHandlers_()
+{
     auto ccopy = [](FieldBlock &Udst, Field *fld, CouplingBufferBlock &buf,
                     const std::string &src, const std::string &dst, const std::string &tag)
     {
         BoundaryCore::DefaultCouplingCopy(Udst, fld, buf, src, dst, tag);
     };
-    auto cnooper = [](FieldBlock &Udst, Field *fld, CouplingBufferBlock &buf,
-                      const std::string &src, const std::string &dst, const std::string &tag) {};
 
-    // 例如 B_face 三个方向（你按实际 channel_tag/dst_field 写）
     RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceXi, "B_xi", "B_xi", ccopy);
     RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceEt, "B_eta", "B_eta", ccopy);
     RegisterCoupling_("Solid", "Fluid", StaggerLocation::FaceZe, "B_zeta", "B_zeta", ccopy);
@@ -257,144 +271,22 @@ void MercuryBoundary::InstallHandlers()
 
 void MercuryBoundary::InstallDefaultGroups()
 {
-    BoundGroup gU;
-    gU.name = "Ucell";
-    gU.fields = {"U_H", "U_Na"};
-    gU.do_coupling = false;
-    gU.do_physical = true;
-    gU.do_halo = true;
-    gU.halo_level = HaloLevel::Vertex;
-    AddGroup(gU);
+    AddStandardGroup_("Ucell", {"U_H", "U_Na"}, false);
+    AddStandardGroup_("Jedge", {"J_xi", "J_eta", "J_zeta"}, true);
+    AddStandardGroup_("Eedge", {"E_xi", "E_eta", "E_zeta"}, true);
+    AddStandardGroup_("Ehall", {"Ehall_xi", "Ehall_eta", "Ehall_zeta"}, true);
+    AddStandardGroup_("Bface", {"B_xi", "B_eta", "B_zeta"}, true);
+    AddStandardGroup_("Eface", {"Eface_xi", "Eface_eta", "Eface_zeta"}, true);
+    AddStandardGroup_("B_cell", {"B_cell", "Bind_cell"}, true);
+    AddStandardGroup_("J_cell", {"J_cell"}, true);
 
-    BoundGroup gJ;
-    gJ.name = "Jedge";
-    gJ.fields = {"J_xi", "J_eta", "J_zeta"};
-    gJ.do_coupling = true;
-    gJ.do_physical = true;
-    gJ.do_halo = true;
-    gJ.halo_level = HaloLevel::Vertex;
-    gJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gJ);
+    AddStandardGroup_("dE", {"dE_xi", "dE_eta", "dE_zeta"}, true);
+    AddStandardGroup_("dB", {"dB_xi", "dB_eta", "dB_zeta"}, true);
+    AddStandardGroup_("dJ", {"dJ_xi", "dJ_eta", "dJ_zeta"}, true);
+    AddStandardGroup_("dJcell", {"dJ_cell"}, true);
+    AddStandardGroup_("dEpre", {"dEpre_xi", "dEpre_eta", "dEpre_zeta"}, true);
 
-    BoundGroup gE;
-    gE.name = "Eedge";
-    gE.fields = {"E_xi", "E_eta", "E_zeta"};
-    gE.do_coupling = true;
-    gE.do_physical = true;
-    gE.do_halo = true;
-    gE.halo_level = HaloLevel::Vertex;
-    gE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gE);
-
-    BoundGroup gEhall;
-    gEhall.name = "Ehall";
-    gEhall.fields = {"Ehall_xi", "Ehall_eta", "Ehall_zeta"};
-    gEhall.do_coupling = true;
-    gEhall.do_physical = true;
-    gEhall.do_halo = true;
-    gEhall.halo_level = HaloLevel::Vertex;
-    gEhall.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gEhall);
-
-    BoundGroup gB;
-    gB.name = "Bface";
-    gB.fields = {"B_xi", "B_eta", "B_zeta"};
-    gB.do_coupling = true;
-    gB.do_physical = true;
-    gB.do_halo = true;
-    gB.halo_level = HaloLevel::Vertex;
-    gB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gB);
-
-    BoundGroup EfaceB;
-    EfaceB.name = "Eface";
-    EfaceB.fields = {"Eface_xi", "Eface_eta", "Eface_zeta"};
-    EfaceB.do_coupling = true;
-    EfaceB.do_physical = true;
-    EfaceB.do_halo = true;
-    EfaceB.halo_level = HaloLevel::Vertex;
-    EfaceB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(EfaceB);
-
-    BoundGroup gBc;
-    gBc.name = "B_cell";
-    gBc.fields = {"B_cell", "Bind_cell"};
-    gBc.do_coupling = true;
-    gBc.do_physical = true;
-    gBc.do_halo = true;
-    gBc.halo_level = HaloLevel::Vertex;
-    gBc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gBc);
-
-    BoundGroup gJc;
-    gJc.name = "J_cell";
-    gJc.fields = {"J_cell"};
-    gJc.do_coupling = true;
-    gJc.do_physical = true;
-    gJc.do_halo = true;
-    gJc.halo_level = HaloLevel::Vertex;
-    gJc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gJc);
-
-    BoundGroup gdE;
-    gdE.name = "dE";
-    gdE.fields = {"dE_xi", "dE_eta", "dE_zeta"};
-    gdE.do_coupling = true;
-    gdE.do_physical = true;
-    gdE.do_halo = true;
-    gdE.halo_level = HaloLevel::Vertex;
-    gdE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdE);
-
-    BoundGroup gdB;
-    gdB.name = "dB";
-    gdB.fields = {"dB_xi", "dB_eta", "dB_zeta"};
-    gdB.do_coupling = true;
-    gdB.do_physical = true;
-    gdB.do_halo = true;
-    gdB.halo_level = HaloLevel::Vertex;
-    gdB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdB);
-
-    BoundGroup gdJ;
-    gdJ.name = "dJ";
-    gdJ.fields = {"dJ_xi", "dJ_eta", "dJ_zeta"};
-    gdJ.do_coupling = true;
-    gdJ.do_physical = true;
-    gdJ.do_halo = true;
-    gdJ.halo_level = HaloLevel::Vertex;
-    gdJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdJ);
-
-    BoundGroup gdJcell;
-    gdJcell.name = "dJcell";
-    gdJcell.fields = {"dJ_cell"};
-    gdJcell.do_coupling = true;
-    gdJcell.do_physical = true;
-    gdJcell.do_halo = true;
-    gdJcell.halo_level = HaloLevel::Vertex;
-    gdJcell.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdJcell);
-
-    BoundGroup gdEpre;
-    gdEpre.name = "dEpre";
-    gdEpre.fields = {"dEpre_xi", "dEpre_eta", "dEpre_zeta"};
-    gdEpre.do_coupling = true;
-    gdEpre.do_physical = true;
-    gdEpre.do_halo = true;
-    gdEpre.halo_level = HaloLevel::Vertex;
-    gdEpre.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdEpre);
-
-    BoundGroup gBadd;
-    gBadd.name = "Badd";
-    gBadd.fields = {"Badd_xi", "Badd_eta", "Badd_zeta"};
-    gBadd.do_coupling = true;
-    gBadd.do_physical = true;
-    gBadd.do_halo = true;
-    gBadd.halo_level = HaloLevel::Vertex;
-    gBadd.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gBadd);
+    AddStandardGroup_("Badd", {"Badd_xi", "Badd_eta", "Badd_zeta"}, true);
 }
 
 void MercuryBoundary::Build(bool strict_check)

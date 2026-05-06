@@ -6,6 +6,8 @@
 #include <functional>
 #include <stdexcept>
 #include <utility>
+#include <iosfwd>
+#include <map>
 
 #include "6_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
 #include "4_halo/1_MPCNS_Halo.h"   // Halo, HaloLevel
@@ -29,6 +31,7 @@ public:
 
     // ----------------------------- Run-time API ------------------------------
     void Sync(const std::string &group_name);
+    void DescribeGroups(std::ostream &os) const;
 
 private:
     // ----------------------------- Internal types ----------------------------
@@ -92,6 +95,12 @@ private:
 
     // 1) install all physical/coupling handlers (table-driven inside this class)
     void InstallHandlers();
+    void InstallPhysicalHandlers_();
+    void InstallDefaultPhysicalHandlers_();
+    void InstallFarfieldPhysicalHandlers_();
+    void InstallCoupledPhysicalHandlers_();
+    void InstallPolePhysicalHandlers_();
+    void InstallCouplingHandlers_();
 
     // 2) install default groups (Ucell/Bface/Baddface/...); user can extend in cpp later
     void InstallDefaultGroups();
@@ -102,6 +111,12 @@ private:
     // ----------------------------- Group ops (build-time) --------------------
     // Define a sync group (Ucell, Bface, Baddface, Eedge, Jedge, ...).
     void AddGroup(const BoundGroup &g);
+    void AddStandardGroup_(const std::string &name,
+                           const std::vector<std::string> &fields,
+                           bool do_coupling,
+                           bool do_physical = true,
+                           bool do_halo = true,
+                           HaloLevel halo_level = HaloLevel::Vertex);
     // void CheckSetupOrAbort_(const char *where) const;
 
     // handler registration (build-time)
