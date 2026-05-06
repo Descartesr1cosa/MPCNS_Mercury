@@ -222,7 +222,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
             CouplingBuffersForPair &bs = it->second;
             auto &storage = bs.*storage_member; // [cid][ip]
 
-            const Block &blk = *blocks_[p.this_block];
+            const Block &blk = storage_.block(p.this_block);
 
             // 这里要求dir_code =（±1/±2/±3）
             int dir_code = detect_dir_code_from_node_box(p.this_box_node, blk);
@@ -270,7 +270,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 CouplingBuffersForPair &bs = it->second;
                 auto &storage = bs.*storage_member;
 
-                const Block &blk = *blocks_[e.this_block];
+                const Block &blk = storage_.block(e.this_block);
 
                 for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
                 {
@@ -311,7 +311,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 CouplingBuffersForPair &bs = it->second;
                 auto &storage = bs.*storage_member;
 
-                const Block &blk = *blocks_[v.this_block];
+                const Block &blk = storage_.block(v.this_block);
 
                 for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
                 {

@@ -1,11 +1,9 @@
 #pragma once
 #include <vector>
 #include <string>
-#include <unordered_map>
 
-#include "1_grid/1_MPCNS_Grid.h"   // Block
-#include "3_field/1_Field_Block.h" // FieldBlock
 #include "3_field/FieldCatalog.h"
+#include "3_field/FieldStorage.h"
 #include "3_field/Coupling_Type.h"
 
 class Field
@@ -37,7 +35,7 @@ public:
         return catalog_.has_field(name);
     }
     int num_fields() const { return catalog_.size(); }
-    int num_blocks() const { return static_cast<int>(blocks_.size()); }
+    int num_blocks() const { return storage_.num_blocks(); }
 
     const FieldDescriptor &descriptor(int32_t fid) const { return catalog_.descriptor(fid); }
     const FieldDescriptor &descriptor(const std::string &field_name) const { return catalog_.descriptor(field_name); }
@@ -50,12 +48,12 @@ public:
     // 按 ID 访问所有block
     std::vector<FieldBlock> &field(int32_t fid)
     {
-        return field_blocks_[fid];
+        return storage_.field(fid);
     }
     // 按 ID 访问
     FieldBlock &field(int32_t fid, int iblock)
     {
-        return field_blocks_[fid][iblock];
+        return storage_.field(fid, iblock);
     }
     // 按名字访问所有block
     std::vector<FieldBlock> &field(const std::string &name)
@@ -100,15 +98,8 @@ private:
     // 存储网格指针
     void set_blocks(Grid *grd);
 
-    // 这个 rank 上的所有 Block（只存指针，不拥有）
-    std::vector<Block *> blocks_;
-
     FieldCatalog catalog_;
-
-    std::unordered_map<std::string, std::vector<int>> blocks_by_name_;
-
-    // 真正的数据：field_blocks_[fid][iblock]
-    std::vector<std::vector<FieldBlock>> field_blocks_;
+    FieldStorage storage_;
 
     std::map<PairKey, CouplingPairDesc> coupling_pairs_;
 
