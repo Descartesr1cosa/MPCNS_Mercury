@@ -12,6 +12,17 @@ const FieldHaloRequest &Halo::halo_request_(const std::string &field_name) const
     return it->second;
 }
 
+bool Halo::halo_level_includes_edge_(HaloLevel level) const
+{
+    return level == HaloLevel::Edge ||
+           level == HaloLevel::Vertex;
+}
+
+bool Halo::halo_level_includes_vertex_(HaloLevel level) const
+{
+    return level == HaloLevel::Vertex;
+}
+
 void Halo::sync_component_copy_field_(const std::string &field_name)
 {
     const FieldHaloRequest &req = halo_request_(field_name);
@@ -19,13 +30,13 @@ void Halo::sync_component_copy_field_(const std::string &field_name)
     exchange_inner(field_name);
     exchange_parallel(field_name);
 
-    if (static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Edge))
+    if (halo_level_includes_edge_(req.level))
     {
         exchange_inner_edge(field_name);
         exchange_parallel_edge(field_name);
     }
 
-    if (static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Vertex))
+    if (halo_level_includes_vertex_(req.level))
     {
         exchange_inner_vertex(field_name);
         exchange_parallel_vertex(field_name);
@@ -42,6 +53,12 @@ void Halo::sync_edge_1form_triplet_(const HaloTripletRequest &tri)
 {
     if (tri.xi.empty() || tri.eta.empty() || tri.zeta.empty())
         ERROR::Abort("[Halo] sync_edge_1form_triplet_: incomplete triplet group: " + tri.group_name);
+
+    if (tri.value_kind != FieldValueKind::EdgeCovariant1Form)
+        ERROR::Abort("[Halo] sync_edge_1form_triplet_: group is not EdgeCovariant1Form: " + tri.group_name);
+
+    if (!tri.orientation_aware)
+        ERROR::Abort("[Halo] sync_edge_1form_triplet_: group is not orientation-aware: " + tri.group_name);
 
     const std::vector<std::string> fields{tri.xi, tri.eta, tri.zeta};
     data_trans_edge_1form_triplet(fields, tri.level);

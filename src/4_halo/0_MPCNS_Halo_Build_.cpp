@@ -149,6 +149,12 @@ void Halo::validate_triplet_registry_() const
 
         if (tri.xi.empty() || tri.eta.empty() || tri.zeta.empty())
             ERROR::Abort("[Halo] incomplete edge 1-form triplet group: " + kv.first);
+
+        if (tri.value_kind != FieldValueKind::EdgeCovariant1Form)
+            ERROR::Abort("[Halo] edge 1-form triplet group is not EdgeCovariant1Form: " + kv.first);
+
+        if (!tri.orientation_aware)
+            ERROR::Abort("[Halo] edge 1-form triplet group is not orientation-aware: " + kv.first);
     }
 
     for (const auto &kv : face_2form_triplets_)

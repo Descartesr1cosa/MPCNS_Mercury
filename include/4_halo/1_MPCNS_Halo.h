@@ -230,6 +230,10 @@ private:
 
     bool field_is_component_copy_(const std::string &field_name) const;
 
+    bool halo_level_includes_edge_(HaloLevel level) const;
+
+    bool halo_level_includes_vertex_(HaloLevel level) const;
+
     // key = (StaggerLocation, nghost)，value = HaloPattern
     using PatternKey = std::pair<StaggerLocation, int>;
     std::map<PatternKey, HaloPattern> inner_patterns_;
