@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 #==================================================================
 add_subdirectory(./Z0_NULL)
 add_subdirectory(./Z0_CoreDebug)
+add_subdirectory(./Z1_NULL)
 # add_subdirectory(./Z1_Euler)
 # add_subdirectory(./Z2_MHD)
 add_subdirectory(./Z4_Mercury)
