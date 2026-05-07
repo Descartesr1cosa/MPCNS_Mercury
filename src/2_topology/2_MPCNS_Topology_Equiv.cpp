@@ -212,7 +212,8 @@ namespace TOPO
             const Topology &topo,
             int my_rank,
             const std::vector<LocalNodeID> &all_local_nodes,
-            TopologyEquiv &equiv)
+            TopologyEquiv &equiv,
+            std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts)
         {
             std::vector<int> send_buf;
             send_buf.reserve(1024);
@@ -320,10 +321,13 @@ namespace TOPO
             }
 
             std::unordered_map<int, LocalNodeID> root_min_node;
+            std::unordered_map<int, int> root_node_count;
             for (int idx = 0; idx < static_cast<int>(idx2node.size()); ++idx)
             {
                 int root = uf.find(idx);
                 const LocalNodeID &nid = idx2node[idx];
+
+                ++root_node_count[root];
 
                 auto it = root_min_node.find(root);
                 if (it == root_min_node.end() || nid < it->second)
@@ -333,6 +337,12 @@ namespace TOPO
             }
 
             equiv.node2eq.clear();
+            node_eq_counts.clear();
+            for (const auto &[root, rep] : root_min_node)
+            {
+                node_eq_counts[to_node_eq_id(rep)] = root_node_count[root];
+            }
+
             for (const auto &nid : all_local_nodes)
             {
                 auto it = node2idx.find(nid);
@@ -349,6 +359,32 @@ namespace TOPO
                 const LocalNodeID &rep = root_min_node.at(root);
                 equiv.node2eq[nid] = to_node_eq_id(rep);
             }
+        }
+
+        inline int node_equiv_count(
+            const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts,
+            const NodeEqID &node)
+        {
+            auto it = node_eq_counts.find(node);
+            return (it != node_eq_counts.end()) ? it->second : 1;
+        }
+
+        inline bool edge_key_is_shared(
+            const EdgeKey &key,
+            const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts)
+        {
+            return node_equiv_count(node_eq_counts, key.a) > 1 ||
+                   node_equiv_count(node_eq_counts, key.b) > 1;
+        }
+
+        inline bool face_key_is_shared(
+            const FaceKey &key,
+            const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts)
+        {
+            return node_equiv_count(node_eq_counts, key.a) > 1 ||
+                   node_equiv_count(node_eq_counts, key.b) > 1 ||
+                   node_equiv_count(node_eq_counts, key.c) > 1 ||
+                   node_equiv_count(node_eq_counts, key.d) > 1;
         }
 
         void build_edge_equivalence_from_nodes_impl(
@@ -408,7 +444,9 @@ namespace TOPO
             pack_edge_local(buf, e);
         }
 
-        inline void select_edge_owner_parallel_impl(TopologyEquiv &equiv)
+        inline void select_edge_owner_parallel_impl(
+            TopologyEquiv &equiv,
+            const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts)
         {
             // ------------------------------------------------------------
             // 1) 打包本 rank 的所有 local edge candidates
@@ -419,6 +457,9 @@ namespace TOPO
 
             for (const auto &[key, members] : equiv.edge_members)
             {
+                if (!edge_key_is_shared(key, node_eq_counts) && members.size() <= 1)
+                    continue;
+
                 for (const auto &e : members)
                 {
                     pack_edge_owner_candidate(send_buf, key, e);
@@ -465,6 +506,7 @@ namespace TOPO
             // 3) 在每个 rank 本地重建同一份全局 owner 选择结果
             // ------------------------------------------------------------
             std::unordered_map<EdgeKey, EdgeLocalID, EdgeKey::Hash> global_owner;
+            std::unordered_map<EdgeKey, std::vector<EdgeLocalID>, EdgeKey::Hash> global_members;
 
             const int ncand = total_recv / 16;
             for (int c = 0; c < ncand; ++c)
@@ -473,6 +515,8 @@ namespace TOPO
 
                 EdgeKey key = unpack_edge_key(base + 0);
                 EdgeLocalID e = unpack_edge_local(base + 10);
+
+                global_members[key].push_back(e);
 
                 auto it = global_owner.find(key);
                 if (it == global_owner.end() || e < it->second)
@@ -486,18 +530,22 @@ namespace TOPO
             // ------------------------------------------------------------
             equiv.edge_owner.clear();
             equiv.edge_is_owner.clear();
+            equiv.edge_members.clear();
 
-            for (const auto &[key, members] : equiv.edge_members)
+            for (auto &[key, members] : global_members)
             {
+                std::sort(members.begin(), members.end());
+
                 auto it = global_owner.find(key);
                 if (it == global_owner.end())
                 {
                     throw std::runtime_error(
-                        "build_topology_equiv: local edge key missing in global_owner.");
+                        "build_topology_equiv: shared edge key missing in global_owner.");
                 }
 
                 const EdgeLocalID &owner = it->second;
                 equiv.edge_owner[key] = owner;
+                equiv.edge_members[key] = members;
 
                 for (const auto &e : members)
                 {
@@ -513,7 +561,7 @@ namespace TOPO
 
             for (const auto &[e, is_owner] : equiv.edge_is_owner)
             {
-                if (is_owner)
+                if (is_owner && e.rank == my_rank)
                     local_owner_edges.push_back(e);
             }
 
@@ -545,10 +593,52 @@ namespace TOPO
             equiv.edge_owner_gid.clear();
             equiv.gid2edge_owner.clear();
 
+            std::vector<int> send_buf;
+            send_buf.reserve(local_owner_edges.size() * 7);
+
             for (int n = 0; n < equiv.n_local_edge_owner; ++n)
             {
                 const EdgeLocalID &e = local_owner_edges[n];
                 int gid = equiv.edge_owner_gid_begin + n;
+
+                pack_edge_local(send_buf, e);
+                send_buf.push_back(gid);
+            }
+
+            std::vector<int> recv_counts(nrank, 0);
+            std::vector<int> displs(nrank, 0);
+            int send_count = static_cast<int>(send_buf.size());
+
+            PARALLEL::mpi_gather(&send_count, 1, recv_counts.data(), 1, 0);
+            PARALLEL::mpi_bcast(recv_counts.data(), nrank, 0);
+
+            int total_recv = 0;
+            for (int r = 0; r < nrank; ++r)
+            {
+                displs[r] = total_recv;
+                total_recv += recv_counts[r];
+            }
+
+            std::vector<int> recv_buf(total_recv, 0);
+            PARALLEL::mpi_allgatherv(
+                send_count > 0 ? send_buf.data() : nullptr,
+                send_count,
+                total_recv > 0 ? recv_buf.data() : nullptr,
+                recv_counts.data(),
+                displs.data());
+
+            if (total_recv % 7 != 0)
+            {
+                throw std::runtime_error(
+                    "build_topology_equiv: gathered edge-owner-gid int count is not multiple of 7.");
+            }
+
+            const int nowners = total_recv / 7;
+            for (int n = 0; n < nowners; ++n)
+            {
+                const int *base = recv_buf.data() + 7 * n;
+                EdgeLocalID e = unpack_edge_local(base);
+                int gid = base[6];
 
                 equiv.edge_owner_gid[e] = gid;
                 equiv.gid2edge_owner[gid] = e;
@@ -618,13 +708,18 @@ namespace TOPO
             buf.push_back(static_cast<int>(sign));
         }
 
-        inline void select_face_owner_parallel_impl(TopologyEquiv &equiv)
+        inline void select_face_owner_parallel_impl(
+            TopologyEquiv &equiv,
+            const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts)
         {
             std::vector<int> send_buf;
             send_buf.reserve(1024);
 
             for (const auto &[key, members] : equiv.face_members)
             {
+                if (!face_key_is_shared(key, node_eq_counts) && members.size() <= 1)
+                    continue;
+
                 for (const auto &f : members)
                 {
                     auto sign_it = equiv.face2sign.find(f);
@@ -713,6 +808,7 @@ namespace TOPO
                     equiv.face_is_owner[f] = (f == owner);
                 }
             }
+
         }
 
         inline void build_face_owner_gid_impl(int my_rank, TopologyEquiv &equiv)
@@ -1177,21 +1273,22 @@ namespace TOPO
         TopologyEquiv &equiv)
     {
         equiv.clear();
+        std::unordered_map<NodeEqID, int, NodeEqID::Hash> node_eq_counts;
 
         auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
-        reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv);
+        reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv, node_eq_counts);
 
         auto all_local_edges = collect_all_local_edges_impl(grid, my_rank, dimension);
         build_edge_equivalence_from_nodes_impl(all_local_edges, equiv);
 
-        select_edge_owner_parallel_impl(equiv);
+        select_edge_owner_parallel_impl(equiv, node_eq_counts);
         build_edge_owner_gid_impl(my_rank, equiv);
         equiv.mirror_legacy_edge_equiv_to_general();
 
         auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
         build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
 
-        select_face_owner_parallel_impl(equiv);
+        select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
         equiv.mirror_legacy_face_equiv_to_general();
     }
@@ -1223,14 +1320,21 @@ namespace TOPO
     {
         if (equiv.node2eq.empty())
         {
+            std::unordered_map<NodeEqID, int, NodeEqID::Hash> node_eq_counts;
             auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
-            reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv);
+            reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv, node_eq_counts);
+        }
+        std::unordered_map<NodeEqID, int, NodeEqID::Hash> node_eq_counts;
+        for (const auto &[node, eq] : equiv.node2eq)
+        {
+            (void)node;
+            ++node_eq_counts[eq];
         }
 
         auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
         build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
 
-        select_face_owner_parallel_impl(equiv);
+        select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
         equiv.mirror_legacy_face_equiv_to_general();
     }
