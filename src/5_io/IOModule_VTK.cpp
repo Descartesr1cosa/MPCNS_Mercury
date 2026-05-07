@@ -35,6 +35,18 @@ namespace
          {"face_eta", "face_eta", ".vtp"},
          {"face_zeta", "face_zeta", ".vtp"}}};
 
+    struct ParaViewFieldSelection
+    {
+        std::vector<int> node;
+        std::vector<int> cell;
+        std::vector<int> edge_xi;
+        std::vector<int> edge_eta;
+        std::vector<int> edge_zeta;
+        std::vector<int> face_xi;
+        std::vector<int> face_eta;
+        std::vector<int> face_zeta;
+    };
+
     std::string RankBlockPrefix(int rank, int block)
     {
         std::ostringstream os;
@@ -52,6 +64,98 @@ namespace
     {
         return white_list.empty() ||
                std::find(white_list.begin(), white_list.end(), name) != white_list.end();
+    }
+
+    bool IsParaViewSupportedLocation(StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::Node:
+        case StaggerLocation::Cell:
+        case StaggerLocation::EdgeXi:
+        case StaggerLocation::EdgeEt:
+        case StaggerLocation::EdgeZe:
+        case StaggerLocation::FaceXi:
+        case StaggerLocation::FaceEt:
+        case StaggerLocation::FaceZe:
+            return true;
+        }
+        return false;
+    }
+
+    std::vector<int> &MutableFieldIdsForLocation(ParaViewFieldSelection &selection, StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::Node:
+            return selection.node;
+        case StaggerLocation::Cell:
+            return selection.cell;
+        case StaggerLocation::EdgeXi:
+            return selection.edge_xi;
+        case StaggerLocation::EdgeEt:
+            return selection.edge_eta;
+        case StaggerLocation::EdgeZe:
+            return selection.edge_zeta;
+        case StaggerLocation::FaceXi:
+            return selection.face_xi;
+        case StaggerLocation::FaceEt:
+            return selection.face_eta;
+        case StaggerLocation::FaceZe:
+            return selection.face_zeta;
+        }
+        return selection.cell;
+    }
+
+    const std::vector<int> &FieldIdsForLocation(const ParaViewFieldSelection &selection, StaggerLocation loc)
+    {
+        static const std::vector<int> empty;
+        switch (loc)
+        {
+        case StaggerLocation::Node:
+            return selection.node;
+        case StaggerLocation::Cell:
+            return selection.cell;
+        case StaggerLocation::EdgeXi:
+            return selection.edge_xi;
+        case StaggerLocation::EdgeEt:
+            return selection.edge_eta;
+        case StaggerLocation::EdgeZe:
+            return selection.edge_zeta;
+        case StaggerLocation::FaceXi:
+            return selection.face_xi;
+        case StaggerLocation::FaceEt:
+            return selection.face_eta;
+        case StaggerLocation::FaceZe:
+            return selection.face_zeta;
+        }
+        return empty;
+    }
+
+    ParaViewFieldSelection BuildParaViewFieldSelection(Field &field,
+                                                       const std::vector<std::string> &white_list,
+                                                       int rank)
+    {
+        ParaViewFieldSelection selection;
+        const int nfield = field.num_fields();
+        for (int fid = 0; fid < nfield; ++fid)
+        {
+            const FieldDescriptor &desc = field.descriptor(fid);
+            if (!FieldSelected(white_list, desc.name))
+                continue;
+            if (!IsParaViewSupportedLocation(desc.location))
+            {
+                if (rank == 0)
+                {
+                    std::printf("[IOModule][VTK] skip unsupported field location: %s\n",
+                                desc.name.c_str());
+                    std::fflush(stdout);
+                }
+                continue;
+            }
+            MutableFieldIdsForLocation(selection, desc.location).push_back(fid);
+        }
+        return selection;
     }
 
     void AddFieldDataArrays(VTKXML::AppendedRawWriter &appended,
@@ -270,7 +374,7 @@ namespace
                         Block &block,
                         Field &field,
                         int iblock,
-                        const std::vector<std::string> &white_list)
+                        const ParaViewFieldSelection &selection)
     {
         VTKXML::AppendedRawWriter appended;
 
@@ -305,29 +409,26 @@ namespace
         std::vector<VTKXML::AppendedArray> point_arrays;
         std::vector<VTKXML::AppendedArray> cell_arrays;
 
-        const int nfield = field.num_fields();
-        for (int fid = 0; fid < nfield; ++fid)
+        for (int fid : selection.node)
         {
             const FieldDescriptor &desc = field.descriptor(fid);
-            if (!FieldSelected(white_list, desc.name))
-                continue;
-            if (desc.location != StaggerLocation::Node && desc.location != StaggerLocation::Cell)
-                continue;
-
             FieldBlock &field_block = field.field(fid, iblock);
             if (!field_block.is_allocated())
                 continue;
 
-            if (desc.location == StaggerLocation::Node)
-            {
-                AddFieldDataArrays(appended, point_arrays, field_block, desc.name, desc.ncomp,
-                                   point_ni, point_nj, point_nk);
-            }
-            else
-            {
-                AddFieldDataArrays(appended, cell_arrays, field_block, desc.name, desc.ncomp,
-                                   cell_ni, cell_nj, cell_nk);
-            }
+            AddFieldDataArrays(appended, point_arrays, field_block, desc.name, desc.ncomp,
+                               point_ni, point_nj, point_nk);
+        }
+
+        for (int fid : selection.cell)
+        {
+            const FieldDescriptor &desc = field.descriptor(fid);
+            FieldBlock &field_block = field.field(fid, iblock);
+            if (!field_block.is_allocated())
+                continue;
+
+            AddFieldDataArrays(appended, cell_arrays, field_block, desc.name, desc.ncomp,
+                               cell_ni, cell_nj, cell_nk);
         }
 
         std::ofstream out(path, std::ios::binary);
@@ -362,7 +463,7 @@ namespace
                       int iblock,
                       int rank,
                       StaggerLocation edge_location,
-                      const std::vector<std::string> &white_list)
+                      const std::vector<int> &field_ids)
     {
         VTKXML::AppendedRawWriter appended;
 
@@ -462,15 +563,9 @@ namespace
                            block_values, rank_values, location_values,
                            edge_dx, edge_dy, edge_dz, edge_length);
 
-        const int nfield = field.num_fields();
-        for (int fid = 0; fid < nfield; ++fid)
+        for (int fid : field_ids)
         {
             const FieldDescriptor &desc = field.descriptor(fid);
-            if (!FieldSelected(white_list, desc.name))
-                continue;
-            if (desc.location != edge_location)
-                continue;
-
             FieldBlock &field_block = field.field(fid, iblock);
             if (!field_block.is_allocated())
                 continue;
@@ -519,7 +614,7 @@ namespace
                       int iblock,
                       int rank,
                       StaggerLocation face_location,
-                      const std::vector<std::string> &white_list)
+                      const std::vector<int> &field_ids)
     {
         VTKXML::AppendedRawWriter appended;
 
@@ -643,15 +738,9 @@ namespace
                            block_values, rank_values, location_values,
                            normal_x, normal_y, normal_z, face_area);
 
-        const int nfield = field.num_fields();
-        for (int fid = 0; fid < nfield; ++fid)
+        for (int fid : field_ids)
         {
             const FieldDescriptor &desc = field.descriptor(fid);
-            if (!FieldSelected(white_list, desc.name))
-                continue;
-            if (desc.location != face_location)
-                continue;
-
             FieldBlock &field_block = field.field(fid, iblock);
             if (!field_block.is_allocated())
                 continue;
@@ -813,6 +902,20 @@ namespace
         }
         return false;
     }
+
+    void RecreateOutputDirectory(const fs::path &path)
+    {
+        if (path.empty())
+            throw std::runtime_error("[IOModule][VTK] ParaView output path is empty");
+
+        const fs::path normalized = path.lexically_normal();
+        if (normalized == "." || normalized == "/" || normalized == fs::path(".."))
+            throw std::runtime_error("[IOModule][VTK] refusing to clear unsafe ParaView output path: " +
+                                     normalized.string());
+
+        fs::remove_all(path);
+        fs::create_directories(path);
+    }
 }
 
 void IOModule::SetParaViewFields(const std::vector<std::string> &names)
@@ -841,10 +944,19 @@ void IOModule::WriteParaViewFile()
         Fail_("[IOModule][VTK] Setup() must be called before WriteParaViewFile()");
 
     const int rank = par_->GetInt("myid");
+    int nrank = 1;
+    PARALLEL::mpi_size(&nrank);
+    const fs::path output_dir = fs::path(paraview_path_);
 
     try
     {
-        fs::create_directories(paraview_path_);
+        if (rank == 0)
+            RecreateOutputDirectory(output_dir);
+        PARALLEL::mpi_barrier();
+        fs::create_directories(output_dir);
+
+        const ParaViewFieldSelection field_selection =
+            BuildParaViewFieldSelection(*fld_, paraview_fields_, rank);
 
         const int nblock = grd_->nblock;
         for (int ib = 0; ib < nblock; ++ib)
@@ -856,11 +968,13 @@ void IOModule::WriteParaViewFile()
                 StaggerLocation edge_location = StaggerLocation::EdgeXi;
                 StaggerLocation face_location = StaggerLocation::FaceXi;
                 if (std::string(spec.extension) == ".vts")
-                    WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, paraview_fields_);
+                    WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, field_selection);
                 else if (IsEdgeDataset(spec, edge_location))
-                    WriteEdgeVTP(path, grd_->grids(ib), *fld_, ib, rank, edge_location, paraview_fields_);
+                    WriteEdgeVTP(path, grd_->grids(ib), *fld_, ib, rank, edge_location,
+                                 FieldIdsForLocation(field_selection, edge_location));
                 else if (IsFaceDataset(spec, face_location))
-                    WriteFaceVTP(path, grd_->grids(ib), *fld_, ib, rank, face_location, paraview_fields_);
+                    WriteFaceVTP(path, grd_->grids(ib), *fld_, ib, rank, face_location,
+                                 FieldIdsForLocation(field_selection, face_location));
                 else
                     WritePlaceholderDataset(path, spec);
             }
@@ -870,6 +984,10 @@ void IOModule::WriteParaViewFile()
     {
         Fail_(e.what());
     }
+
+    int local_nblock = grd_->nblock;
+    std::vector<int> rank_nblocks(static_cast<std::size_t>(nrank), 0);
+    PARALLEL::mpi_gather(&local_nblock, 1, rank_nblocks.data(), 1, 0);
 
     if (rank == 0)
     {
@@ -882,18 +1000,21 @@ void IOModule::WriteParaViewFile()
             << "<VTKFile type=\"vtkMultiBlockDataSet\" version=\"1.0\" byte_order=\"LittleEndian\">\n"
             << "  <vtkMultiBlockDataSet>\n";
 
-        const int nblock = grd_->nblock;
-        for (int ib = 0; ib < nblock; ++ib)
+        int block_index = 0;
+        for (int r = 0; r < nrank; ++r)
         {
-            const std::string prefix = RankBlockPrefix(rank, ib);
-            out << "    <Block index=\"" << ib << "\" name=\"" << prefix << "\">\n";
-            for (std::size_t idata = 0; idata < kParaViewDatasets.size(); ++idata)
+            for (int ib = 0; ib < rank_nblocks[static_cast<std::size_t>(r)]; ++ib)
             {
-                const ParaViewDatasetSpec &spec = kParaViewDatasets[idata];
-                out << "      <DataSet index=\"" << idata << "\" name=\"" << spec.name
-                    << "\" file=\"" << DatasetFilename(prefix, spec) << "\"/>\n";
+                const std::string prefix = RankBlockPrefix(r, ib);
+                out << "    <Block index=\"" << block_index++ << "\" name=\"" << prefix << "\">\n";
+                for (std::size_t idata = 0; idata < kParaViewDatasets.size(); ++idata)
+                {
+                    const ParaViewDatasetSpec &spec = kParaViewDatasets[idata];
+                    out << "      <DataSet index=\"" << idata << "\" name=\"" << spec.name
+                        << "\" file=\"" << DatasetFilename(prefix, spec) << "\"/>\n";
+                }
+                out << "    </Block>\n";
             }
-            out << "    </Block>\n";
         }
 
         out << "  </vtkMultiBlockDataSet>\n"
