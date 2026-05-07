@@ -4,6 +4,24 @@
 #include "4_halo/detail/halo_build_tools.h"
 #include "4_halo/detail/halo_build_boxmakers.h"
 
+namespace
+{
+void pack_to_neighbor_order_scaled(FieldBlock &fb,
+                                   const Box3 &sb,
+                                   int ncomp,
+                                   const TOPO::IndexTransform &T,
+                                   double factor,
+                                   std::vector<double> &out)
+{
+    HALO_TOOLS::pack_to_neighbor_order(fb, sb, ncomp, T, out);
+    if (factor == 1.0)
+        return;
+
+    for (double &v : out)
+        v *= factor;
+}
+} // namespace
+
 void Halo::coupling_parallel_face(const std::string &src, const std::string &dst)
 {
     if (!fld_->has_coupling_pair(src, dst))
@@ -28,6 +46,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -51,7 +70,18 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             // 发送侧：src(this) -> dst(nb)
             if (p.this_block_name == src && p.nb_block_name == dst)
             {
-                const std::string &tag = ch.tag;
+                std::string tag = ch.tag;
+                double factor = 1.0;
+                StaggerLocation src_loc = ch.location;
+                if (coupling_channel_needs_form_transfer_(ch))
+                {
+                    const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                    const int src_axis = coupling_src_axis_from_src_to_dst_transform_(p.interface_patch->trans, dst_axis);
+                    tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                    src_loc = coupling_form_location_from_axis_(ch.value_kind, src_axis);
+                    factor = static_cast<double>(
+                        coupling_form_orientation_sign_src_to_dst_(ch, p.interface_patch->trans, src_axis));
+                }
                 const int fid = fld_->field_id(tag);
 
                 const Block &blk = fld_->grd->grids(p.this_block);
@@ -61,7 +91,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     p.this_box_node, blk_node, "coupling_parallel_face");
 
                 Box3 sb = HALO_BOX::make_1DCorner_inner_box(
-                    ch.location, p.this_box_node, dir, ch.nghost);
+                    src_loc, p.this_box_node, dir, ch.nghost);
 
                 const int Ni = sb.hi.i - sb.lo.i;
                 const int Nj = sb.hi.j - sb.lo.j;
@@ -74,6 +104,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                 it.fid = fid;
                 it.this_block = p.this_block;
                 it.sb = sb;
+                it.factor = factor;
                 sends.push_back(std::move(it));
             }
 
@@ -124,7 +155,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             FieldBlock &fb = fld_->field(it.fid, it.this_block);
 
             // this(src) -> nb(dst)
-            HALO_TOOLS::pack_to_neighbor_order(fb, it.sb, ncomp, it.p->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(fb, it.sb, ncomp, it.p->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;
@@ -212,6 +243,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -235,7 +267,18 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             // 发送侧：src(this) -> dst(nb)
             if (p.this_block_name == src && p.nb_block_name == dst)
             {
-                const std::string &tag = ch.tag;
+                std::string tag = ch.tag;
+                double factor = 1.0;
+                StaggerLocation src_loc = ch.location;
+                if (coupling_channel_needs_form_transfer_(ch))
+                {
+                    const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                    const int src_axis = coupling_src_axis_from_src_to_dst_transform_(p.interface_patch->trans, dst_axis);
+                    tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                    src_loc = coupling_form_location_from_axis_(ch.value_kind, src_axis);
+                    factor = static_cast<double>(
+                        coupling_form_orientation_sign_src_to_dst_(ch, p.interface_patch->trans, src_axis));
+                }
                 const int fid = fld_->field_id(tag);
 
                 const Block &blk = fld_->grd->grids(p.this_block);
@@ -245,7 +288,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                     p.this_box_node, blk_node, "coupling_parallel_face");
 
                 Box3 sb = HALO_BOX::make_1DCorner_inner_box(
-                    ch.location, p.this_box_node, dir, ch.nghost);
+                    src_loc, p.this_box_node, dir, ch.nghost);
 
                 const int Ni = sb.hi.i - sb.lo.i;
                 const int Nj = sb.hi.j - sb.lo.j;
@@ -258,6 +301,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
                 it.fid = fid;
                 it.this_block = p.this_block;
                 it.sb = sb;
+                it.factor = factor;
                 sends.push_back(std::move(it));
             }
 
@@ -342,7 +386,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             }
 
             // this(src) -> nb(dst)
-            HALO_TOOLS::pack_to_neighbor_order(fb, it.sb, ncomp, it.p->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(fb, it.sb, ncomp, it.p->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;
@@ -470,6 +514,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -483,9 +528,42 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        // send side regions（src -> dst）
-        for (const HaloRegion &r : pat_send.regions)
+        std::vector<const HaloPattern *> send_patterns;
+        if (coupling_channel_needs_form_transfer_(ch))
         {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                CouplingPatternKey skey{src, dst,
+                                        coupling_form_location_from_axis_(ch.value_kind, axis),
+                                        ch.nghost};
+                auto sit = coupling_parallel_edge_patterns_send.find(skey);
+                if (sit != coupling_parallel_edge_patterns_send.end())
+                    send_patterns.push_back(&sit->second);
+            }
+        }
+        else
+        {
+            send_patterns.push_back(&pat_send);
+        }
+
+        // send side regions（src -> dst）
+        for (const HaloPattern *src_pat : send_patterns)
+        for (const HaloRegion &r : src_pat->regions)
+        {
+            int src_axis = -1;
+            std::string tag = ch.tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                src_axis = coupling_src_axis_from_src_to_dst_transform_(r.trans, dst_axis);
+                if (coupling_form_location_from_axis_(ch.value_kind, src_axis) != src_pat->location)
+                    continue;
+                tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_src_to_dst_(ch, r.trans, src_axis));
+            }
+
             // send_box 为空就跳过
             const Box3 &sb = r.send_box;
             const int Ni = sb.hi.i - sb.lo.i;
@@ -494,7 +572,6 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             if (Ni <= 0 || Nj <= 0 || Nk <= 0)
                 continue;
 
-            const std::string &tag = ch.tag;
             const int fid = fld_->field_id(tag);
 
             // 发送侧取 src field 数据；若该块未分配该 field，可选择跳过或 fatal
@@ -506,6 +583,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             it.fid = fid;
             it.this_block = r.this_block;
             it.sb = sb;
+            it.factor = factor;
             sends.push_back(std::move(it));
         }
 
@@ -582,8 +660,8 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             FieldBlock &fb = fld_->field(it.fid, it.this_block);
 
             // region.trans 语义：this(src) -> nb(dst)
-            HALO_TOOLS::pack_to_neighbor_order(
-                fb, it.sb, ncomp, it.r->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(
+                fb, it.sb, ncomp, it.r->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;
@@ -712,6 +790,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -725,9 +804,42 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        // send side regions（src -> dst）
-        for (const HaloRegion &r : pat_send.regions)
+        std::vector<const HaloPattern *> send_patterns;
+        if (coupling_channel_needs_form_transfer_(ch))
         {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                CouplingPatternKey skey{src, dst,
+                                        coupling_form_location_from_axis_(ch.value_kind, axis),
+                                        ch.nghost};
+                auto sit = coupling_parallel_edge_patterns_send.find(skey);
+                if (sit != coupling_parallel_edge_patterns_send.end())
+                    send_patterns.push_back(&sit->second);
+            }
+        }
+        else
+        {
+            send_patterns.push_back(&pat_send);
+        }
+
+        // send side regions（src -> dst）
+        for (const HaloPattern *src_pat : send_patterns)
+        for (const HaloRegion &r : src_pat->regions)
+        {
+            int src_axis = -1;
+            std::string tag = ch.tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                src_axis = coupling_src_axis_from_src_to_dst_transform_(r.trans, dst_axis);
+                if (coupling_form_location_from_axis_(ch.value_kind, src_axis) != src_pat->location)
+                    continue;
+                tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_src_to_dst_(ch, r.trans, src_axis));
+            }
+
             // send_box 为空就跳过
             const Box3 &sb = r.send_box;
             const int Ni = sb.hi.i - sb.lo.i;
@@ -736,7 +848,6 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             if (Ni <= 0 || Nj <= 0 || Nk <= 0)
                 continue;
 
-            const std::string &tag = ch.tag;
             const int fid = fld_->field_id(tag);
 
             // 发送侧取 src field 数据；若该块未分配该 field，可选择跳过或 fatal
@@ -748,6 +859,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             it.fid = fid;
             it.this_block = r.this_block;
             it.sb = sb;
+            it.factor = factor;
             sends.push_back(std::move(it));
         }
 
@@ -824,8 +936,8 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             FieldBlock &fb = fld_->field(it.fid, it.this_block);
 
             // region.trans 语义：this(src) -> nb(dst)
-            HALO_TOOLS::pack_to_neighbor_order(
-                fb, it.sb, ncomp, it.r->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(
+                fb, it.sb, ncomp, it.r->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;
@@ -951,6 +1063,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -964,9 +1077,42 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        // send regions
-        for (const HaloRegion &r : pat_send.regions)
+        std::vector<const HaloPattern *> send_patterns;
+        if (coupling_channel_needs_form_transfer_(ch))
         {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                CouplingPatternKey skey{src, dst,
+                                        coupling_form_location_from_axis_(ch.value_kind, axis),
+                                        ch.nghost};
+                auto sit = coupling_parallel_vertex_patterns_send.find(skey);
+                if (sit != coupling_parallel_vertex_patterns_send.end())
+                    send_patterns.push_back(&sit->second);
+            }
+        }
+        else
+        {
+            send_patterns.push_back(&pat_send);
+        }
+
+        // send regions
+        for (const HaloPattern *src_pat : send_patterns)
+        for (const HaloRegion &r : src_pat->regions)
+        {
+            int src_axis = -1;
+            std::string tag = ch.tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                src_axis = coupling_src_axis_from_src_to_dst_transform_(r.trans, dst_axis);
+                if (coupling_form_location_from_axis_(ch.value_kind, src_axis) != src_pat->location)
+                    continue;
+                tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_src_to_dst_(ch, r.trans, src_axis));
+            }
+
             const Box3 &sb = r.send_box;
             const int Ni = sb.hi.i - sb.lo.i;
             const int Nj = sb.hi.j - sb.lo.j;
@@ -974,7 +1120,6 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             if (Ni <= 0 || Nj <= 0 || Nk <= 0)
                 continue;
 
-            const std::string &tag = ch.tag;
             const int fid = fld_->field_id(tag);
 
             if (!field_active_(fid, r.this_block))
@@ -985,6 +1130,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             it.fid = fid;
             it.this_block = r.this_block;
             it.sb = sb;
+            it.factor = factor;
             sends.push_back(std::move(it));
         }
 
@@ -1059,8 +1205,8 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             SendItem &it = sends[is];
             FieldBlock &fb = fld_->field(it.fid, it.this_block);
 
-            HALO_TOOLS::pack_to_neighbor_order(
-                fb, it.sb, ncomp, it.r->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(
+                fb, it.sb, ncomp, it.r->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;
@@ -1185,6 +1331,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             int fid;
             int this_block;
             Box3 sb;
+            double factor = 1.0;
             int32_t len = 0;
         };
         struct RecvItem
@@ -1198,9 +1345,42 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
         std::vector<SendItem> sends;
         std::vector<RecvItem> recvs;
 
-        // send regions
-        for (const HaloRegion &r : pat_send.regions)
+        std::vector<const HaloPattern *> send_patterns;
+        if (coupling_channel_needs_form_transfer_(ch))
         {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                CouplingPatternKey skey{src, dst,
+                                        coupling_form_location_from_axis_(ch.value_kind, axis),
+                                        ch.nghost};
+                auto sit = coupling_parallel_vertex_patterns_send.find(skey);
+                if (sit != coupling_parallel_vertex_patterns_send.end())
+                    send_patterns.push_back(&sit->second);
+            }
+        }
+        else
+        {
+            send_patterns.push_back(&pat_send);
+        }
+
+        // send regions
+        for (const HaloPattern *src_pat : send_patterns)
+        for (const HaloRegion &r : src_pat->regions)
+        {
+            int src_axis = -1;
+            std::string tag = ch.tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                src_axis = coupling_src_axis_from_src_to_dst_transform_(r.trans, dst_axis);
+                if (coupling_form_location_from_axis_(ch.value_kind, src_axis) != src_pat->location)
+                    continue;
+                tag = find_triplet_field_name_(ch.tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_src_to_dst_(ch, r.trans, src_axis));
+            }
+
             const Box3 &sb = r.send_box;
             const int Ni = sb.hi.i - sb.lo.i;
             const int Nj = sb.hi.j - sb.lo.j;
@@ -1208,7 +1388,6 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             if (Ni <= 0 || Nj <= 0 || Nk <= 0)
                 continue;
 
-            const std::string &tag = ch.tag;
             const int fid = fld_->field_id(tag);
 
             if (!field_active_(fid, r.this_block))
@@ -1219,6 +1398,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             it.fid = fid;
             it.this_block = r.this_block;
             it.sb = sb;
+            it.factor = factor;
             sends.push_back(std::move(it));
         }
 
@@ -1293,8 +1473,8 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             SendItem &it = sends[is];
             FieldBlock &fb = fld_->field(it.fid, it.this_block);
 
-            HALO_TOOLS::pack_to_neighbor_order(
-                fb, it.sb, ncomp, it.r->trans, send_buf[is]);
+            pack_to_neighbor_order_scaled(
+                fb, it.sb, ncomp, it.r->trans, it.factor, send_buf[is]);
 
             it.len = (int32_t)send_buf[is].size();
             length[is] = it.len;

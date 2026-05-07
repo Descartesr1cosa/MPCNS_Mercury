@@ -55,5 +55,20 @@ namespace Z0_NULL
                                        const TOPO::TopologyEquiv &equiv,
                                        int my_rank,
                                        std::ostream &os);
+
+        bool run_cell_scalar_coupling_validation(Field &fields,
+                                                 Halo &halo,
+                                                 int my_rank,
+                                                 std::ostream &os);
+
+        bool run_edge_1form_coupling_validation(Field &fields,
+                                                Halo &halo,
+                                                int my_rank,
+                                                std::ostream &os);
+
+        bool run_face_2form_coupling_validation(Field &fields,
+                                                Halo &halo,
+                                                int my_rank,
+                                                std::ostream &os);
     }
 }

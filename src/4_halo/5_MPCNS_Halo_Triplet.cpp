@@ -46,23 +46,7 @@ int face_2form_orientation_sign(const TOPO::IndexTransform &tr,
                                 int dest_axis)
 {
     (void)dest_axis;
-
-    if (source_axis < 0 || source_axis > 2)
-        ERROR::Abort("[Halo] face 2-form orientation sign: invalid source axis");
-
-    if (tr.sign[0] == 0 || tr.sign[1] == 0 || tr.sign[2] == 0)
-        ERROR::Abort("[Halo] face 2-form orientation sign: zero sign in IndexTransform");
-
-    // For orthogonal block index transforms, face 2-form orientation is treated
-    // as pseudovector-like: sign = det(transform_sign) * normal_sign.
-    // This must be verified with CT interface tests.
-    // Future TopologyEquiv FaceOwner sign should become the authoritative source
-    // for owner-alias face sync.
-    const int det_sign = tr.sign[0] * tr.sign[1] * tr.sign[2];
-    const int normal_sign = tr.sign[source_axis];
-    const int s = det_sign * normal_sign;
-
-    return s >= 0 ? +1 : -1;
+    return HALO_TOOLS::face_2form_orientation_sign(tr, source_axis);
 }
 
 void map_index(const TOPO::IndexTransform &tr,

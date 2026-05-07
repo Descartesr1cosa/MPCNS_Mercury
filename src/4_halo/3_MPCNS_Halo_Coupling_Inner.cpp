@@ -52,9 +52,19 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
             if (!buf.allocated)
                 continue; // 允许“只分配某些patch/某些channel”
 
-            // tag = field name
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -74,7 +84,7 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
 
                         for (int m = 0; m < ncomp; ++m)
                         {
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                         }
                     }
                 }
@@ -134,9 +144,19 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst, s
             if (!buf.allocated)
                 continue; // 允许“只分配某些patch/某些channel”
 
-            // tag = field name
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid_for_string].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid_for_string];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -156,7 +176,7 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst, s
 
                         for (int m = 0; m < ncomp; ++m)
                         {
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                         }
                     }
                 }
@@ -209,8 +229,19 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst)
             if (!buf.allocated)
                 continue;
 
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -225,7 +256,7 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst)
                         HALO_TOOLS::apply_transform(T, i, j, k, is, js, ks);
 
                         for (int m = 0; m < ncomp; ++m)
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                     }
         }
     }
@@ -275,8 +306,19 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst, s
             if (!buf.allocated)
                 continue;
 
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -291,7 +333,7 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst, s
                         HALO_TOOLS::apply_transform(T, i, j, k, is, js, ks);
 
                         for (int m = 0; m < ncomp; ++m)
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                     }
         }
     }
@@ -341,8 +383,19 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst)
             if (!buf.allocated)
                 continue;
 
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -357,7 +410,7 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst)
                         HALO_TOOLS::apply_transform(T, i, j, k, is, js, ks);
 
                         for (int m = 0; m < ncomp; ++m)
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                     }
         }
     }
@@ -407,8 +460,19 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst,
             if (!buf.allocated)
                 continue;
 
-            const std::string &tag = (!buf.tag.empty()) ? buf.tag : desc.channels[cid].tag;
-            const int fid = fld_->field_id(tag);
+            const CouplingChannelSpec &ch = desc.channels[cid];
+            const std::string dst_tag = (!buf.tag.empty()) ? buf.tag : ch.tag;
+            std::string src_tag = dst_tag;
+            double factor = 1.0;
+            if (coupling_channel_needs_form_transfer_(ch))
+            {
+                const int dst_axis = coupling_form_axis_from_location_(ch.location);
+                const int src_axis = coupling_src_axis_from_dst_to_src_transform_(T, dst_axis);
+                src_tag = find_triplet_field_name_(dst_tag, ch.value_kind, src_axis);
+                factor = static_cast<double>(
+                    coupling_form_orientation_sign_dst_to_src_(ch, T, dst_axis));
+            }
+            const int fid = fld_->field_id(src_tag);
 
             FieldBlock &fb_src = fld_->field(fid, src_block);
 
@@ -423,7 +487,7 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst,
                         HALO_TOOLS::apply_transform(T, i, j, k, is, js, ks);
 
                         for (int m = 0; m < ncomp; ++m)
-                            buf(i, j, k, m) = fb_src(is, js, ks, m);
+                            buf(i, j, k, m) = factor * fb_src(is, js, ks, m);
                     }
         }
     }

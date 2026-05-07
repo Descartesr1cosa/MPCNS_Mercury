@@ -63,6 +63,9 @@ namespace HALO_TOOLS
                          int i, int j, int k,
                          int &io, int &jo, int &ko);
 
+    int face_2form_orientation_sign(const TOPO::IndexTransform &T,
+                                    int source_axis);
+
     // For Coupling 1D 2D 3D Corner
     // pack：按“邻居坐标顺序”打包 fb --> out
     void pack_to_neighbor_order(FieldBlock &fb,

@@ -264,6 +264,21 @@ namespace HALO_TOOLS
         ko = tar[2];
     }
 
+    int face_2form_orientation_sign(const TOPO::IndexTransform &T,
+                                    int source_axis)
+    {
+        if (source_axis < 0 || source_axis > 2)
+            ERROR::Abort("[Halo] face 2-form orientation sign: invalid source axis");
+
+        if (T.sign[0] == 0 || T.sign[1] == 0 || T.sign[2] == 0)
+            ERROR::Abort("[Halo] face 2-form orientation sign: zero sign in IndexTransform");
+
+        const int det_sign = T.sign[0] * T.sign[1] * T.sign[2];
+        const int normal_sign = T.sign[source_axis];
+        const int s = det_sign * normal_sign;
+        return s >= 0 ? +1 : -1;
+    }
+
     void pack_to_neighbor_order(FieldBlock &fb,
                                 const Box3 &sb,
                                 int ncomp,

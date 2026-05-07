@@ -478,7 +478,18 @@ void Halo::build_registered_patterns()
 
             std::set<PatternKey> ckeys;
             for (const auto &ch : pd.channels)
+            {
                 ckeys.insert(PatternKey{ch.location, ch.nghost});
+                if (ch.orientation_aware &&
+                    (ch.value_kind == FieldValueKind::EdgeCovariant1Form ||
+                     ch.value_kind == FieldValueKind::FaceContravariant2Form))
+                {
+                    const bool is_face = ch.value_kind == FieldValueKind::FaceContravariant2Form;
+                    ckeys.insert(PatternKey{is_face ? StaggerLocation::FaceXi : StaggerLocation::EdgeXi, ch.nghost});
+                    ckeys.insert(PatternKey{is_face ? StaggerLocation::FaceEt : StaggerLocation::EdgeEt, ch.nghost});
+                    ckeys.insert(PatternKey{is_face ? StaggerLocation::FaceZe : StaggerLocation::EdgeZe, ch.nghost});
+                }
+            }
 
             if (dim >= 2 && has_parallel_coupling_edge(src, dst))
             {

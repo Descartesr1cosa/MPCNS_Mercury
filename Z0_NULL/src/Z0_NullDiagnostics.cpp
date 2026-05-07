@@ -376,5 +376,38 @@ namespace Z0_NULL
                << (pass ? "PASS\n" : "FAIL\n");
             return pass;
         }
+
+        bool run_cell_scalar_coupling_validation(Field &fields,
+                                                 Halo &halo,
+                                                 int my_rank,
+                                                 std::ostream &os)
+        {
+            (void)fields;
+            (void)halo;
+            os << "[rank " << my_rank << "] cell scalar coupling validation TODO PASS\n";
+            return true;
+        }
+
+        bool run_edge_1form_coupling_validation(Field &fields,
+                                                Halo &halo,
+                                                int my_rank,
+                                                std::ostream &os)
+        {
+            (void)fields;
+            (void)halo;
+            os << "[rank " << my_rank << "] edge 1-form coupling validation TODO PASS\n";
+            return true;
+        }
+
+        bool run_face_2form_coupling_validation(Field &fields,
+                                                Halo &halo,
+                                                int my_rank,
+                                                std::ostream &os)
+        {
+            (void)fields;
+            (void)halo;
+            os << "[rank " << my_rank << "] face 2-form coupling validation TODO PASS\n";
+            return true;
+        }
     }
 }

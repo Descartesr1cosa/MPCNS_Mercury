@@ -166,6 +166,25 @@ private:
     void coupling_parallel_vertex(const std::string &src, const std::string &dst);
     void coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+
+    bool coupling_channel_needs_form_transfer_(const CouplingChannelSpec &ch) const;
+    int coupling_form_axis_from_location_(StaggerLocation loc) const;
+    StaggerLocation coupling_form_location_from_axis_(FieldValueKind value_kind, int axis) const;
+    int coupling_src_axis_from_dst_to_src_transform_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_src_axis_from_src_to_dst_transform_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_edge_1form_sign_dst_to_src_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_edge_1form_sign_src_to_dst_(const TOPO::IndexTransform &tr, int src_axis) const;
+    int coupling_face_2form_sign_dst_to_src_(const TOPO::IndexTransform &tr, int dst_axis) const;
+    int coupling_face_2form_sign_src_to_dst_(const TOPO::IndexTransform &tr, int src_axis) const;
+    int coupling_form_orientation_sign_dst_to_src_(const CouplingChannelSpec &ch,
+                                                   const TOPO::IndexTransform &tr,
+                                                   int dst_axis) const;
+    int coupling_form_orientation_sign_src_to_dst_(const CouplingChannelSpec &ch,
+                                                   const TOPO::IndexTransform &tr,
+                                                   int src_axis) const;
+    std::string find_triplet_field_name_(const std::string &dst_field_name,
+                                         FieldValueKind value_kind,
+                                         int wanted_src_axis) const;
     //=========================================================================
 
 private:
