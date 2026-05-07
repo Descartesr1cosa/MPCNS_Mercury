@@ -258,6 +258,13 @@ void Halo::require_owner_equiv_available_(OwnerSyncPolicy policy,
     if (policy == OwnerSyncPolicy::None)
         return;
 
+    if (policy == OwnerSyncPolicy::FaceOwner &&
+        (!equiv_ || !equiv_->has_face_equiv()))
+    {
+        ERROR::Abort("[Halo] FaceOwner sync requested but face equivalence is not built. field=" +
+                     field_name);
+    }
+
     if (!equiv_)
     {
         ERROR::Abort("[Halo] OwnerAliasSync requested but TopologyEquiv is not bound. field=" +
@@ -276,11 +283,6 @@ void Halo::require_owner_equiv_available_(OwnerSyncPolicy policy,
                      field_name);
     }
 
-    if (policy == OwnerSyncPolicy::FaceOwner && !equiv_->has_face_equiv())
-    {
-        ERROR::Abort("[Halo] FaceOwner sync requested but face equivalence is not built. field=" +
-                     field_name);
-    }
 }
 
 int Halo::owner_alias_sign_(const HaloOwnerRequest &req,
@@ -301,8 +303,9 @@ int Halo::owner_alias_sign_(const HaloOwnerRequest &req,
     if (req.policy == OwnerSyncPolicy::FaceOwner &&
         req.value_kind == FieldValueKind::FaceContravariant2Form)
     {
-        // orient_sign is relative to the canonical orientation. For signs in
-        // {+1, -1}, alias / owner is equivalent to alias * owner.
+        // orient_sign is relative to the canonical face orientation.
+        // alias_from_owner_sign = alias_sign / owner_sign. Since signs are
+        // in {+1, -1}, division is equivalent to alias_sign * owner_sign.
         return alias.orient_sign * owner.orient_sign;
     }
 
@@ -312,6 +315,21 @@ int Halo::owner_alias_sign_(const HaloOwnerRequest &req,
 bool Halo::owner_member_matches_field_(const HaloOwnerRequest &req,
                                        const TOPO::EquivMember &member) const
 {
+    if (req.policy == OwnerSyncPolicy::FaceOwner)
+    {
+        switch (req.location)
+        {
+        case StaggerLocation::FaceXi:
+            return member.location == StaggerLocation::FaceXi;
+        case StaggerLocation::FaceEt:
+            return member.location == StaggerLocation::FaceEt;
+        case StaggerLocation::FaceZe:
+            return member.location == StaggerLocation::FaceZe;
+        default:
+            return false;
+        }
+    }
+
     return member.location == req.location;
 }
 
@@ -400,8 +418,13 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
             else if (owner.rank == my_rank && alias.rank != my_rank)
             {
                 if (cls.global_id < 0)
+                {
+                    if (req.policy == OwnerSyncPolicy::FaceOwner)
+                        ERROR::Abort("[Halo] cross-rank FaceOwner sync requires valid face global_id");
+
                     ERROR::Abort("[Halo] cross-rank OwnerAliasSync requires EquivClass::global_id >= 0 for field: " +
                                  req.field_name);
+                }
 
                 OwnerSyncSendOp op;
                 op.fid = fid;
@@ -418,8 +441,13 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
             else if (owner.rank != my_rank && alias.rank == my_rank)
             {
                 if (cls.global_id < 0)
+                {
+                    if (req.policy == OwnerSyncPolicy::FaceOwner)
+                        ERROR::Abort("[Halo] cross-rank FaceOwner sync requires valid face global_id");
+
                     ERROR::Abort("[Halo] cross-rank OwnerAliasSync requires EquivClass::global_id >= 0 for field: " +
                                  req.field_name);
+                }
 
                 OwnerSyncRecvOp op;
                 op.fid = fid;
