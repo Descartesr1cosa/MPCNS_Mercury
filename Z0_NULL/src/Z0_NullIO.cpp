@@ -10,16 +10,18 @@
 
 namespace Z0_NULL
 {
-    void write_tecplot_output(Param &par,
-                              Grid &grid,
-                              Field &fields,
-                              int step,
-                              double time)
+    void write_null_tecplot(Param &par,
+                            Grid &grid,
+                            Field &fields,
+                            int step,
+                            double time)
     {
         IOModule io;
         io.Setup(&par, &grid, &fields, fields.num_fields());
         io.SetTecplotMode(IOModule::TecplotMode::Mixed);
-        io.SetTecplotFields({"phi", "U", "V_cart", "tmp"});
+        // Current Tecplot writer handles Cell/Node fields. Edge/Face staggered
+        // field visualization will be handled later.
+        io.SetTecplotFields({"phi", "U", "V_cart"});
         io.SetTecplotFieldComponentNames("U", {"rho", "rho_u", "rho_v", "rho_w", "rho_E"});
         io.SetTecplotFieldComponentNames("V_cart", {"Vx", "Vy", "Vz"});
         io.WriteTecplotBinFile(step, time);
@@ -28,8 +30,17 @@ namespace Z0_NULL
         PARALLEL::mpi_rank(&myid);
         if (myid == 0)
         {
-            std::cout << "Z0_NULL Tecplot output written to ./DATA/flow_field####.plt\n"
+            std::cout << "Z0_NULL Tecplot output written.\n"
                       << std::flush;
         }
+    }
+
+    void write_tecplot_output(Param &par,
+                              Grid &grid,
+                              Field &fields,
+                              int step,
+                              double time)
+    {
+        write_null_tecplot(par, grid, fields, step, time);
     }
 }

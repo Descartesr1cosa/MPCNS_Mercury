@@ -27,7 +27,11 @@ namespace Z0_NULL
         use_z4_case_workdir_if_needed(myid);
 
         if (myid == 0)
+        {
             print_banner();
+            std::cout << "[Z0_NULL] mode = " << mode_name(cfg.mode) << "\n"
+                      << std::flush;
+        }
 
         auto par = std::make_unique<Param>();
         par->ReadParam(myid);
@@ -45,41 +49,50 @@ namespace Z0_NULL
 
         auto fields = std::make_unique<Field>(grd.get(), par.get(), nghost);
         register_null_fields(*fields, nghost);
-        initialize_null_fields(*fields);
 
         auto halo = std::make_unique<Halo>(fields.get(), &topology);
         halo->set_topology_equiv(&topology_equiv);
         halo->register_halo_fields(fields->halo_requests());
         halo->build_registered_patterns();
 
-        if (cfg.sync_test)
+        InitContext init_ctx;
+        init_ctx.my_rank = myid;
+        init_ctx.dimension = dimension;
+        initialize_all_fields(*fields, init_ctx);
+
+        bool pass = true;
+        const bool do_sync = (cfg.mode == NullMode::Sync || cfg.mode == NullMode::All);
+        const bool do_io = cfg.write_tecplot;
+
+        if (do_sync)
         {
-            initialize_halo_smoke_fields(*fields);
-            halo->sync_registered();
+            pass = DIAG::run_basic_halo_validation(*fields, *halo, topology_equiv, myid, std::cout) && pass;
             PARALLEL::mpi_barrier();
-
-            if (myid == 0)
-            {
-                std::cout << "Deterministic halo sync smoke test completed.\n"
-                          << std::flush;
-            }
         }
-
-        halo->sync_registered();
-        PARALLEL::mpi_barrier();
-
-        if (cfg.write_tecplot)
-            write_tecplot_output(*par, *grd, *fields, cfg.output_step, cfg.output_time);
 
         if (myid == 0)
         {
             print_diagnostics(*fields, topology_equiv, dimension, nghost);
-            dump_halo_registry_if_requested(*halo, cfg.dump_registry);
+            DIAG::dump_topology_equiv_summary(topology_equiv, myid, std::cout);
+            DIAG::dump_field_catalog(*fields, myid, std::cout);
+            DIAG::dump_field_block_summary(*fields, myid, std::cout);
+            halo->dump_sync_registry(std::cout);
+        }
 
-            std::cout << "Z0_NULL framework example finished.\n"
+        if (do_io)
+            write_null_tecplot(*par, *grd, *fields, cfg.output_step, cfg.output_time);
+
+        double pass_local = pass ? 1.0 : 0.0;
+        double pass_global = pass_local;
+        PARALLEL::mpi_min(&pass_local, &pass_global, 1);
+        pass = (pass_global > 0.5);
+
+        if (myid == 0)
+        {
+            std::cout << "Z0_NULL result: " << (pass ? "PASS" : "FAIL") << "\n"
                       << std::flush;
         }
 
-        return 0;
+        return pass ? 0 : 1;
     }
 }

@@ -4,11 +4,19 @@
 
 namespace Z0_NULL
 {
+    enum class NullMode
+    {
+        Summary,
+        Sync,
+        IO,
+        All
+    };
+
     struct NullConfig
     {
+        NullMode mode = NullMode::Summary;
         bool dump_registry = false;
-        bool sync_test = false;
-        bool write_tecplot = true;
+        bool write_tecplot = false;
 
         int output_step = 0;
         double output_time = 0.0;
@@ -17,6 +25,8 @@ namespace Z0_NULL
     };
 
     NullConfig parse_config(int argc, char **argv);
+
+    const char *mode_name(NullMode mode);
 
     void use_z4_case_workdir_if_needed(int myid);
 }

@@ -14,6 +14,34 @@ namespace
         }
         return false;
     }
+
+    std::string arg_value(int argc, char **argv, const std::string &name)
+    {
+        const std::string prefix = name + "=";
+        for (int i = 1; i < argc; ++i)
+        {
+            if (!argv[i])
+                continue;
+
+            const std::string arg = argv[i];
+            if (arg == name && i + 1 < argc && argv[i + 1])
+                return argv[i + 1];
+            if (arg.rfind(prefix, 0) == 0)
+                return arg.substr(prefix.size());
+        }
+        return "";
+    }
+
+    Z0_NULL::NullMode parse_mode_name(const std::string &mode)
+    {
+        if (mode == "sync")
+            return Z0_NULL::NullMode::Sync;
+        if (mode == "io")
+            return Z0_NULL::NullMode::IO;
+        if (mode == "all")
+            return Z0_NULL::NullMode::All;
+        return Z0_NULL::NullMode::Summary;
+    }
 }
 
 namespace Z0_NULL
@@ -21,10 +49,30 @@ namespace Z0_NULL
     NullConfig parse_config(int argc, char **argv)
     {
         NullConfig cfg;
+        cfg.mode = parse_mode_name(arg_value(argc, argv, "--mode"));
+        if (has_arg(argc, argv, "--sync-test"))
+            cfg.mode = NullMode::Sync;
+
         cfg.dump_registry = has_arg(argc, argv, "--dump-registry");
-        cfg.sync_test = has_arg(argc, argv, "--sync-test");
-        cfg.write_tecplot = !has_arg(argc, argv, "--no-tecplot");
+        cfg.write_tecplot = (cfg.mode == NullMode::IO || cfg.mode == NullMode::All) &&
+                            !has_arg(argc, argv, "--no-tecplot");
         return cfg;
+    }
+
+    const char *mode_name(NullMode mode)
+    {
+        switch (mode)
+        {
+        case NullMode::Summary:
+            return "summary";
+        case NullMode::Sync:
+            return "sync";
+        case NullMode::IO:
+            return "io";
+        case NullMode::All:
+            return "all";
+        }
+        return "summary";
     }
 
     void use_z4_case_workdir_if_needed(int myid)
