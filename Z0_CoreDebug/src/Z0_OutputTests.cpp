@@ -1,0 +1,39 @@
+#include "Z0_OutputTests.h"
+
+#include "0_basic/1_MPCNS_Parameter.h"
+#include "0_basic/MPI_WRAPPER.h"
+#include "1_grid/1_MPCNS_Grid.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "5_io/IOModule.h"
+
+#include <iostream>
+
+namespace Z0
+{
+    TestResult test_location_output_smoke(Param &par,
+                                          Grid &grid,
+                                          Field &fields,
+                                          int my_rank,
+                                          std::ostream &os)
+    {
+        TestResult result;
+        try
+        {
+            IOModule io;
+            io.Setup(&par, &grid, &fields, fields.num_fields());
+            io.SetTecplotMode(IOModule::TecplotMode::Mixed);
+            io.SetTecplotFields({"phi_cell", "U_cell", "V_cell", "psi_node"});
+            io.SetTecplotFieldComponentNames("U_cell", {"rho", "rho_u", "rho_v", "rho_w", "rho_E"});
+            io.SetTecplotFieldComponentNames("V_cell", {"Vx", "Vy", "Vz"});
+            io.WriteTecplotBinFile(0, 0.0);
+            if (my_rank == 0)
+                os << "[Z0][LocationOutput] Tecplot mixed-location smoke writer was called.\n";
+        }
+        catch (...)
+        {
+            result.pass = false;
+        }
+        report_test("LocationOutput", result, os);
+        return result;
+    }
+}
