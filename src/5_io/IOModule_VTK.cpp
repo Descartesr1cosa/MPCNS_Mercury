@@ -1078,6 +1078,9 @@ void IOModule::WriteParaViewFile()
     int nrank = 1;
     PARALLEL::mpi_size(&nrank);
     const fs::path output_dir = fs::path(paraview_path_);
+    int local_nblock = grd_->nblock;
+    std::vector<int> rank_nblocks(static_cast<std::size_t>(nrank), 0);
+    PARALLEL::mpi_gather(&local_nblock, 1, rank_nblocks.data(), 1, 0);
 
     try
     {
@@ -1123,10 +1126,6 @@ void IOModule::WriteParaViewFile()
         Fail_(e.what());
     }
 
-    int local_nblock = grd_->nblock;
-    std::vector<int> rank_nblocks(static_cast<std::size_t>(nrank), 0);
-    PARALLEL::mpi_gather(&local_nblock, 1, rank_nblocks.data(), 1, 0);
-
     if (rank == 0)
     {
         const fs::path output_path = fs::path(paraview_path_) / "paradata.vtm";
@@ -1162,6 +1161,4 @@ void IOModule::WriteParaViewFile()
                     output_path.string().c_str());
         std::fflush(stdout);
     }
-
-    PARALLEL::mpi_barrier();
 }

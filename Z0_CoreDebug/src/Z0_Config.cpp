@@ -31,6 +31,8 @@ namespace
 
     Z0::Mode parse_mode_name(const std::string &mode)
     {
+        if (mode.empty())
+            return Z0::Mode::Summary;
         if (mode == "summary")
             return Z0::Mode::Summary;
         if (mode == "sync")
@@ -83,51 +85,53 @@ namespace Z0
         if (fs::exists(fs::path("CASE") / "setup" / "filenames"))
             return;
 
-        const fs::path z0_case = fs::path("Z0_CoreDebug") / "CASE" / "setup" / "filenames";
-        if (fs::exists(z0_case))
+        fs::path base = fs::current_path();
+        for (int depth = 0; depth < 6; ++depth)
         {
-            fs::current_path("Z0_CoreDebug");
-        }
-        else
-        {
-            const fs::path direct = fs::path("Z4_Mercury") / "CASE" / "setup" / "filenames";
-            if (fs::exists(direct))
+            const fs::path z0_case = base / "Z0_CoreDebug" / "CASE" / "setup" / "filenames";
+            if (fs::exists(z0_case))
             {
-                fs::current_path("Z4_Mercury");
+                fs::current_path(base / "Z0_CoreDebug");
+                break;
             }
-            else
+
+            const fs::path z4_case = base / "Z4_Mercury" / "CASE" / "setup" / "filenames";
+            if (fs::exists(z4_case))
             {
-                const fs::path parent = fs::path("..") / "Z4_Mercury" / "CASE" / "setup" / "filenames";
-                if (fs::exists(parent))
+                fs::current_path(base / "Z4_Mercury");
+                break;
+            }
+
+            const fs::path z4_setup = base / "Z4_Mercury" / "9999setup" / "filenames";
+            if (fs::exists(z4_setup))
+            {
+                const fs::path z0_dir = base / "Z0_CoreDebug";
+                const fs::path z0_case_dir = z0_dir / "CASE";
+                const fs::path z0_setup_dir = z0_case_dir / "setup";
+                fs::create_directories(z0_case_dir);
+                if (!fs::exists(z0_setup_dir))
                 {
-                    fs::current_path(fs::path("..") / "Z4_Mercury");
-                }
-                else if (fs::exists(fs::path("Z4_Mercury") / "9999setup" / "filenames"))
-                {
-                    fs::create_directories(fs::path("Z0_CoreDebug") / "CASE");
-                    if (!fs::exists(fs::path("Z0_CoreDebug") / "CASE" / "setup"))
+                    try
                     {
-                        try
-                        {
-                            fs::create_directory_symlink(fs::path("..") / ".." / "Z4_Mercury" / "9999setup",
-                                                         fs::path("Z0_CoreDebug") / "CASE" / "setup");
-                        }
-                        catch (...)
-                        {
-                            fs::create_directories(fs::path("Z0_CoreDebug") / "CASE" / "setup");
-                            for (const auto &entry : fs::directory_iterator(fs::path("Z4_Mercury") / "9999setup"))
-                                fs::copy_file(entry.path(),
-                                              fs::path("Z0_CoreDebug") / "CASE" / "setup" / entry.path().filename(),
-                                              fs::copy_options::overwrite_existing);
-                        }
+                        fs::create_directory_symlink(fs::path("..") / ".." / "Z4_Mercury" / "9999setup",
+                                                     z0_setup_dir);
                     }
-                    fs::current_path("Z0_CoreDebug");
+                    catch (...)
+                    {
+                        fs::create_directories(z0_setup_dir);
+                        for (const auto &entry : fs::directory_iterator(base / "Z4_Mercury" / "9999setup"))
+                            fs::copy_file(entry.path(),
+                                          z0_setup_dir / entry.path().filename(),
+                                          fs::copy_options::overwrite_existing);
+                    }
                 }
-                else
-                {
-                    return;
-                }
+                fs::current_path(z0_dir);
+                break;
             }
+
+            if (!base.has_parent_path() || base == base.parent_path())
+                break;
+            base = base.parent_path();
         }
 
         if (myid == 0)
