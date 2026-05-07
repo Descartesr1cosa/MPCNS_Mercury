@@ -2,7 +2,9 @@
 #include "5_io/VTKXmlAppendedWriter.h"
 
 #include <array>
+#include <algorithm>
 #include <cstdio>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -43,6 +45,136 @@ namespace
     std::string DatasetFilename(const std::string &prefix, const ParaViewDatasetSpec &spec)
     {
         return prefix + "_" + spec.suffix + spec.extension;
+    }
+
+    bool FieldSelected(const std::vector<std::string> &white_list, const std::string &name)
+    {
+        return white_list.empty() ||
+               std::find(white_list.begin(), white_list.end(), name) != white_list.end();
+    }
+
+    void AddFieldDataArrays(VTKXML::AppendedRawWriter &appended,
+                            std::vector<VTKXML::AppendedArray> &arrays,
+                            FieldBlock &field_block,
+                            const std::string &field_name,
+                            int ncomp,
+                            int ni,
+                            int nj,
+                            int nk)
+    {
+        if (ncomp == 1 || ncomp == 3)
+        {
+            std::vector<double> values;
+            values.reserve(static_cast<std::size_t>(ni) * nj * nk * ncomp);
+            for (int k = 0; k < nk; ++k)
+                for (int j = 0; j < nj; ++j)
+                    for (int i = 0; i < ni; ++i)
+                        for (int m = 0; m < ncomp; ++m)
+                            values.push_back(field_block(i, j, k, m));
+            arrays.push_back(appended.AddFloat64(field_name, ncomp, values));
+            return;
+        }
+
+        for (int m = 0; m < ncomp; ++m)
+        {
+            std::vector<double> values;
+            values.reserve(static_cast<std::size_t>(ni) * nj * nk);
+            for (int k = 0; k < nk; ++k)
+                for (int j = 0; j < nj; ++j)
+                    for (int i = 0; i < ni; ++i)
+                        values.push_back(field_block(i, j, k, m));
+            arrays.push_back(appended.AddFloat64(field_name + "_" + std::to_string(m), 1, values));
+        }
+    }
+
+    void WriteVolumeVTS(const fs::path &path,
+                        Block &block,
+                        Field &field,
+                        int iblock,
+                        const std::vector<std::string> &white_list)
+    {
+        VTKXML::AppendedRawWriter appended;
+
+        const int dim = block.dimension;
+        const int mx = block.mx;
+        const int my = block.my;
+        const int mz = (dim == 2) ? 1 : block.mz;
+        const int point_ni = mx + 1;
+        const int point_nj = my + 1;
+        const int point_nk = (dim == 2) ? 1 : (block.mz + 1);
+        const int cell_ni = mx;
+        const int cell_nj = my;
+        const int cell_nk = mz;
+
+        std::vector<double> point_values;
+        point_values.reserve(static_cast<std::size_t>(point_ni) * point_nj * point_nk * 3);
+        for (int k = 0; k < point_nk; ++k)
+        {
+            for (int j = 0; j < point_nj; ++j)
+            {
+                for (int i = 0; i < point_ni; ++i)
+                {
+                    point_values.push_back(block.x(i, j, k));
+                    point_values.push_back(block.y(i, j, k));
+                    point_values.push_back(block.z(i, j, k));
+                }
+            }
+        }
+        const VTKXML::AppendedArray points =
+            appended.AddFloat64("", 3, point_values);
+
+        std::vector<VTKXML::AppendedArray> point_arrays;
+        std::vector<VTKXML::AppendedArray> cell_arrays;
+
+        const int nfield = field.num_fields();
+        for (int fid = 0; fid < nfield; ++fid)
+        {
+            const FieldDescriptor &desc = field.descriptor(fid);
+            if (!FieldSelected(white_list, desc.name))
+                continue;
+            if (desc.location != StaggerLocation::Node && desc.location != StaggerLocation::Cell)
+                continue;
+
+            FieldBlock &field_block = field.field(fid, iblock);
+            if (!field_block.is_allocated())
+                continue;
+
+            if (desc.location == StaggerLocation::Node)
+            {
+                AddFieldDataArrays(appended, point_arrays, field_block, desc.name, desc.ncomp,
+                                   point_ni, point_nj, point_nk);
+            }
+            else
+            {
+                AddFieldDataArrays(appended, cell_arrays, field_block, desc.name, desc.ncomp,
+                                   cell_ni, cell_nj, cell_nk);
+            }
+        }
+
+        std::ofstream out(path, std::ios::binary);
+        if (!out)
+            throw std::runtime_error("[IOModule][VTK] cannot open: " + path.string());
+
+        const int extent_z_hi = (dim == 2) ? 0 : block.mz;
+        out << "<?xml version=\"1.0\"?>\n"
+            << "<VTKFile type=\"StructuredGrid\" version=\"1.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n"
+            << "  <StructuredGrid WholeExtent=\"0 " << mx << " 0 " << my << " 0 " << extent_z_hi << "\">\n"
+            << "    <Piece Extent=\"0 " << mx << " 0 " << my << " 0 " << extent_z_hi << "\">\n"
+            << "      <PointData>\n";
+        for (const VTKXML::AppendedArray &array : point_arrays)
+            appended.WriteDataArrayTag(out, array, 8);
+        out << "      </PointData>\n"
+            << "      <CellData>\n";
+        for (const VTKXML::AppendedArray &array : cell_arrays)
+            appended.WriteDataArrayTag(out, array, 8);
+        out << "      </CellData>\n"
+            << "      <Points>\n";
+        appended.WriteDataArrayTag(out, points, 8);
+        out << "      </Points>\n"
+            << "    </Piece>\n"
+            << "  </StructuredGrid>\n";
+        appended.WriteAppendedData(out);
+        out << "</VTKFile>\n";
     }
 
     void WritePlaceholderVTS(const fs::path &path)
@@ -161,7 +293,13 @@ void IOModule::WriteParaViewFile()
         {
             const std::string prefix = RankBlockPrefix(rank, ib);
             for (const ParaViewDatasetSpec &spec : kParaViewDatasets)
-                WritePlaceholderDataset(fs::path(paraview_path_) / DatasetFilename(prefix, spec), spec);
+            {
+                const fs::path path = fs::path(paraview_path_) / DatasetFilename(prefix, spec);
+                if (std::string(spec.extension) == ".vts")
+                    WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, paraview_fields_);
+                else
+                    WritePlaceholderDataset(path, spec);
+            }
         }
     }
     catch (const std::exception &e)
