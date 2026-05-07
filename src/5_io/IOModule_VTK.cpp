@@ -3,6 +3,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <exception>
@@ -85,6 +86,92 @@ namespace
                         values.push_back(field_block(i, j, k, m));
             arrays.push_back(appended.AddFloat64(field_name + "_" + std::to_string(m), 1, values));
         }
+    }
+
+    int LocationCode(StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::EdgeXi:
+            return 1;
+        case StaggerLocation::EdgeEt:
+            return 2;
+        case StaggerLocation::EdgeZe:
+            return 3;
+        default:
+            return 0;
+        }
+    }
+
+    void EdgeDofSize(const Block &block, StaggerLocation loc, int &ni, int &nj, int &nk)
+    {
+        const int mx = block.mx;
+        const int my = block.my;
+        const int mz = (block.dimension == 2) ? 0 : block.mz;
+
+        if (loc == StaggerLocation::EdgeXi)
+        {
+            ni = mx;
+            nj = my + 1;
+            nk = mz + 1;
+        }
+        else if (loc == StaggerLocation::EdgeEt)
+        {
+            ni = mx + 1;
+            nj = my;
+            nk = mz + 1;
+        }
+        else if (loc == StaggerLocation::EdgeZe)
+        {
+            ni = mx + 1;
+            nj = my + 1;
+            nk = mz;
+        }
+        else
+        {
+            ni = 0;
+            nj = 0;
+            nk = 0;
+        }
+    }
+
+    void EdgeEndpoint1(StaggerLocation loc, int i, int j, int k, int &i1, int &j1, int &k1)
+    {
+        i1 = i;
+        j1 = j;
+        k1 = k;
+
+        if (loc == StaggerLocation::EdgeXi)
+            ++i1;
+        else if (loc == StaggerLocation::EdgeEt)
+            ++j1;
+        else if (loc == StaggerLocation::EdgeZe)
+            ++k1;
+    }
+
+    void AddEdgeDebugArrays(VTKXML::AppendedRawWriter &appended,
+                            std::vector<VTKXML::AppendedArray> &cell_arrays,
+                            const std::vector<std::int32_t> &i_values,
+                            const std::vector<std::int32_t> &j_values,
+                            const std::vector<std::int32_t> &k_values,
+                            const std::vector<std::int32_t> &block_values,
+                            const std::vector<std::int32_t> &rank_values,
+                            const std::vector<std::int32_t> &location_values,
+                            const std::vector<double> &edge_dx,
+                            const std::vector<double> &edge_dy,
+                            const std::vector<double> &edge_dz,
+                            const std::vector<double> &edge_length)
+    {
+        cell_arrays.push_back(appended.AddInt32("i", 1, i_values));
+        cell_arrays.push_back(appended.AddInt32("j", 1, j_values));
+        cell_arrays.push_back(appended.AddInt32("k", 1, k_values));
+        cell_arrays.push_back(appended.AddInt32("block_id", 1, block_values));
+        cell_arrays.push_back(appended.AddInt32("rank", 1, rank_values));
+        cell_arrays.push_back(appended.AddInt32("location_code", 1, location_values));
+        cell_arrays.push_back(appended.AddFloat64("edge_dx", 1, edge_dx));
+        cell_arrays.push_back(appended.AddFloat64("edge_dy", 1, edge_dy));
+        cell_arrays.push_back(appended.AddFloat64("edge_dz", 1, edge_dz));
+        cell_arrays.push_back(appended.AddFloat64("edge_length", 1, edge_length));
     }
 
     void WriteVolumeVTS(const fs::path &path,
@@ -177,6 +264,163 @@ namespace
         out << "</VTKFile>\n";
     }
 
+    void WriteEdgeVTP(const fs::path &path,
+                      Block &block,
+                      Field &field,
+                      int iblock,
+                      int rank,
+                      StaggerLocation edge_location,
+                      const std::vector<std::string> &white_list)
+    {
+        VTKXML::AppendedRawWriter appended;
+
+        int ni = 0;
+        int nj = 0;
+        int nk = 0;
+        EdgeDofSize(block, edge_location, ni, nj, nk);
+
+        const std::size_t nedge = static_cast<std::size_t>(ni) * nj * nk;
+
+        std::vector<double> point_values;
+        std::vector<std::int64_t> connectivity;
+        std::vector<std::int64_t> offsets;
+        std::vector<std::int32_t> i_values;
+        std::vector<std::int32_t> j_values;
+        std::vector<std::int32_t> k_values;
+        std::vector<std::int32_t> block_values;
+        std::vector<std::int32_t> rank_values;
+        std::vector<std::int32_t> location_values;
+        std::vector<double> edge_dx;
+        std::vector<double> edge_dy;
+        std::vector<double> edge_dz;
+        std::vector<double> edge_length;
+
+        point_values.reserve(nedge * 2 * 3);
+        connectivity.reserve(nedge * 2);
+        offsets.reserve(nedge);
+        i_values.reserve(nedge);
+        j_values.reserve(nedge);
+        k_values.reserve(nedge);
+        block_values.reserve(nedge);
+        rank_values.reserve(nedge);
+        location_values.reserve(nedge);
+        edge_dx.reserve(nedge);
+        edge_dy.reserve(nedge);
+        edge_dz.reserve(nedge);
+        edge_length.reserve(nedge);
+
+        std::int64_t point_index = 0;
+        for (int k = 0; k < nk; ++k)
+        {
+            for (int j = 0; j < nj; ++j)
+            {
+                for (int i = 0; i < ni; ++i)
+                {
+                    int i1 = i;
+                    int j1 = j;
+                    int k1 = k;
+                    EdgeEndpoint1(edge_location, i, j, k, i1, j1, k1);
+
+                    const double x0 = block.x(i, j, k);
+                    const double y0 = block.y(i, j, k);
+                    const double z0 = block.z(i, j, k);
+                    const double x1 = block.x(i1, j1, k1);
+                    const double y1 = block.y(i1, j1, k1);
+                    const double z1 = block.z(i1, j1, k1);
+                    const double dx = x1 - x0;
+                    const double dy = y1 - y0;
+                    const double dz = z1 - z0;
+
+                    point_values.push_back(x0);
+                    point_values.push_back(y0);
+                    point_values.push_back(z0);
+                    point_values.push_back(x1);
+                    point_values.push_back(y1);
+                    point_values.push_back(z1);
+
+                    connectivity.push_back(point_index);
+                    connectivity.push_back(point_index + 1);
+                    point_index += 2;
+                    offsets.push_back(point_index);
+
+                    i_values.push_back(i);
+                    j_values.push_back(j);
+                    k_values.push_back(k);
+                    block_values.push_back(iblock);
+                    rank_values.push_back(rank);
+                    location_values.push_back(LocationCode(edge_location));
+                    edge_dx.push_back(dx);
+                    edge_dy.push_back(dy);
+                    edge_dz.push_back(dz);
+                    edge_length.push_back(std::sqrt(dx * dx + dy * dy + dz * dz));
+                }
+            }
+        }
+
+        const VTKXML::AppendedArray points =
+            appended.AddFloat64("", 3, point_values);
+        const VTKXML::AppendedArray line_connectivity =
+            appended.AddInt64("connectivity", 1, connectivity);
+        const VTKXML::AppendedArray line_offsets =
+            appended.AddInt64("offsets", 1, offsets);
+
+        std::vector<VTKXML::AppendedArray> cell_arrays;
+        AddEdgeDebugArrays(appended, cell_arrays,
+                           i_values, j_values, k_values,
+                           block_values, rank_values, location_values,
+                           edge_dx, edge_dy, edge_dz, edge_length);
+
+        const int nfield = field.num_fields();
+        for (int fid = 0; fid < nfield; ++fid)
+        {
+            const FieldDescriptor &desc = field.descriptor(fid);
+            if (!FieldSelected(white_list, desc.name))
+                continue;
+            if (desc.location != edge_location)
+                continue;
+
+            FieldBlock &field_block = field.field(fid, iblock);
+            if (!field_block.is_allocated())
+                continue;
+
+            AddFieldDataArrays(appended, cell_arrays, field_block, desc.name, desc.ncomp, ni, nj, nk);
+        }
+
+        std::ofstream out(path, std::ios::binary);
+        if (!out)
+            throw std::runtime_error("[IOModule][VTK] cannot open: " + path.string());
+
+        out << "<?xml version=\"1.0\"?>\n"
+            << "<VTKFile type=\"PolyData\" version=\"1.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n"
+            << "  <PolyData>\n"
+            << "    <Piece NumberOfPoints=\"" << nedge * 2
+            << "\" NumberOfVerts=\"0\" NumberOfLines=\"" << nedge
+            << "\" NumberOfStrips=\"0\" NumberOfPolys=\"0\">\n"
+            << "      <PointData>\n"
+            << "      </PointData>\n"
+            << "      <CellData>\n";
+        for (const VTKXML::AppendedArray &array : cell_arrays)
+            appended.WriteDataArrayTag(out, array, 8);
+        out << "      </CellData>\n"
+            << "      <Points>\n";
+        appended.WriteDataArrayTag(out, points, 8);
+        out << "      </Points>\n"
+            << "      <Lines>\n";
+        appended.WriteDataArrayTag(out, line_connectivity, 8);
+        appended.WriteDataArrayTag(out, line_offsets, 8);
+        out << "      </Lines>\n"
+            << "      <Verts>\n"
+            << "      </Verts>\n"
+            << "      <Strips>\n"
+            << "      </Strips>\n"
+            << "      <Polys>\n"
+            << "      </Polys>\n"
+            << "    </Piece>\n"
+            << "  </PolyData>\n";
+        appended.WriteAppendedData(out);
+        out << "</VTKFile>\n";
+    }
+
     void WritePlaceholderVTS(const fs::path &path)
     {
         VTKXML::AppendedRawWriter appended;
@@ -255,6 +499,27 @@ namespace
         else
             throw std::runtime_error("[IOModule][VTK] unsupported placeholder extension: " + extension);
     }
+
+    bool IsEdgeDataset(const ParaViewDatasetSpec &spec, StaggerLocation &loc)
+    {
+        const std::string name = spec.name;
+        if (name == "edge_xi")
+        {
+            loc = StaggerLocation::EdgeXi;
+            return true;
+        }
+        if (name == "edge_eta")
+        {
+            loc = StaggerLocation::EdgeEt;
+            return true;
+        }
+        if (name == "edge_zeta")
+        {
+            loc = StaggerLocation::EdgeZe;
+            return true;
+        }
+        return false;
+    }
 }
 
 void IOModule::SetParaViewFields(const std::vector<std::string> &names)
@@ -295,8 +560,11 @@ void IOModule::WriteParaViewFile()
             for (const ParaViewDatasetSpec &spec : kParaViewDatasets)
             {
                 const fs::path path = fs::path(paraview_path_) / DatasetFilename(prefix, spec);
+                StaggerLocation edge_location = StaggerLocation::EdgeXi;
                 if (std::string(spec.extension) == ".vts")
                     WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, paraview_fields_);
+                else if (IsEdgeDataset(spec, edge_location))
+                    WriteEdgeVTP(path, grd_->grids(ib), *fld_, ib, rank, edge_location, paraview_fields_);
                 else
                     WritePlaceholderDataset(path, spec);
             }
