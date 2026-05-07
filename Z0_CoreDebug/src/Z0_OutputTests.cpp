@@ -26,8 +26,9 @@ namespace Z0
             io.SetTecplotFieldComponentNames("U_cell", {"rho", "rho_u", "rho_v", "rho_w", "rho_E"});
             io.SetTecplotFieldComponentNames("V_cell", {"Vx", "Vy", "Vz"});
             io.WriteTecplotBinFile(0, 0.0);
+            io.WriteParaViewFile();
             if (my_rank == 0)
-                os << "[Z0][LocationOutput] Tecplot mixed-location smoke writer was called.\n";
+                os << "[Z0][LocationOutput] Tecplot and ParaView smoke writers were called.\n";
         }
         catch (...)
         {

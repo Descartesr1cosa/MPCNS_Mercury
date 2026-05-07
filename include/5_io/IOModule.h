@@ -7,6 +7,10 @@
 #include "5_io/RunData.h"
 #include "5_io/RuntimeMonitor.h"
 
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 class IOModule
 {
 public:
@@ -49,7 +53,18 @@ public:
     //=========================================================================
 
     //=========================================================================
-    // 3) Run info / diagnostics
+    // 3) ParaView / VTK File Output
+    void WriteParaViewFile();
+
+    void SetParaViewFields(const std::vector<std::string> &names);
+    void ClearParaViewFields();
+
+    void SetParaViewPath(const std::string &path);
+    void SetParaViewIncludeGhost(bool flag);
+    //=========================================================================
+
+    //=========================================================================
+    // 4) Run info / diagnostics
     RunData &Run() { return run_; }
     RuntimeMonitor &Runtime() { return runtime_; }
     // 所有进程读同一个文件
@@ -59,7 +74,7 @@ public:
     //=========================================================================
 
     //=========================================================================
-    // 4) Output Checkpoint protection and archive
+    // 5) Output Checkpoint protection and archive
     void BackupDataDirectory(const std::string &backup_dir = "./DATA_backup");
     void MaybeArchiveDataDirectory(int step, double time);
     //=========================================================================
@@ -119,6 +134,13 @@ private:
     double EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k) const;
+    //=========================================================================
+
+    //=========================================================================
+    // ----- paraview / vtk datas -----
+    std::vector<std::string> paraview_fields_;
+    std::string paraview_path_ = "./DATA/VTK";
+    bool paraview_include_ghost_ = false;
     //=========================================================================
 
     //=========================================================================
