@@ -1,0 +1,95 @@
+//==============================================================================
+//-------------->>>Multi-Physics Coupling Numerical Simulation<<<---------------
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>M P C N S<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//==============================================================================
+
+//==============================================================================
+#include "00_Mercury_Const.h"
+#include "1_grid/1_MPCNS_Grid.h"
+#include "0_basic/MPI_WRAPPER.h"
+#include "2_topology/2_MPCNS_Topology.h"
+#include "2_topology/2_MPCNS_Topology_Equiv.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/1_MPCNS_Halo.h"
+
+#include "MercurySolver.h"
+
+#if HALL_IMPLICIT == 1
+// #include "4_solver/ImplicitHall_Solver.h"
+#endif
+//==============================================================================
+
+//==============================================================================
+
+//==============================================================================
+
+int main(int arg, char **argv)
+{
+    //=============================================================================================
+    // MPI initialization
+    int myid;
+    PARALLEL::mpi_initial(arg, argv);
+    PARALLEL::mpi_rank(&myid);
+#if HALL_IMPLICIT == 1
+    PetscInitialize(&arg, &argv, NULL, NULL); // 再 PETSc 初始化
+#endif
+    //=============================================================================================
+    {
+        //=============================================================================================
+        //--------------------------------------------------------------------------
+        // Read control parameters
+        Param *par = new Param;
+        par->ReadParam(myid);
+        //--------------------------------------------------------------------------
+        // Read Grid and Preprocess the Grid related info
+        Grid *grd = new Grid;
+        grd->Grid_Preprocess(par);
+        //--------------------------------------------------------------------------
+        // Build topology
+        TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));
+        TOPO::TopologyEquiv topo_equiv;
+        TOPO::build_topology_equiv(topology, *grd, myid, par->GetInt("dimension"), topo_equiv);
+        //--------------------------------------------------------------------------
+        int ngg = par->GetInt("ngg");
+        // Build Field
+        Field *fld = new Field(grd, par, ngg);
+        MercurySolver::RegisterFields(fld, ngg);
+        MercurySolver::RegisterCouplingChannels(fld, topology, par->GetInt("dimension"), ngg);
+        //--------------------------------------------------------------------------
+        // Build Halo Communicator
+        Halo *hal = new Halo(fld, &topology);
+        hal->set_topology_equiv(&topo_equiv);
+        MercurySolver::RegisterHaloFields(fld, hal);
+        //--------------------------------------------------------------------------
+        // Z4 uses Halo synchronization framework owner-sync patterns.
+        // The legacy HALO_OWNER::EdgeOwnerSyncPattern is intentionally not built here.
+        //=============================================================================================
+
+        //=============================================================================================
+        MercurySolver solver(grd, &topology, fld, hal, par,
+                             &topo_equiv,
+                             nullptr);
+        solver.Advance();
+        if (myid == 0)
+            std::cout << "Program is finished normally ! !  ^_^\n"
+                      << std::flush;
+        //=============================================================================================
+
+        //--------------------------------------------------------------------------
+        // Release the allocated memory, recommend to release with inverse order of building
+        delete hal;
+        delete fld;
+        delete par;
+        delete grd;
+        //=============================================================================================
+    }
+    //=============================================================================================
+    //--------------------------------------------------------------------------
+    // MPI finalization
+
+#if HALL_IMPLICIT == 1
+    PetscFinalize(); // 先 PETSc finalize
+#endif
+    PARALLEL::mpi_finalize();
+    return 0;
+}
