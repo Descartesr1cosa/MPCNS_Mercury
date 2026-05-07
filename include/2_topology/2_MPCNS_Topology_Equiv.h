@@ -1,5 +1,6 @@
 #pragma once
 #include <compare>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -130,6 +131,57 @@ namespace TOPO
         };
     };
 
+    // local unique face id on a rank/block
+    // dir convention: 1->FaceXi, 2->FaceEt, 3->FaceZe
+    struct FaceLocalID
+    {
+        int rank;
+        int gblock;
+        int i, j, k;
+        int dir;
+
+        auto operator<=>(const FaceLocalID &) const = default;
+
+        struct Hash
+        {
+            std::size_t operator()(const FaceLocalID &x) const
+            {
+                std::size_t h = 0;
+                hash_combine_inplace(h, x.rank);
+                hash_combine_inplace(h, x.gblock);
+                hash_combine_inplace(h, x.i);
+                hash_combine_inplace(h, x.j);
+                hash_combine_inplace(h, x.k);
+                hash_combine_inplace(h, x.dir);
+                return h;
+            }
+        };
+    };
+
+    // canonical physical face key, with sorted canonical corner nodes
+    struct FaceKey
+    {
+        NodeEqID a;
+        NodeEqID b;
+        NodeEqID c;
+        NodeEqID d;
+
+        auto operator<=>(const FaceKey &) const = default;
+
+        struct Hash
+        {
+            std::size_t operator()(const FaceKey &x) const
+            {
+                std::size_t h = 0;
+                hash_combine_inplace(h, NodeEqID::Hash{}(x.a));
+                hash_combine_inplace(h, NodeEqID::Hash{}(x.b));
+                hash_combine_inplace(h, NodeEqID::Hash{}(x.c));
+                hash_combine_inplace(h, NodeEqID::Hash{}(x.d));
+                return h;
+            }
+        };
+    };
+
     // ============================================================
     // equivalence-class containers
     // ============================================================
@@ -197,6 +249,19 @@ namespace TOPO
         int edge_owner_gid_begin = 0;
         int edge_owner_gid_end = 0; // half-open: [begin, end)
 
+        std::unordered_map<FaceLocalID, FaceKey, FaceLocalID::Hash> face2key;
+        std::unordered_map<FaceLocalID, int8_t, FaceLocalID::Hash> face2sign;
+        std::unordered_map<FaceKey, std::vector<FaceLocalID>, FaceKey::Hash> face_members;
+        std::unordered_map<FaceKey, FaceLocalID, FaceKey::Hash> face_owner;
+        std::unordered_map<FaceLocalID, bool, FaceLocalID::Hash> face_is_owner;
+
+        std::unordered_map<FaceLocalID, int, FaceLocalID::Hash> face_owner_gid;
+        std::unordered_map<int, FaceLocalID> gid2face_owner;
+        int n_local_face_owner = 0;
+        int n_global_face_owner = 0;
+        int face_owner_gid_begin = 0;
+        int face_owner_gid_end = 0; // half-open: [begin, end)
+
         std::vector<EquivClass> node_classes;
         std::vector<EquivClass> edge_classes_general;
         std::vector<EquivClass> face_classes;
@@ -211,6 +276,7 @@ namespace TOPO
         const std::vector<EquivClass> &classes(EquivDofKind kind) const;
 
         void mirror_legacy_edge_equiv_to_general();
+        void mirror_legacy_face_equiv_to_general();
 
         void clear()
         {
@@ -228,6 +294,20 @@ namespace TOPO
             n_global_edge_owner = 0;
             edge_owner_gid_begin = 0;
             edge_owner_gid_end = 0; // half-open: [begin, end)
+
+            face2key.clear();
+            face2sign.clear();
+            face_members.clear();
+            face_owner.clear();
+            face_is_owner.clear();
+
+            face_owner_gid.clear();
+            gid2face_owner.clear();
+
+            n_local_face_owner = 0;
+            n_global_face_owner = 0;
+            face_owner_gid_begin = 0;
+            face_owner_gid_end = 0; // half-open: [begin, end)
 
             node_classes.clear();
             edge_classes_general.clear();
@@ -255,12 +335,26 @@ namespace TOPO
     // dir=3 (Zeta) : (i,j,k) -> (i,j,k+1)
     std::pair<LocalNodeID, LocalNodeID> endpoints(const EdgeLocalID &e);
 
+    // local face corners in oriented local order.
+    // dir=1 (FaceXi) : (i,j,k), (i,j+1,k), (i,j,k+1), (i,j+1,k+1)
+    // dir=2 (FaceEt) : (i,j,k), (i+1,j,k), (i,j,k+1), (i+1,j,k+1)
+    // dir=3 (FaceZe) : (i,j,k), (i+1,j,k), (i,j+1,k), (i+1,j+1,k)
+    std::array<LocalNodeID, 4> corners(const FaceLocalID &f);
+
     // build canonical EdgeKey from a local edge using node2eq
     // returns sign_to_canonical:
     //   +1 if local edge direction matches key.a -> key.b
     //   -1 otherwise
     EdgeKey make_edge_key(
         const EdgeLocalID &e,
+        const std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> &node2eq,
+        int8_t &sign_to_canonical);
+
+    // build canonical FaceKey from a local face using node2eq
+    // returns sign_to_canonical based on local corner ordering parity against
+    // the sorted canonical corner ordering. Degenerate 2D faces use +1.
+    FaceKey make_face_key(
+        const FaceLocalID &f,
         const std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> &node2eq,
         int8_t &sign_to_canonical);
 

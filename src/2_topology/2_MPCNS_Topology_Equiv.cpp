@@ -6,6 +6,8 @@
 #include "0_basic/Error.h"
 #include "1_grid/1_MPCNS_Grid.h"
 
+#include <algorithm>
+#include <array>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -142,6 +144,64 @@ namespace TOPO
                 }
             }
             return edges;
+        }
+
+        std::vector<FaceLocalID> collect_all_local_faces_impl(
+            Grid &grid,
+            int my_rank,
+            int dimension)
+        {
+            std::vector<FaceLocalID> faces;
+
+            for (int ib = 0; ib < grid.nblock; ++ib)
+            {
+                const auto &blk = grid.grids(ib);
+
+                if (dimension >= 3)
+                {
+                    // FaceXi
+                    for (int i = 0; i <= blk.mx; ++i)
+                        for (int j = 0; j < blk.my; ++j)
+                            for (int k = 0; k < blk.mz; ++k)
+                            {
+                                faces.push_back(FaceLocalID{my_rank, ib, i, j, k, 1});
+                            }
+
+                    // FaceEt
+                    for (int i = 0; i < blk.mx; ++i)
+                        for (int j = 0; j <= blk.my; ++j)
+                            for (int k = 0; k < blk.mz; ++k)
+                            {
+                                faces.push_back(FaceLocalID{my_rank, ib, i, j, k, 2});
+                            }
+
+                    // FaceZe
+                    for (int i = 0; i < blk.mx; ++i)
+                        for (int j = 0; j < blk.my; ++j)
+                            for (int k = 0; k <= blk.mz; ++k)
+                            {
+                                faces.push_back(FaceLocalID{my_rank, ib, i, j, k, 3});
+                            }
+                }
+                else if (dimension >= 2)
+                {
+                    // 2D uses xi/eta face locations as line faces in the single k plane.
+                    const int k = 0;
+
+                    for (int i = 0; i <= blk.mx; ++i)
+                        for (int j = 0; j < blk.my; ++j)
+                        {
+                            faces.push_back(FaceLocalID{my_rank, ib, i, j, k, 1});
+                        }
+
+                    for (int i = 0; i < blk.mx; ++i)
+                        for (int j = 0; j <= blk.my; ++j)
+                        {
+                            faces.push_back(FaceLocalID{my_rank, ib, i, j, k, 2});
+                        }
+                }
+            }
+            return faces;
         }
 
         // ============================================================
@@ -494,6 +554,257 @@ namespace TOPO
                 equiv.gid2edge_owner[gid] = e;
             }
         }
+
+        void build_face_equivalence_from_nodes_impl(
+            const std::vector<FaceLocalID> &all_local_faces,
+            TopologyEquiv &equiv)
+        {
+            equiv.face2key.clear();
+            equiv.face2sign.clear();
+            equiv.face_members.clear();
+
+            for (const auto &f : all_local_faces)
+            {
+                int8_t sign_to_canonical = 0;
+                FaceKey key = make_face_key(f, equiv.node2eq, sign_to_canonical);
+
+                equiv.face2key[f] = key;
+                equiv.face2sign[f] = sign_to_canonical;
+                equiv.face_members[key].push_back(f);
+            }
+        }
+
+        inline void pack_face_local(std::vector<int> &buf, const FaceLocalID &f)
+        {
+            buf.push_back(f.rank);
+            buf.push_back(f.gblock);
+            buf.push_back(f.i);
+            buf.push_back(f.j);
+            buf.push_back(f.k);
+            buf.push_back(f.dir);
+        }
+
+        inline FaceLocalID unpack_face_local(const int *p)
+        {
+            return FaceLocalID{p[0], p[1], p[2], p[3], p[4], p[5]};
+        }
+
+        inline void pack_face_key(std::vector<int> &buf, const FaceKey &key)
+        {
+            pack_node(buf, to_local_node_id(key.a));
+            pack_node(buf, to_local_node_id(key.b));
+            pack_node(buf, to_local_node_id(key.c));
+            pack_node(buf, to_local_node_id(key.d));
+        }
+
+        inline FaceKey unpack_face_key(const int *p)
+        {
+            LocalNodeID a = unpack_node(p + 0);
+            LocalNodeID b = unpack_node(p + 5);
+            LocalNodeID c = unpack_node(p + 10);
+            LocalNodeID d = unpack_node(p + 15);
+            return FaceKey{to_node_eq_id(a), to_node_eq_id(b), to_node_eq_id(c), to_node_eq_id(d)};
+        }
+
+        inline void pack_face_owner_candidate(
+            std::vector<int> &buf,
+            const FaceKey &key,
+            const FaceLocalID &f,
+            int8_t sign)
+        {
+            // 20 ints for FaceKey + 6 ints for FaceLocalID + 1 sign = 27 ints
+            pack_face_key(buf, key);
+            pack_face_local(buf, f);
+            buf.push_back(static_cast<int>(sign));
+        }
+
+        inline void select_face_owner_parallel_impl(TopologyEquiv &equiv)
+        {
+            std::vector<int> send_buf;
+            send_buf.reserve(1024);
+
+            for (const auto &[key, members] : equiv.face_members)
+            {
+                for (const auto &f : members)
+                {
+                    auto sign_it = equiv.face2sign.find(f);
+                    const int8_t sign = (sign_it != equiv.face2sign.end()) ? sign_it->second : int8_t{+1};
+                    pack_face_owner_candidate(send_buf, key, f, sign);
+                }
+            }
+
+            int nrank = 1;
+            PARALLEL::mpi_size(&nrank);
+
+            int send_count = static_cast<int>(send_buf.size());
+
+            std::vector<int> recv_counts(nrank, 0);
+            std::vector<int> displs(nrank, 0);
+
+            PARALLEL::mpi_gather(&send_count, 1, recv_counts.data(), 1, 0);
+            PARALLEL::mpi_bcast(recv_counts.data(), nrank, 0);
+
+            int total_recv = 0;
+            for (int r = 0; r < nrank; ++r)
+            {
+                displs[r] = total_recv;
+                total_recv += recv_counts[r];
+            }
+
+            std::vector<int> recv_buf(total_recv, 0);
+
+            PARALLEL::mpi_allgatherv(
+                send_count > 0 ? send_buf.data() : nullptr,
+                send_count,
+                total_recv > 0 ? recv_buf.data() : nullptr,
+                recv_counts.data(),
+                displs.data());
+
+            if (total_recv % 27 != 0)
+            {
+                throw std::runtime_error(
+                    "build_topology_equiv: gathered face-candidate int count is not multiple of 27.");
+            }
+
+            std::unordered_map<FaceKey, FaceLocalID, FaceKey::Hash> global_owner;
+            std::unordered_map<FaceKey, std::vector<FaceLocalID>, FaceKey::Hash> global_members;
+
+            const int ncand = total_recv / 27;
+            for (int c = 0; c < ncand; ++c)
+            {
+                const int *base = recv_buf.data() + 27 * c;
+
+                FaceKey key = unpack_face_key(base + 0);
+                FaceLocalID f = unpack_face_local(base + 20);
+                int8_t sign = static_cast<int8_t>(base[26]);
+
+                equiv.face2sign[f] = sign;
+                equiv.face2key[f] = key;
+                global_members[key].push_back(f);
+
+                auto it = global_owner.find(key);
+                if (it == global_owner.end() || f < it->second)
+                {
+                    global_owner[key] = f;
+                }
+            }
+
+            equiv.face_owner.clear();
+            equiv.face_is_owner.clear();
+            equiv.face_members.clear();
+
+            for (auto &[key, members] : global_members)
+            {
+                std::sort(members.begin(), members.end());
+
+                auto it = global_owner.find(key);
+                if (it == global_owner.end())
+                {
+                    throw std::runtime_error(
+                        "build_topology_equiv: local face key missing in global_owner.");
+                }
+
+                const FaceLocalID &owner = it->second;
+                equiv.face_owner[key] = owner;
+                equiv.face_members[key] = members;
+
+                for (const auto &f : members)
+                {
+                    equiv.face_is_owner[f] = (f == owner);
+                }
+            }
+        }
+
+        inline void build_face_owner_gid_impl(int my_rank, TopologyEquiv &equiv)
+        {
+            std::vector<FaceLocalID> local_owner_faces;
+            local_owner_faces.reserve(equiv.face_is_owner.size());
+
+            for (const auto &[f, is_owner] : equiv.face_is_owner)
+            {
+                if (is_owner && f.rank == my_rank)
+                    local_owner_faces.push_back(f);
+            }
+
+            std::sort(local_owner_faces.begin(), local_owner_faces.end());
+
+            equiv.n_local_face_owner = static_cast<int>(local_owner_faces.size());
+
+            int nrank = 1;
+            PARALLEL::mpi_size(&nrank);
+
+            std::vector<int> counts(nrank, 0);
+            PARALLEL::mpi_gather(&equiv.n_local_face_owner, 1, counts.data(), 1, 0);
+            PARALLEL::mpi_bcast(counts.data(), nrank, 0);
+
+            equiv.face_owner_gid_begin = 0;
+            for (int r = 0; r < my_rank; ++r)
+            {
+                equiv.face_owner_gid_begin += counts[r];
+            }
+
+            equiv.face_owner_gid_end = equiv.face_owner_gid_begin + equiv.n_local_face_owner;
+
+            equiv.n_global_face_owner = 0;
+            for (int r = 0; r < nrank; ++r)
+            {
+                equiv.n_global_face_owner += counts[r];
+            }
+
+            equiv.face_owner_gid.clear();
+            equiv.gid2face_owner.clear();
+
+            std::vector<int> send_buf;
+            send_buf.reserve(local_owner_faces.size() * 7);
+
+            for (int n = 0; n < equiv.n_local_face_owner; ++n)
+            {
+                const FaceLocalID &f = local_owner_faces[n];
+                int gid = equiv.face_owner_gid_begin + n;
+
+                pack_face_local(send_buf, f);
+                send_buf.push_back(gid);
+            }
+
+            std::vector<int> recv_counts(nrank, 0);
+            std::vector<int> displs(nrank, 0);
+            int send_count = static_cast<int>(send_buf.size());
+
+            PARALLEL::mpi_gather(&send_count, 1, recv_counts.data(), 1, 0);
+            PARALLEL::mpi_bcast(recv_counts.data(), nrank, 0);
+
+            int total_recv = 0;
+            for (int r = 0; r < nrank; ++r)
+            {
+                displs[r] = total_recv;
+                total_recv += recv_counts[r];
+            }
+
+            std::vector<int> recv_buf(total_recv, 0);
+            PARALLEL::mpi_allgatherv(
+                send_count > 0 ? send_buf.data() : nullptr,
+                send_count,
+                total_recv > 0 ? recv_buf.data() : nullptr,
+                recv_counts.data(),
+                displs.data());
+
+            if (total_recv % 7 != 0)
+            {
+                throw std::runtime_error(
+                    "build_topology_equiv: gathered face-owner-gid int count is not multiple of 7.");
+            }
+
+            const int nowners = total_recv / 7;
+            for (int n = 0; n < nowners; ++n)
+            {
+                const int *base = recv_buf.data() + 7 * n;
+                FaceLocalID f = unpack_face_local(base);
+                int gid = base[6];
+
+                equiv.face_owner_gid[f] = gid;
+                equiv.gid2face_owner[gid] = f;
+            }
+        }
     } // anonymous namespace
 
     std::pair<LocalNodeID, LocalNodeID> endpoints(const EdgeLocalID &e)
@@ -520,6 +831,43 @@ namespace TOPO
         }
         }
         return {n0, n1};
+    }
+
+    std::array<LocalNodeID, 4> corners(const FaceLocalID &f)
+    {
+        LocalNodeID n0{f.rank, f.gblock, f.i, f.j, f.k};
+        LocalNodeID n1 = n0;
+        LocalNodeID n2 = n0;
+        LocalNodeID n3 = n0;
+
+        switch (f.dir)
+        {
+        case 1:
+            ++n1.j;
+            ++n2.k;
+            ++n3.j;
+            ++n3.k;
+            break; // FaceXi
+        case 2:
+            ++n1.i;
+            ++n2.k;
+            ++n3.i;
+            ++n3.k;
+            break; // FaceEt
+        case 3:
+            ++n1.i;
+            ++n2.j;
+            ++n3.i;
+            ++n3.j;
+            break; // FaceZe
+        default:
+        {
+            std::ostringstream oss;
+            oss << "TOPO::corners: invalid face dir = " << f.dir;
+            throw std::runtime_error(oss.str());
+        }
+        }
+        return {n0, n1, n2, n3};
     }
 
     EdgeKey make_edge_key(
@@ -557,6 +905,89 @@ namespace TOPO
         }
     }
 
+    FaceKey make_face_key(
+        const FaceLocalID &f,
+        const std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> &node2eq,
+        int8_t &sign_to_canonical)
+    {
+        auto local_corners = corners(f);
+        std::array<NodeEqID, 4> corner_eq{};
+
+        auto lookup = [&](const LocalNodeID &nid, NodeEqID &out) -> bool
+        {
+            auto it = node2eq.find(nid);
+            if (it == node2eq.end())
+                return false;
+            out = it->second;
+            return true;
+        };
+
+        bool all_found = true;
+        for (int n = 0; n < 4; ++n)
+        {
+            all_found = lookup(local_corners[n], corner_eq[n]) && all_found;
+        }
+
+        if (!all_found && (f.dir == 1 || f.dir == 2))
+        {
+            // 2D grids have a single k plane. Represent xi/eta line faces as
+            // degenerate four-corner faces with repeated endpoints.
+            LocalNodeID a{f.rank, f.gblock, f.i, f.j, f.k};
+            LocalNodeID b = a;
+            if (f.dir == 1)
+                ++b.j;
+            else
+                ++b.i;
+
+            NodeEqID ga{};
+            NodeEqID gb{};
+            if (lookup(a, ga) && lookup(b, gb))
+            {
+                corner_eq = {ga, gb, ga, gb};
+                all_found = true;
+            }
+        }
+
+        if (!all_found)
+        {
+            throw std::runtime_error("TOPO::make_face_key: corner not found in node2eq.");
+        }
+
+        auto sorted = corner_eq;
+        std::sort(sorted.begin(), sorted.end());
+
+        const bool degenerate =
+            (sorted[0] == sorted[1]) ||
+            (sorted[1] == sorted[2]) ||
+            (sorted[2] == sorted[3]);
+
+        if (degenerate)
+        {
+            sign_to_canonical = +1;
+        }
+        else
+        {
+            std::array<int, 4> perm{};
+            for (int n = 0; n < 4; ++n)
+            {
+                auto it = std::find(sorted.begin(), sorted.end(), corner_eq[n]);
+                if (it == sorted.end())
+                    throw std::runtime_error("TOPO::make_face_key: internal corner permutation error.");
+                perm[n] = static_cast<int>(it - sorted.begin());
+            }
+
+            int inversions = 0;
+            for (int a = 0; a < 4; ++a)
+                for (int b = a + 1; b < 4; ++b)
+                    if (perm[a] > perm[b])
+                        ++inversions;
+
+            sign_to_canonical = (inversions % 2 == 0) ? +1 : -1;
+        }
+
+        return FaceKey{sorted[0], sorted[1], sorted[2], sorted[3]};
+    }
+
     namespace
     {
         StaggerLocation edge_location_from_dir(int dir)
@@ -584,6 +1015,36 @@ namespace TOPO
             m.i = e.i;
             m.j = e.j;
             m.k = e.k;
+            m.orient_sign = orient_sign;
+            m.is_owner = is_owner;
+            return m;
+        }
+
+        StaggerLocation face_location_from_dir(int dir)
+        {
+            switch (dir)
+            {
+            case 1:
+                return StaggerLocation::FaceXi;
+            case 2:
+                return StaggerLocation::FaceEt;
+            case 3:
+                return StaggerLocation::FaceZe;
+            default:
+                ERROR::Abort("TopologyEquiv: invalid face dir");
+                return StaggerLocation::Cell;
+            }
+        }
+
+        EquivMember make_face_member(const FaceLocalID &f, int orient_sign, bool is_owner)
+        {
+            EquivMember m;
+            m.rank = f.rank;
+            m.block = f.gblock;
+            m.location = face_location_from_dir(f.dir);
+            m.i = f.i;
+            m.j = f.j;
+            m.k = f.k;
             m.orient_sign = orient_sign;
             m.is_owner = is_owner;
             return m;
@@ -657,6 +1118,57 @@ namespace TOPO
         }
     }
 
+    void TopologyEquiv::mirror_legacy_face_equiv_to_general()
+    {
+        face_classes.clear();
+        face_classes.reserve(face_members.size());
+
+        for (const auto &[key, members] : face_members)
+        {
+            EquivClass cls;
+            cls.kind = EquivDofKind::Face;
+
+            auto owner_it = face_owner.find(key);
+            const bool has_owner = (owner_it != face_owner.end());
+            FaceLocalID owner{};
+
+            if (has_owner)
+            {
+                owner = owner_it->second;
+                auto gid_it = face_owner_gid.find(owner);
+                if (gid_it != face_owner_gid.end())
+                    cls.global_id = gid_it->second;
+
+                int owner_sign = +1;
+                auto sign_it = face2sign.find(owner);
+                if (sign_it != face2sign.end())
+                    owner_sign = static_cast<int>(sign_it->second);
+
+                cls.owner = make_face_member(owner, owner_sign, true);
+            }
+
+            cls.members.reserve(members.size());
+            for (const auto &f : members)
+            {
+                int orient_sign = +1;
+                auto sign_it = face2sign.find(f);
+                if (sign_it != face2sign.end())
+                    orient_sign = static_cast<int>(sign_it->second);
+
+                bool is_owner = false;
+                auto owner_flag_it = face_is_owner.find(f);
+                if (owner_flag_it != face_is_owner.end())
+                    is_owner = owner_flag_it->second;
+                else if (has_owner)
+                    is_owner = (f == owner);
+
+                cls.members.push_back(make_face_member(f, orient_sign, is_owner));
+            }
+
+            face_classes.push_back(cls);
+        }
+    }
+
     void build_topology_equiv(
         const Topology &topo,
         Grid &grid,
@@ -675,6 +1187,13 @@ namespace TOPO
         select_edge_owner_parallel_impl(equiv);
         build_edge_owner_gid_impl(my_rank, equiv);
         equiv.mirror_legacy_edge_equiv_to_general();
+
+        auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
+        build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
+
+        select_face_owner_parallel_impl(equiv);
+        build_face_owner_gid_impl(my_rank, equiv);
+        equiv.mirror_legacy_face_equiv_to_general();
     }
 
     void build_node_equivalence(
@@ -702,15 +1221,18 @@ namespace TOPO
         int dimension,
         TopologyEquiv &equiv)
     {
-        (void)topo;
-        (void)grid;
-        (void)my_rank;
-        (void)dimension;
-        (void)equiv;
-        // TODO:
-        // Build face equivalence classes for face 2-form / face-owner sync.
-        // This is reserved for Halo OwnerSyncPolicy::FaceOwner.
-        // Current behavior unchanged.
+        if (equiv.node2eq.empty())
+        {
+            auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
+            reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv);
+        }
+
+        auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
+        build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
+
+        select_face_owner_parallel_impl(equiv);
+        build_face_owner_gid_impl(my_rank, equiv);
+        equiv.mirror_legacy_face_equiv_to_general();
     }
 
 } // namespace TOPO
