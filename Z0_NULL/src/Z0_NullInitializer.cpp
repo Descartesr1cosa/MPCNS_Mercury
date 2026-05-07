@@ -3,6 +3,8 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "3_field/2_MPCNS_Field.h"
 
+#include <vector>
+
 namespace Z0_NULL
 {
     double default_init_value(const FieldDescriptor &desc,
@@ -69,6 +71,29 @@ namespace Z0_NULL
             initialize_field(fields, request.field_name, ctx, fn);
     }
 
+    void initialize_null_physics_fields(Field &fields,
+                                        const InitContext &ctx,
+                                        InitFunction fn)
+    {
+        const std::vector<std::string> names = {
+            "phi",
+            "U",
+            "V_cart",
+            "E_xi",
+            "E_eta",
+            "E_zeta",
+            "B_xi",
+            "B_eta",
+            "B_zeta",
+            "tmp"};
+
+        for (const auto &name : names)
+        {
+            if (fields.has_field(name))
+                initialize_field(fields, name, ctx, fn);
+        }
+    }
+
     void initialize_all_fields(Field &fields,
                                const InitContext &ctx,
                                InitFunction fn)
@@ -81,7 +106,7 @@ namespace Z0_NULL
     {
         InitContext ctx;
         PARALLEL::mpi_rank(&ctx.my_rank);
-        initialize_all_fields(fields, ctx);
+        initialize_null_physics_fields(fields, ctx);
     }
 
     void initialize_halo_smoke_fields(Field &fields)

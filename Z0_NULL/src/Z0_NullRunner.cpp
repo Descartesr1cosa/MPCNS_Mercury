@@ -58,7 +58,7 @@ namespace Z0_NULL
         InitContext init_ctx;
         init_ctx.my_rank = myid;
         init_ctx.dimension = dimension;
-        initialize_all_fields(*fields, init_ctx);
+        initialize_null_physics_fields(*fields, init_ctx);
 
         bool pass = true;
         const bool do_sync = (cfg.mode == NullMode::Sync || cfg.mode == NullMode::All);

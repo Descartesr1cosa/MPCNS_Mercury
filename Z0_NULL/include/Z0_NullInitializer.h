@@ -47,6 +47,15 @@ namespace Z0_NULL
                                       const InitContext &ctx,
                                       InitFunction fn = default_init_value);
 
+    // Recommended template path for a new physics program: initialize only the
+    // representative Z0_NULL physics fields, leaving grid/metric/framework
+    // fields untouched.
+    void initialize_null_physics_fields(Field &fields,
+                                        const InitContext &ctx,
+                                        InitFunction fn = default_init_value);
+
+    // Strong framework test path: initializes every FieldCatalog entry,
+    // including metric/framework fields. Use only for explicit stress tests.
     void initialize_all_fields(Field &fields,
                                const InitContext &ctx,
                                InitFunction fn = default_init_value);
