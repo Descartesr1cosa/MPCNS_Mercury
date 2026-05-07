@@ -19,11 +19,7 @@ public:
     void register_halo_field(const FieldHaloRequest &request);
     void register_halo_field(const std::string &field_name,
                              HaloLevel level = HaloLevel::Vertex);
-    void register_halo_fields(const std::vector<FieldHaloRequest> &requests)
-    {
-        for (const auto &request : requests)
-            register_halo_field(request);
-    }
+    void register_halo_fields(const std::vector<FieldHaloRequest> &requests);
 
     // 统一构建 pattern（只构建 registry 中需要的）
     void build_registered_patterns();
@@ -302,6 +298,8 @@ private:
     int owner_sync_tag_base_ = 700000;
 
     HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
+
+    void upsert_halo_request_(const FieldHaloRequest &request);
 
     void rebuild_sync_registry_();
 

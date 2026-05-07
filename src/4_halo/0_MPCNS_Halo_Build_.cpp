@@ -319,7 +319,7 @@ void Halo::validate_sync_registry_consistency_() const
     }
 }
 
-void Halo::register_halo_field(const FieldHaloRequest &request)
+void Halo::upsert_halo_request_(const FieldHaloRequest &request)
 {
     FieldHaloRequest normalized = request;
     if (normalized.sync_group.empty())
@@ -334,17 +334,28 @@ void Halo::register_halo_field(const FieldHaloRequest &request)
     if (it == halo_registry_.end())
     {
         halo_registry_.emplace(normalized.field_name, normalized);
+        return;
     }
-    else
-    {
-        FieldHaloRequest &old = it->second;
-        if (!same_halo_request_metadata(old, normalized))
-            ERROR::Abort("[Halo] register_halo_field: duplicate field has inconsistent halo request metadata: " + normalized.field_name);
 
-        const int old_lv = static_cast<int>(old.level);
-        const int new_lv = static_cast<int>(normalized.level);
-        old.level = static_cast<HaloLevel>(std::max(old_lv, new_lv));
-    }
+    FieldHaloRequest &old = it->second;
+    if (!same_halo_request_metadata(old, normalized))
+        ERROR::Abort("[Halo] register_halo_field: duplicate field has inconsistent halo request metadata: " + normalized.field_name);
+
+    const int old_lv = static_cast<int>(old.level);
+    const int new_lv = static_cast<int>(normalized.level);
+    old.level = static_cast<HaloLevel>(std::max(old_lv, new_lv));
+}
+
+void Halo::register_halo_field(const FieldHaloRequest &request)
+{
+    upsert_halo_request_(request);
+    rebuild_sync_registry_();
+}
+
+void Halo::register_halo_fields(const std::vector<FieldHaloRequest> &requests)
+{
+    for (const auto &request : requests)
+        upsert_halo_request_(request);
 
     rebuild_sync_registry_();
 }
@@ -369,6 +380,8 @@ void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
 
 void Halo::build_registered_patterns()
 {
+    rebuild_sync_registry_();
+
     // 清理旧 pattern（可重复 build）
     inner_patterns_.clear();
     parallel_patterns_.clear();
