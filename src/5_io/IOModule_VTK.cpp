@@ -259,6 +259,35 @@ namespace
             ++k1;
     }
 
+    void EdgeNodeSize(StaggerLocation loc, int edge_ni, int edge_nj, int edge_nk,
+                      int &node_ni, int &node_nj, int &node_nk)
+    {
+        if (edge_ni == 0 || edge_nj == 0 || edge_nk == 0)
+        {
+            node_ni = 0;
+            node_nj = 0;
+            node_nk = 0;
+            return;
+        }
+
+        node_ni = edge_ni;
+        node_nj = edge_nj;
+        node_nk = edge_nk;
+        if (loc == StaggerLocation::EdgeXi)
+            ++node_ni;
+        else if (loc == StaggerLocation::EdgeEt)
+            ++node_nj;
+        else if (loc == StaggerLocation::EdgeZe)
+            ++node_nk;
+    }
+
+    std::int64_t NodePointIndex(int i, int j, int k, int node_nj, int node_nk)
+    {
+        return static_cast<std::int64_t>(i) * node_nj * node_nk +
+               static_cast<std::int64_t>(j) * node_nk +
+               static_cast<std::int64_t>(k);
+    }
+
     void AddEdgeDebugArrays(VTKXML::AppendedRawWriter &appended,
                             std::vector<VTKXML::AppendedArray> &cell_arrays,
                             const std::vector<std::int32_t> &i_values,
@@ -267,6 +296,7 @@ namespace
                             const std::vector<std::int32_t> &block_values,
                             const std::vector<std::int32_t> &rank_values,
                             const std::vector<std::int32_t> &location_values,
+                            const std::vector<std::int32_t> &is_ghost_values,
                             const std::vector<double> &edge_dx,
                             const std::vector<double> &edge_dy,
                             const std::vector<double> &edge_dz,
@@ -278,6 +308,7 @@ namespace
         cell_arrays.push_back(appended.AddInt32("block_id", 1, block_values));
         cell_arrays.push_back(appended.AddInt32("rank", 1, rank_values));
         cell_arrays.push_back(appended.AddInt32("location_code", 1, location_values));
+        cell_arrays.push_back(appended.AddInt32("is_ghost", 1, is_ghost_values));
         cell_arrays.push_back(appended.AddFloat64("edge_dx", 1, edge_dx));
         cell_arrays.push_back(appended.AddFloat64("edge_dy", 1, edge_dy));
         cell_arrays.push_back(appended.AddFloat64("edge_dz", 1, edge_dz));
@@ -345,6 +376,37 @@ namespace
         }
     }
 
+    void FaceNodeSize(StaggerLocation loc, int face_ni, int face_nj, int face_nk,
+                      int &node_ni, int &node_nj, int &node_nk)
+    {
+        if (face_ni == 0 || face_nj == 0 || face_nk == 0)
+        {
+            node_ni = 0;
+            node_nj = 0;
+            node_nk = 0;
+            return;
+        }
+
+        node_ni = face_ni;
+        node_nj = face_nj;
+        node_nk = face_nk;
+        if (loc == StaggerLocation::FaceXi)
+        {
+            ++node_nj;
+            ++node_nk;
+        }
+        else if (loc == StaggerLocation::FaceEt)
+        {
+            ++node_ni;
+            ++node_nk;
+        }
+        else if (loc == StaggerLocation::FaceZe)
+        {
+            ++node_ni;
+            ++node_nj;
+        }
+    }
+
     void AddFaceDebugArrays(VTKXML::AppendedRawWriter &appended,
                             std::vector<VTKXML::AppendedArray> &cell_arrays,
                             const std::vector<std::int32_t> &i_values,
@@ -353,6 +415,7 @@ namespace
                             const std::vector<std::int32_t> &block_values,
                             const std::vector<std::int32_t> &rank_values,
                             const std::vector<std::int32_t> &location_values,
+                            const std::vector<std::int32_t> &is_ghost_values,
                             const std::vector<double> &normal_x,
                             const std::vector<double> &normal_y,
                             const std::vector<double> &normal_z,
@@ -364,16 +427,61 @@ namespace
         cell_arrays.push_back(appended.AddInt32("block_id", 1, block_values));
         cell_arrays.push_back(appended.AddInt32("rank", 1, rank_values));
         cell_arrays.push_back(appended.AddInt32("location_code", 1, location_values));
+        cell_arrays.push_back(appended.AddInt32("is_ghost", 1, is_ghost_values));
         cell_arrays.push_back(appended.AddFloat64("normal_x", 1, normal_x));
         cell_arrays.push_back(appended.AddFloat64("normal_y", 1, normal_y));
         cell_arrays.push_back(appended.AddFloat64("normal_z", 1, normal_z));
         cell_arrays.push_back(appended.AddFloat64("face_area", 1, face_area));
     }
 
+    void AddVolumeDebugArrays(VTKXML::AppendedRawWriter &appended,
+                              std::vector<VTKXML::AppendedArray> &cell_arrays,
+                              int cell_ni,
+                              int cell_nj,
+                              int cell_nk,
+                              int iblock,
+                              int rank)
+    {
+        const std::size_t ncell = static_cast<std::size_t>(cell_ni) * cell_nj * cell_nk;
+        std::vector<std::int32_t> i_values;
+        std::vector<std::int32_t> j_values;
+        std::vector<std::int32_t> k_values;
+        std::vector<std::int32_t> block_values;
+        std::vector<std::int32_t> rank_values;
+        std::vector<std::int32_t> is_ghost_values;
+
+        i_values.reserve(ncell);
+        j_values.reserve(ncell);
+        k_values.reserve(ncell);
+        block_values.reserve(ncell);
+        rank_values.reserve(ncell);
+        is_ghost_values.reserve(ncell);
+
+        for (int k = 0; k < cell_nk; ++k)
+            for (int j = 0; j < cell_nj; ++j)
+                for (int i = 0; i < cell_ni; ++i)
+                {
+                    i_values.push_back(i);
+                    j_values.push_back(j);
+                    k_values.push_back(k);
+                    block_values.push_back(iblock);
+                    rank_values.push_back(rank);
+                    is_ghost_values.push_back(0);
+                }
+
+        cell_arrays.push_back(appended.AddInt32("i", 1, i_values));
+        cell_arrays.push_back(appended.AddInt32("j", 1, j_values));
+        cell_arrays.push_back(appended.AddInt32("k", 1, k_values));
+        cell_arrays.push_back(appended.AddInt32("block_id", 1, block_values));
+        cell_arrays.push_back(appended.AddInt32("rank", 1, rank_values));
+        cell_arrays.push_back(appended.AddInt32("is_ghost", 1, is_ghost_values));
+    }
+
     void WriteVolumeVTS(const fs::path &path,
                         Block &block,
                         Field &field,
                         int iblock,
+                        int rank,
                         const ParaViewFieldSelection &selection)
     {
         VTKXML::AppendedRawWriter appended;
@@ -408,6 +516,7 @@ namespace
 
         std::vector<VTKXML::AppendedArray> point_arrays;
         std::vector<VTKXML::AppendedArray> cell_arrays;
+        AddVolumeDebugArrays(appended, cell_arrays, cell_ni, cell_nj, cell_nk, iblock, rank);
 
         for (int fid : selection.node)
         {
@@ -483,12 +592,19 @@ namespace
         std::vector<std::int32_t> block_values;
         std::vector<std::int32_t> rank_values;
         std::vector<std::int32_t> location_values;
+        std::vector<std::int32_t> is_ghost_values;
         std::vector<double> edge_dx;
         std::vector<double> edge_dy;
         std::vector<double> edge_dz;
         std::vector<double> edge_length;
 
-        point_values.reserve(nedge * 2 * 3);
+        int node_ni = 0;
+        int node_nj = 0;
+        int node_nk = 0;
+        EdgeNodeSize(edge_location, ni, nj, nk, node_ni, node_nj, node_nk);
+        const std::size_t npoint = static_cast<std::size_t>(node_ni) * node_nj * node_nk;
+
+        point_values.reserve(npoint * 3);
         connectivity.reserve(nedge * 2);
         offsets.reserve(nedge);
         i_values.reserve(nedge);
@@ -497,12 +613,21 @@ namespace
         block_values.reserve(nedge);
         rank_values.reserve(nedge);
         location_values.reserve(nedge);
+        is_ghost_values.reserve(nedge);
         edge_dx.reserve(nedge);
         edge_dy.reserve(nedge);
         edge_dz.reserve(nedge);
         edge_length.reserve(nedge);
 
-        std::int64_t point_index = 0;
+        for (int i = 0; i < node_ni; ++i)
+            for (int j = 0; j < node_nj; ++j)
+                for (int k = 0; k < node_nk; ++k)
+                {
+                    point_values.push_back(block.x(i, j, k));
+                    point_values.push_back(block.y(i, j, k));
+                    point_values.push_back(block.z(i, j, k));
+                }
+
         for (int k = 0; k < nk; ++k)
         {
             for (int j = 0; j < nj; ++j)
@@ -524,17 +649,9 @@ namespace
                     const double dy = y1 - y0;
                     const double dz = z1 - z0;
 
-                    point_values.push_back(x0);
-                    point_values.push_back(y0);
-                    point_values.push_back(z0);
-                    point_values.push_back(x1);
-                    point_values.push_back(y1);
-                    point_values.push_back(z1);
-
-                    connectivity.push_back(point_index);
-                    connectivity.push_back(point_index + 1);
-                    point_index += 2;
-                    offsets.push_back(point_index);
+                    connectivity.push_back(NodePointIndex(i, j, k, node_nj, node_nk));
+                    connectivity.push_back(NodePointIndex(i1, j1, k1, node_nj, node_nk));
+                    offsets.push_back(static_cast<std::int64_t>(connectivity.size()));
 
                     i_values.push_back(i);
                     j_values.push_back(j);
@@ -542,6 +659,7 @@ namespace
                     block_values.push_back(iblock);
                     rank_values.push_back(rank);
                     location_values.push_back(LocationCode(edge_location));
+                    is_ghost_values.push_back(0);
                     edge_dx.push_back(dx);
                     edge_dy.push_back(dy);
                     edge_dz.push_back(dz);
@@ -560,7 +678,7 @@ namespace
         std::vector<VTKXML::AppendedArray> cell_arrays;
         AddEdgeDebugArrays(appended, cell_arrays,
                            i_values, j_values, k_values,
-                           block_values, rank_values, location_values,
+                           block_values, rank_values, location_values, is_ghost_values,
                            edge_dx, edge_dy, edge_dz, edge_length);
 
         for (int fid : field_ids)
@@ -580,7 +698,7 @@ namespace
         out << "<?xml version=\"1.0\"?>\n"
             << "<VTKFile type=\"PolyData\" version=\"1.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n"
             << "  <PolyData>\n"
-            << "    <Piece NumberOfPoints=\"" << nedge * 2
+            << "    <Piece NumberOfPoints=\"" << npoint
             << "\" NumberOfVerts=\"0\" NumberOfLines=\"" << nedge
             << "\" NumberOfStrips=\"0\" NumberOfPolys=\"0\">\n"
             << "      <PointData>\n"
@@ -634,12 +752,19 @@ namespace
         std::vector<std::int32_t> block_values;
         std::vector<std::int32_t> rank_values;
         std::vector<std::int32_t> location_values;
+        std::vector<std::int32_t> is_ghost_values;
         std::vector<double> normal_x;
         std::vector<double> normal_y;
         std::vector<double> normal_z;
         std::vector<double> face_area;
 
-        point_values.reserve(nface * 4 * 3);
+        int node_ni = 0;
+        int node_nj = 0;
+        int node_nk = 0;
+        FaceNodeSize(face_location, ni, nj, nk, node_ni, node_nj, node_nk);
+        const std::size_t npoint = static_cast<std::size_t>(node_ni) * node_nj * node_nk;
+
+        point_values.reserve(npoint * 3);
         connectivity.reserve(nface * 4);
         offsets.reserve(nface);
         i_values.reserve(nface);
@@ -648,12 +773,21 @@ namespace
         block_values.reserve(nface);
         rank_values.reserve(nface);
         location_values.reserve(nface);
+        is_ghost_values.reserve(nface);
         normal_x.reserve(nface);
         normal_y.reserve(nface);
         normal_z.reserve(nface);
         face_area.reserve(nface);
 
-        std::int64_t point_index = 0;
+        for (int i = 0; i < node_ni; ++i)
+            for (int j = 0; j < node_nj; ++j)
+                for (int k = 0; k < node_nk; ++k)
+                {
+                    point_values.push_back(block.x(i, j, k));
+                    point_values.push_back(block.y(i, j, k));
+                    point_values.push_back(block.z(i, j, k));
+                }
+
         for (int k = 0; k < nk; ++k)
         {
             for (int j = 0; j < nj; ++j)
@@ -672,13 +806,9 @@ namespace
                         x[c] = block.x(ic, jc, kc);
                         y[c] = block.y(ic, jc, kc);
                         z[c] = block.z(ic, jc, kc);
-
-                        point_values.push_back(x[c]);
-                        point_values.push_back(y[c]);
-                        point_values.push_back(z[c]);
-                        connectivity.push_back(point_index++);
+                        connectivity.push_back(NodePointIndex(ic, jc, kc, node_nj, node_nk));
                     }
-                    offsets.push_back(point_index);
+                    offsets.push_back(static_cast<std::int64_t>(connectivity.size()));
 
                     const double ax = x[1] - x[0];
                     const double ay = y[1] - y[0];
@@ -717,6 +847,7 @@ namespace
                     block_values.push_back(iblock);
                     rank_values.push_back(rank);
                     location_values.push_back(LocationCode(face_location));
+                    is_ghost_values.push_back(0);
                     normal_x.push_back(nx);
                     normal_y.push_back(ny);
                     normal_z.push_back(nz);
@@ -735,7 +866,7 @@ namespace
         std::vector<VTKXML::AppendedArray> cell_arrays;
         AddFaceDebugArrays(appended, cell_arrays,
                            i_values, j_values, k_values,
-                           block_values, rank_values, location_values,
+                           block_values, rank_values, location_values, is_ghost_values,
                            normal_x, normal_y, normal_z, face_area);
 
         for (int fid : field_ids)
@@ -755,7 +886,7 @@ namespace
         out << "<?xml version=\"1.0\"?>\n"
             << "<VTKFile type=\"PolyData\" version=\"1.0\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n"
             << "  <PolyData>\n"
-            << "    <Piece NumberOfPoints=\"" << nface * 4
+            << "    <Piece NumberOfPoints=\"" << npoint
             << "\" NumberOfVerts=\"0\" NumberOfLines=\"0\" NumberOfStrips=\"0\" NumberOfPolys=\"" << nface << "\">\n"
             << "      <PointData>\n"
             << "      </PointData>\n"
@@ -955,6 +1086,13 @@ void IOModule::WriteParaViewFile()
         PARALLEL::mpi_barrier();
         fs::create_directories(output_dir);
 
+        if (paraview_include_ghost_ && rank == 0)
+        {
+            std::printf("[IOModule][VTK] SetParaViewIncludeGhost(true) requested, "
+                        "but ghost geometry range is not exported yet; falling back to owned physical output.\n");
+            std::fflush(stdout);
+        }
+
         const ParaViewFieldSelection field_selection =
             BuildParaViewFieldSelection(*fld_, paraview_fields_, rank);
 
@@ -968,7 +1106,7 @@ void IOModule::WriteParaViewFile()
                 StaggerLocation edge_location = StaggerLocation::EdgeXi;
                 StaggerLocation face_location = StaggerLocation::FaceXi;
                 if (std::string(spec.extension) == ".vts")
-                    WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, field_selection);
+                    WriteVolumeVTS(path, grd_->grids(ib), *fld_, ib, rank, field_selection);
                 else if (IsEdgeDataset(spec, edge_location))
                     WriteEdgeVTP(path, grd_->grids(ib), *fld_, ib, rank, edge_location,
                                  FieldIdsForLocation(field_selection, edge_location));

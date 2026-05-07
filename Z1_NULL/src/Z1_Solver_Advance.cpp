@@ -4,6 +4,7 @@
 #include "Z1_Diagnostics.h"
 
 #include "0_basic/MPI_WRAPPER.h"
+#include "5_io/IOModule.h"
 
 #include <iostream>
 
@@ -39,8 +40,14 @@ void Z1_Solver::Diagnostics_()
 
 void Z1_Solver::Output_()
 {
-    // no-op template hook.
-    // A real solver can configure IOModule here for restart/plot output.
+    IOModule io;
+    io.Setup(param_, grid_, field_, field_->num_fields());
+    io.SetParaViewPath("./DATA/VTK");
+    io.SetParaViewFields({"rho", "U", "V",
+                          "E_xi", "E_eta", "E_zeta",
+                          "B_xi", "B_eta", "B_zeta"});
+    io.SetParaViewIncludeGhost(false);
+    io.WriteParaViewFile();
 }
 
 void Z1_Solver::AdvanceRunState_()

@@ -26,6 +26,12 @@ namespace Z0
             io.SetTecplotFieldComponentNames("U_cell", {"rho", "rho_u", "rho_v", "rho_w", "rho_E"});
             io.SetTecplotFieldComponentNames("V_cell", {"Vx", "Vy", "Vz"});
             io.WriteTecplotBinFile(0, 0.0);
+            io.SetParaViewFields({"phi_cell", "U_cell", "V_cell", "psi_node",
+                                  "E_xi", "E_eta", "E_zeta",
+                                  "B_xi", "B_eta", "B_zeta",
+                                  "EdgeXi_cart", "EdgeEt_cart", "EdgeZe_cart",
+                                  "FaceXi_cart", "FaceEt_cart", "FaceZe_cart"});
+            io.SetParaViewIncludeGhost(false);
             io.WriteParaViewFile();
             if (my_rank == 0)
                 os << "[Z0][LocationOutput] Tecplot and ParaView smoke writers were called.\n";
