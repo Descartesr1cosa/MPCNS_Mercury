@@ -115,12 +115,13 @@ void Halo::sync_face_2form_triplet_(const HaloTripletRequest &tri)
         }
     }
 
-    // TODO:
-    // Face2FormTriplet currently synchronizes only face-level interface regions.
-    // Edge/vertex corner synchronization for face 2-forms is not implemented yet.
-    // This is acceptable for the first CT-oriented validation step, but should be
-    // extended if B_face edge/vertex ghost values are consumed by stencils.
     sync_face_2form_triplet_face_level_(tri);
+
+    if (halo_level_includes_edge_(tri.level))
+        sync_face_2form_triplet_edge_level_(tri);
+
+    if (halo_level_includes_vertex_(tri.level))
+        sync_face_2form_triplet_vertex_level_(tri);
 }
 
 void Halo::sync_face_2form_triplets_registered_()

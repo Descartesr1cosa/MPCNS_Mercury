@@ -146,6 +146,10 @@ private:
 
     void exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields);
     void exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
+    void exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
     //=========================================================================
 
     //=========================================================================
@@ -320,6 +324,10 @@ private:
     void sync_face_2form_triplet_(const HaloTripletRequest &tri);
 
     void sync_face_2form_triplet_face_level_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplet_edge_level_(const HaloTripletRequest &tri);
+
+    void sync_face_2form_triplet_vertex_level_(const HaloTripletRequest &tri);
 
     void sync_face_2form_triplets_registered_();
 

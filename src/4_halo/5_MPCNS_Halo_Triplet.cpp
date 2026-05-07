@@ -567,6 +567,20 @@ void Halo::sync_face_2form_triplet_face_level_(const HaloTripletRequest &tri)
     exchange_parallel_face_face_2form_triplet_(fields);
 }
 
+void Halo::sync_face_2form_triplet_edge_level_(const HaloTripletRequest &tri)
+{
+    const std::vector<std::string> fields{tri.xi, tri.eta, tri.zeta};
+    exchange_inner_edge_face_2form_triplet_(fields);
+    exchange_parallel_edge_face_2form_triplet_(fields);
+}
+
+void Halo::sync_face_2form_triplet_vertex_level_(const HaloTripletRequest &tri)
+{
+    const std::vector<std::string> fields{tri.xi, tri.eta, tri.zeta};
+    exchange_inner_vertex_face_2form_triplet_(fields);
+    exchange_parallel_vertex_face_2form_triplet_(fields);
+}
+
 void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields)
 {
     const auto fid = face_triplet_ids(fld_, fields);
@@ -608,6 +622,98 @@ void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string
                         map_index(rdst.trans, i, j, k, io, jo, ko);
                         for (int m = 0; m < ncomp; ++m)
                             fb_recv(io, jo, ko, m) = factor * fb_send(i, j, k, m);
+                    }
+        }
+    }
+}
+
+void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields)
+{
+    const auto fid = face_triplet_ids(fld_, fields);
+    const int ncomp = triplet_ncomp(fld_, fid);
+    const int nghost = triplet_nghost(fld_, fid);
+
+    for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
+    {
+        PatternKey dst_key{face_loc_from_axis(dst_axis), nghost};
+        auto it_dst = inner_edge_patterns_.find(dst_key);
+        if (it_dst == inner_edge_patterns_.end())
+            continue;
+
+        const auto &dst_regions = it_dst->second.regions;
+        for (std::size_t ir = 0; ir < dst_regions.size(); ++ir)
+        {
+            const HaloRegion &rdst = dst_regions[ir];
+            const int src_axis = inverse_perm_axis(rdst.trans, dst_axis);
+            PatternKey src_key{face_loc_from_axis(src_axis), nghost};
+            auto it_src = inner_edge_patterns_.find(src_key);
+            if (it_src == inner_edge_patterns_.end() || ir >= it_src->second.regions.size())
+                continue;
+
+            const HaloRegion &rsrc = it_src->second.regions[ir];
+            FieldBlock &fb_recv = fld_->field(fid[dst_axis], rdst.this_block);
+            FieldBlock &fb_send = fld_->field(fid[src_axis], rsrc.neighbor_block);
+            if (!fb_recv.is_allocated() || !fb_send.is_allocated())
+                continue;
+
+            const double factor = static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const Box3 &rb = rdst.recv_box;
+
+            for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                    for (int k = rb.lo.k; k < rb.hi.k; ++k)
+                    {
+                        int is, js, ks;
+                        map_index(rdst.trans, i, j, k, is, js, ks);
+                        for (int m = 0; m < ncomp; ++m)
+                            fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
+                    }
+        }
+    }
+}
+
+void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields)
+{
+    const auto fid = face_triplet_ids(fld_, fields);
+    const int ncomp = triplet_ncomp(fld_, fid);
+    const int nghost = triplet_nghost(fld_, fid);
+
+    for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
+    {
+        PatternKey dst_key{face_loc_from_axis(dst_axis), nghost};
+        auto it_dst = inner_vertex_patterns_.find(dst_key);
+        if (it_dst == inner_vertex_patterns_.end())
+            continue;
+
+        const auto &dst_regions = it_dst->second.regions;
+        for (std::size_t ir = 0; ir < dst_regions.size(); ++ir)
+        {
+            const HaloRegion &rdst = dst_regions[ir];
+            const int src_axis = inverse_perm_axis(rdst.trans, dst_axis);
+            PatternKey src_key{face_loc_from_axis(src_axis), nghost};
+            auto it_src = inner_vertex_patterns_.find(src_key);
+            if (it_src == inner_vertex_patterns_.end() || ir >= it_src->second.regions.size())
+                continue;
+
+            const HaloRegion &rsrc = it_src->second.regions[ir];
+            FieldBlock &fb_recv = fld_->field(fid[dst_axis], rdst.this_block);
+            FieldBlock &fb_send = fld_->field(fid[src_axis], rsrc.neighbor_block);
+            if (!fb_recv.is_allocated() || !fb_send.is_allocated())
+                continue;
+
+            const double factor = static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const Box3 &rb = rdst.recv_box;
+
+            for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                    for (int k = rb.lo.k; k < rb.hi.k; ++k)
+                    {
+                        int is, js, ks;
+                        map_index(rdst.trans, i, j, k, is, js, ks);
+                        for (int m = 0; m < ncomp; ++m)
+                            fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
                     }
         }
     }
@@ -735,6 +841,245 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
                     }
         }
     }
+}
+
+void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields)
+{
+    const auto fid = face_triplet_ids(fld_, fields);
+    const int ncomp = triplet_ncomp(fld_, fid);
+    const int nghost = triplet_nghost(fld_, fid);
+
+    int myid = 0;
+    PARALLEL::mpi_rank(&myid);
+
+    std::map<int, std::vector<TripletCornerMeta>> meta_to_send;
+    std::map<int, int> next_tag;
+    std::vector<TripletCornerMeta> recv_plan;
+
+    const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const TOPO::EdgePatch &ep : parallel_edges)
+    {
+        if (ep.is_coupling)
+            continue;
+
+        Direction this_d1 = HALO_TOOLS::int_to_direction(ep.dir1);
+        Direction this_d2 = HALO_TOOLS::int_to_direction(ep.dir2);
+
+        int send_dir1 = HALO_TOOLS::map_dir_to_neighbor(ep.dir1, ep.trans, true);
+        int send_dir2 = HALO_TOOLS::map_dir_to_neighbor(ep.dir2, ep.trans, false);
+        if (ep.trans.perm[std::abs(ep.dir1) - 1] + 1 != std::abs(send_dir1))
+        {
+            if (ep.trans.perm[std::abs(ep.dir1) - 1] + 1 == std::abs(send_dir2))
+                std::swap(send_dir1, send_dir2);
+            else
+            {
+                std::cout << "Fatal Error!!! face triplet parallel edge direction mapping broken.\n";
+                std::exit(-1);
+            }
+        }
+
+        for (int recv_axis = 0; recv_axis < 3; ++recv_axis)
+        {
+            const int send_axis = inverse_perm_axis(ep.trans, recv_axis);
+
+            TripletCornerMeta m{};
+            m.recv_rank = ep.this_rank;
+            m.send_rank = ep.nb_rank;
+            m.recv_block = ep.this_block;
+            m.send_block = ep.nb_block;
+            m.recv_axis = recv_axis;
+            m.send_axis = send_axis;
+            m.sign = face_2form_orientation_sign(ep.trans, send_axis, recv_axis);
+            m.recv_box = HALO_BOX::make_2DCorner_ghost_box(
+                face_loc_from_axis(recv_axis), ep.this_box_node, this_d1, this_d2, nghost);
+            m.node_box_on_send = ep.nb_box_node;
+            m.dir1_send = send_dir1;
+            m.dir2_send = send_dir2;
+            m.dir3_send = 0;
+            m.trans_recv_to_send = ep.trans;
+            m.tag = next_tag[ep.nb_rank]++;
+
+            recv_plan.push_back(m);
+            meta_to_send[ep.nb_rank].push_back(m);
+        }
+    }
+
+    std::vector<TripletCornerMeta> send_plan;
+    exchange_triplet_corner_meta(meta_to_send, send_plan);
+
+    const int nsend = static_cast<int>(send_plan.size());
+    const int nrecv = static_cast<int>(recv_plan.size());
+
+    std::vector<std::vector<double>> sbuf(nsend);
+    std::vector<std::vector<double>> rbuf(nrecv);
+    std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
+    std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
+    std::vector<int> slen(nsend, 0), rlen(nrecv, 0);
+
+    for (int i = 0; i < nsend; ++i)
+    {
+        const auto &m = send_plan[i];
+        if (m.send_rank != myid)
+        {
+            std::cout << "Fatal Error!!! face triplet edge meta delivered to wrong rank.\n";
+            std::exit(-1);
+        }
+
+        Direction d1 = HALO_TOOLS::int_to_direction(m.dir1_send);
+        Direction d2 = HALO_TOOLS::int_to_direction(m.dir2_send);
+        const Box3 send_box = HALO_BOX::make_2DCorner_innerghost_box(
+            face_loc_from_axis(m.send_axis), m.node_box_on_send, d1, d2, nghost);
+
+        slen[i] = box_volume(m.recv_box) * ncomp;
+        sbuf[i].resize(slen[i]);
+        pack_triplet_corner_send(fld_, fid, m, send_box, ncomp, sbuf[i]);
+    }
+
+    for (int i = 0; i < nrecv; ++i)
+    {
+        rlen[i] = box_volume(recv_plan[i].recv_box) * ncomp;
+        rbuf[i].resize(rlen[i]);
+    }
+
+    for (int i = 0; i < nrecv; ++i)
+        PARALLEL::mpi_data_recv(recv_plan[i].send_rank, recv_plan[i].tag,
+                                rbuf[i].data(), rlen[i], &rreq[i]);
+    for (int i = 0; i < nsend; ++i)
+        PARALLEL::mpi_data_send(send_plan[i].recv_rank, send_plan[i].tag,
+                                sbuf[i].data(), slen[i], &sreq[i]);
+
+    int wait_recv = nrecv;
+    int wait_send = nsend;
+    if (wait_recv > 0)
+        PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
+    if (wait_send > 0)
+        PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
+    PARALLEL::mpi_barrier();
+
+    for (int i = 0; i < nrecv; ++i)
+        unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
+}
+
+void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields)
+{
+    const auto fid = face_triplet_ids(fld_, fields);
+    const int ncomp = triplet_ncomp(fld_, fid);
+    const int nghost = triplet_nghost(fld_, fid);
+
+    int myid = 0;
+    PARALLEL::mpi_rank(&myid);
+
+    std::map<int, std::vector<TripletCornerMeta>> meta_to_send;
+    std::map<int, int> next_tag;
+    std::vector<TripletCornerMeta> recv_plan;
+
+    const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const TOPO::VertexPatch &vp : parallel_vertices)
+    {
+        if (vp.is_coupling)
+            continue;
+
+        Direction this_d1 = HALO_TOOLS::int_to_direction(vp.dir1);
+        Direction this_d2 = HALO_TOOLS::int_to_direction(vp.dir2);
+        Direction this_d3 = HALO_TOOLS::int_to_direction(vp.dir3);
+
+        int send_dir1 = HALO_TOOLS::map_dir_to_neighbor(vp.dir1, vp.trans, true);
+        int send_dir2 = HALO_TOOLS::map_dir_to_neighbor(vp.dir2, vp.trans, false);
+        int send_dir3 = HALO_TOOLS::map_dir_to_neighbor(vp.dir3, vp.trans, false);
+        if (vp.trans.perm[std::abs(vp.dir1) - 1] + 1 != std::abs(send_dir1))
+        {
+            if (vp.trans.perm[std::abs(vp.dir1) - 1] + 1 == std::abs(send_dir2))
+                std::swap(send_dir1, send_dir2);
+            else if (vp.trans.perm[std::abs(vp.dir1) - 1] + 1 == std::abs(send_dir3))
+                std::swap(send_dir1, send_dir3);
+            else
+            {
+                std::cout << "Fatal Error!!! face triplet parallel vertex direction mapping broken.\n";
+                std::exit(-1);
+            }
+        }
+
+        for (int recv_axis = 0; recv_axis < 3; ++recv_axis)
+        {
+            const int send_axis = inverse_perm_axis(vp.trans, recv_axis);
+
+            TripletCornerMeta m{};
+            m.recv_rank = vp.this_rank;
+            m.send_rank = vp.nb_rank;
+            m.recv_block = vp.this_block;
+            m.send_block = vp.nb_block;
+            m.recv_axis = recv_axis;
+            m.send_axis = send_axis;
+            m.sign = face_2form_orientation_sign(vp.trans, send_axis, recv_axis);
+            m.recv_box = HALO_BOX::make_3DCorner_ghost_box(
+                face_loc_from_axis(recv_axis), vp.this_box_node, this_d1, this_d2, this_d3, nghost);
+            m.node_box_on_send = vp.nb_box_node;
+            m.dir1_send = send_dir1;
+            m.dir2_send = send_dir2;
+            m.dir3_send = send_dir3;
+            m.trans_recv_to_send = vp.trans;
+            m.tag = next_tag[vp.nb_rank]++;
+
+            recv_plan.push_back(m);
+            meta_to_send[vp.nb_rank].push_back(m);
+        }
+    }
+
+    std::vector<TripletCornerMeta> send_plan;
+    exchange_triplet_corner_meta(meta_to_send, send_plan);
+
+    const int nsend = static_cast<int>(send_plan.size());
+    const int nrecv = static_cast<int>(recv_plan.size());
+
+    std::vector<std::vector<double>> sbuf(nsend);
+    std::vector<std::vector<double>> rbuf(nrecv);
+    std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
+    std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
+    std::vector<int> slen(nsend, 0), rlen(nrecv, 0);
+
+    for (int i = 0; i < nsend; ++i)
+    {
+        const auto &m = send_plan[i];
+        if (m.send_rank != myid)
+        {
+            std::cout << "Fatal Error!!! face triplet vertex meta delivered to wrong rank.\n";
+            std::exit(-1);
+        }
+
+        Direction d1 = HALO_TOOLS::int_to_direction(m.dir1_send);
+        Direction d2 = HALO_TOOLS::int_to_direction(m.dir2_send);
+        Direction d3 = HALO_TOOLS::int_to_direction(m.dir3_send);
+        const Box3 send_box = HALO_BOX::make_3DCorner_innerghost_box(
+            face_loc_from_axis(m.send_axis), m.node_box_on_send, d1, d2, d3, nghost);
+
+        slen[i] = box_volume(m.recv_box) * ncomp;
+        sbuf[i].resize(slen[i]);
+        pack_triplet_corner_send(fld_, fid, m, send_box, ncomp, sbuf[i]);
+    }
+
+    for (int i = 0; i < nrecv; ++i)
+    {
+        rlen[i] = box_volume(recv_plan[i].recv_box) * ncomp;
+        rbuf[i].resize(rlen[i]);
+    }
+
+    for (int i = 0; i < nrecv; ++i)
+        PARALLEL::mpi_data_recv(recv_plan[i].send_rank, recv_plan[i].tag,
+                                rbuf[i].data(), rlen[i], &rreq[i]);
+    for (int i = 0; i < nsend; ++i)
+        PARALLEL::mpi_data_send(send_plan[i].recv_rank, send_plan[i].tag,
+                                sbuf[i].data(), slen[i], &sreq[i]);
+
+    int wait_recv = nrecv;
+    int wait_send = nsend;
+    if (wait_recv > 0)
+        PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
+    if (wait_send > 0)
+        PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
+    PARALLEL::mpi_barrier();
+
+    for (int i = 0; i < nrecv; ++i)
+        unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
 
 void Halo::exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::string> &fields)
