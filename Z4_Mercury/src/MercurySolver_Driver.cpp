@@ -95,6 +95,7 @@ bool MercurySolver::UpdateControlAndOutput()
 
         // 写当前 checkpoint
         io_.WriteTecplotBinFile(run.step, run.time);
+        io_.WriteParaViewFile();
         io_.WriteRestartBinFile(run.step, run.time);
         io_.WriteRunDataFile();
 

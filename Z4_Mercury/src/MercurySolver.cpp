@@ -68,6 +68,35 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         // io_.SetTecplotFieldComponentNames(fld_name, var_name);
     }
 
+    {
+        std::vector<std::string> vtk_name = {
+            // cell volume output
+            "PV_H",
+            "PV_Na",
+            "B_cell",
+            "Bind_cell",
+            "Na",
+            "J_cell",
+            "divB",
+
+            // face 2-form debug output
+            "B_xi",
+            "B_eta",
+            "B_zeta",
+            "Badd_xi",
+            "Badd_eta",
+            "Badd_zeta",
+
+            // edge 1-form debug output
+            "E_xi",
+            "E_eta",
+            "E_zeta"};
+
+        io_.SetParaViewFields(vtk_name);
+        io_.SetParaViewPath("./DATA/VTK");
+        io_.SetParaViewIncludeGhost(false);
+    }
+
     // ---- Calc Constants ----
     calc_physical_constant(par_);
 
