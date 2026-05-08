@@ -1,3 +1,31 @@
+//=======================================================================================
+// TOPOLOGY 模块：定义数据结构
+//=======================================================================================
+// TopologyTypes.h
+//     数据层。
+//     定义 patch、transform、Topology 容器。
+//     不构建、不通信、不访问 Field。
+
+// TopologyBuilder.h
+//     构建入口层。
+//     从 Grid 生成 Topology。
+
+// TopologyOps.h
+//     内部工具层。
+//     做 box transform、direction ordering、patch priority 等纯操作。
+
+// TopologyView.h
+//     查询 / 适配层。
+//     给 Halo、Boundary、Coupling 提供统一 patch view。
+
+// TopologyEquiv.h
+//     等价类 / owner-alias 层。
+//     处理 node/edge/face 物理同一 DOF、owner、alias、orientation sign。
+
+// TopologyDebug.h
+//     诊断层。
+//     打印、检查、abort，不参与正常数据流。
+//=======================================================================================
 #pragma once
 
 #include <cstdint>
@@ -12,6 +40,38 @@ class Physical_Boundary;
 
 namespace TOPO
 {
+    // =========================================================================
+    // File role
+    // ---------
+    // TopologyTypes.h defines the lightweight data records used by the topology
+    // layer.
+    //
+    // This file answers:
+    //   - Which block is connected to which neighbor block?
+    //   - On which face / edge / vertex region are they connected?
+    //   - How are node indices mapped from this block to the neighbor block?
+    //   - Is a patch an inner, parallel, physical, or coupling interface?
+    //
+    // This file does NOT:
+    //   - build topology from Grid;
+    //   - perform MPI communication;
+    //   - allocate Field data;
+    //   - apply boundary conditions;
+    //   - perform Halo pack/unpack.
+    //
+    // Important viewpoint convention:
+    //   Every patch is stored from the viewpoint of `this_block`.
+    //
+    // Coupling convention:
+    //   For InterfacePatch / EdgePatch / VertexPatch with is_coupling == true,
+    //   the directed coupling pair is:
+    //
+    //       nb_block_name -> this_block_name
+    //
+    //   In other words, `this_block` is the local destination / receiver side
+    //   of the coupling buffer.
+    // =========================================================================
+
     // 接口类型：内部同 rank、跨 rank、物理外边界
     enum class PatchKind
     {
