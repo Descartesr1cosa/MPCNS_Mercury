@@ -1,6 +1,6 @@
-#include "4_halo/1_MPCNS_Halo.h"
+#include "4_halo/Halo.h"
 #include "2_topology/TopologyView.h"
-#include "4_halo/detail/halo_build_tools.h"
+#include "4_halo/detail/HaloBuildTools.h"
 
 void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
 {

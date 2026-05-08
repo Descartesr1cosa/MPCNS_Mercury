@@ -5,7 +5,7 @@
 
 #include "0_basic/StaggerLocation.h"
 #include "2_topology/TopologyTypes.h"
-#include "3_field/Field_Array.h"
+#include "3_field/FieldArray.h"
 #include "3_field/FieldValueKind.h"
 
 // 一个“物理块对”的唯一标识：src -> dst

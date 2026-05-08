@@ -1,8 +1,8 @@
 #pragma once
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/2_MPCNS_Topology.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyBuilder.h"
+#include "3_field/Field.h"
+#include "4_halo/Halo.h"
 
 namespace CTOperators
 {

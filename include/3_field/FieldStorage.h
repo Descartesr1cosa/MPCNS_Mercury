@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "1_grid/1_MPCNS_Grid.h"
-#include "3_field/1_Field_Block.h"
+#include "3_field/FieldBlock.h"
 #include "3_field/FieldCatalog.h"
 
 class FieldStorage

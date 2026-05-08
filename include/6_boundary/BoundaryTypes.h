@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <functional>
 
-#include "3_field/1_Field_Block.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "3_field/Coupling_Type.h"
+#include "3_field/FieldBlock.h"
+#include "3_field/Field.h"
+#include "3_field/CouplingTypes.h"
 namespace BOUND
 {
     // =========================================================================

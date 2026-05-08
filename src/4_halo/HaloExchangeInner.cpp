@@ -1,4 +1,4 @@
-#include "4_halo/1_MPCNS_Halo.h"
+#include "4_halo/Halo.h"
 
 void Halo::exchange_inner(std::string field_name)
 {

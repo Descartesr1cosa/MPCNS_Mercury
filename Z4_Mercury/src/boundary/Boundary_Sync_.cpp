@@ -1,6 +1,6 @@
 #include "1_Boundary.h"
 #include "0_basic/Error.h"
-#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
+#include "4_halo/HaloEdgeOwner.h"
 
 namespace
 {

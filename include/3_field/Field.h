@@ -4,7 +4,7 @@
 
 #include "3_field/FieldCatalog.h"
 #include "3_field/FieldStorage.h"
-#include "3_field/Coupling_Type.h"
+#include "3_field/CouplingTypes.h"
 
 class Field
 {

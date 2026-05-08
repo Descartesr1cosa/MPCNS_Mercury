@@ -1,5 +1,5 @@
 #include "0_basic/Error.h"
-#include "2_topology/2_MPCNS_Topology.h"
+#include "2_topology/TopologyBuilder.h"
 #include <unordered_set>
 #include <sstream>
 #include <stdexcept>

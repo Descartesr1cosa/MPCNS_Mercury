@@ -5,8 +5,8 @@
 
 // Core
 #include "00_Mercury_Const.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/Halo_EdgeOwner_Type.h"
+#include "3_field/Field.h"
+#include "4_halo/HaloEdgeOwnerTypes.h"
 
 struct SolverFields
 {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "2_topology/2_MPCNS_Topology.h"
-#include "2_topology/2_MPCNS_Topology_Equiv.h"
-#include "3_field/Field_Type.h"
+#include "2_topology/TopologyBuilder.h"
+#include "2_topology/TopologyEquiv.h"
+#include "3_field/FieldDescriptor.h"
 
 #include <iosfwd>
 #include <string>

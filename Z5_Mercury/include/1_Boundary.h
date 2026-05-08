@@ -10,8 +10,8 @@
 #include <map>
 
 #include "6_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
-#include "4_halo/1_MPCNS_Halo.h"   // Halo, HaloLevel
-#include "3_field/2_MPCNS_Field.h" // Field, FieldBlock, StaggerLocation
+#include "4_halo/Halo.h"   // Halo, HaloLevel
+#include "3_field/Field.h" // Field, FieldBlock, StaggerLocation
 // Grid/Topology/Param forward decl
 class Grid;
 namespace TOPO

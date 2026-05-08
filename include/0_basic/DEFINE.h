@@ -8,7 +8,7 @@
 // 2_MPCNS_Output.h
 #define if_Debug_output_ngg 0
 
-// 3_field/Field_Array
+// 3_field/FieldArray
 #define if_Debug_Field_Array 0
 //=================================================================================================
 

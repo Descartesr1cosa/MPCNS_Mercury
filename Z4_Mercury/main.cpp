@@ -7,10 +7,10 @@
 #include "00_Mercury_Const.h"
 #include "1_grid/1_MPCNS_Grid.h"
 #include "0_basic/MPI_WRAPPER.h"
-#include "2_topology/2_MPCNS_Topology.h"
-#include "2_topology/2_MPCNS_Topology_Equiv.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyBuilder.h"
+#include "2_topology/TopologyEquiv.h"
+#include "3_field/Field.h"
+#include "4_halo/Halo.h"
 
 #include "MercurySolver.h"
 

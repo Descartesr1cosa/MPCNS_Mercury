@@ -1,6 +1,6 @@
 #pragma once
 
-#include "3_field/Field_Array.h"
+#include "3_field/FieldArray.h"
 #include "0_basic/TYPES.h"
 
 struct HallFaceScratchBlock_ // For Rusanov Scheme

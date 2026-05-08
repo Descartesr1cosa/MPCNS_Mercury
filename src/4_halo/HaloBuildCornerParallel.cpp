@@ -1,4 +1,4 @@
-#include "4_halo/1_MPCNS_Halo.h"
+#include "4_halo/Halo.h"
 #include "0_basic/MPI_WRAPPER.h"
 
 void Halo::mpi_exchange_edge_meta(

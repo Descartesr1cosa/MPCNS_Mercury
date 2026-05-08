@@ -2,9 +2,9 @@
 
 #include "Z0_Initializer.h"
 #include "0_basic/LayoutTraits.h"
-#include "4_halo/1_MPCNS_Halo.h"
-#include "4_halo/detail/halo_build_tools.h"
-#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/Halo.h"
+#include "4_halo/detail/HaloBuildTools.h"
+#include "3_field/Field.h"
 #include "1_grid/1_MPCNS_Grid.h"
 
 #include <algorithm>

@@ -1,7 +1,7 @@
 #pragma once
-#include "2_topology/2_MPCNS_Topology_Equiv.h"
-#include "4_halo/Halo_Type.h"
-#include "3_field/2_MPCNS_Field.h"
+#include "2_topology/TopologyEquiv.h"
+#include "4_halo/HaloTypes.h"
+#include "3_field/Field.h"
 #include "0_basic/MPI_WRAPPER.h"
 
 #include <iosfwd>

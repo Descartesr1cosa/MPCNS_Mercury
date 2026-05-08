@@ -1,4 +1,4 @@
-#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
+#include "4_halo/HaloEdgeOwner.h"
 #include "0_basic/MPI_WRAPPER.h"
 
 namespace HALO_OWNER

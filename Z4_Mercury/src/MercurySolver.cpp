@@ -1,8 +1,8 @@
 // Core
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/2_MPCNS_Topology.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyBuilder.h"
+#include "3_field/Field.h"
+#include "4_halo/Halo.h"
 
 // Z4_Mercury
 #include "MercurySolver.h"
@@ -203,7 +203,7 @@ void MercurySolver::SetupHallFaceScratch_()
         if (clo.i != -ghost || clo.j != -ghost || clo.k != -ghost)
         {
             throw std::runtime_error(
-                "SetupHallFaceScratch_: Bcell lo is not compatible with Field_Array ghost indexing.");
+                "SetupHallFaceScratch_: Bcell lo is not compatible with FieldArray ghost indexing.");
         }
 
         const int dim1 = chi.i - clo.i;

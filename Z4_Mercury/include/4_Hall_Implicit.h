@@ -10,8 +10,8 @@
 #include <petscsnes.h>
 
 #include "0_SolverFields.h"
-#include "2_topology/2_MPCNS_Topology_Equiv.h"
-#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
+#include "2_topology/TopologyEquiv.h"
+#include "4_halo/HaloEdgeOwner.h"
 #include "operators/CTOperators.h"
 #include "4_Hall_Implicit_Type.h"
 

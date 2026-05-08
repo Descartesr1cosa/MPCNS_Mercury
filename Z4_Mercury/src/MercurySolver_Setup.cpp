@@ -1,9 +1,9 @@
 #include "MercurySolver.h"
 
 #include "0_MercuryFieldCatalog.h"
-#include "2_topology/2_MPCNS_Topology.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/1_MPCNS_Halo.h"
+#include "2_topology/TopologyBuilder.h"
+#include "3_field/Field.h"
+#include "4_halo/Halo.h"
 
 void MercurySolver::RegisterFields(Field *fld, int ngg)
 {

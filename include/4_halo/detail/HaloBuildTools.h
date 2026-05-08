@@ -1,11 +1,11 @@
-// include/4_halo/detail/halo_build_tools.h
+// include/4_halo/detail/HaloBuildTools.h
 #pragma once
 
 #include <cstddef> // for nullptr_t
 
-#include "4_halo/Halo_Type.h"
-#include "3_field/1_Field_Block.h"
-#include "3_field/Coupling_Type.h"
+#include "4_halo/HaloTypes.h"
+#include "3_field/FieldBlock.h"
+#include "3_field/CouplingTypes.h"
 
 namespace HALO_TOOLS
 {

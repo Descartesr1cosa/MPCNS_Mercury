@@ -2,7 +2,7 @@
 #include "0_basic/Error.h"
 #include <iostream>
 #include <cstdlib>
-#include "4_halo/detail/halo_build_boxmakers.h"
+#include "4_halo/detail/HaloBuildBoxMakers.h"
 
 // ------------------------------------------------------------
 // Setup

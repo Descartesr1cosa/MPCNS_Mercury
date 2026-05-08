@@ -1,8 +1,8 @@
 #pragma once
 #include "0_basic/TYPES.h"
 #include "1_grid/1_MPCNS_Grid.h"
-#include "3_field/Field_Type.h"
-#include "3_field/Field_Array.h"
+#include "3_field/FieldDescriptor.h"
+#include "3_field/FieldArray.h"
 
 // 知道自己 belong to 哪个 Block；
 // 知道自己是 cell / face / edge；

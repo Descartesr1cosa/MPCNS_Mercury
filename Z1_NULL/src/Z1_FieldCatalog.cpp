@@ -1,8 +1,8 @@
 #include "Z1_FieldCatalog.h"
 
 #include "2_topology/TopologyView.h"
-#include "3_field/2_MPCNS_Field.h"
-#include "4_halo/1_MPCNS_Halo.h"
+#include "3_field/Field.h"
+#include "4_halo/Halo.h"
 
 #include <set>
 #include <vector>

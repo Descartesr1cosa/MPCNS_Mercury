@@ -1,7 +1,7 @@
-// include/4_halo/detail/halo_build_boxmakers.h
+// include/4_halo/detail/HaloBuildBoxMakers.h
 #pragma once
 
-#include "4_halo/Halo_Type.h"
+#include "4_halo/HaloTypes.h"
 
 namespace HALO_BOX
 {

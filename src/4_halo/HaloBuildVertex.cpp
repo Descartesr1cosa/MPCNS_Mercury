@@ -1,8 +1,8 @@
-#include "4_halo/1_MPCNS_Halo.h"
+#include "4_halo/Halo.h"
 #include "2_topology/TopologyView.h"
 #include "0_basic/MPI_WRAPPER.h"
-#include "4_halo/detail/halo_build_boxmakers.h"
-#include "4_halo/detail/halo_build_tools.h"
+#include "4_halo/detail/HaloBuildBoxMakers.h"
+#include "4_halo/detail/HaloBuildTools.h"
 
 void Halo::build_parallel_3DCorner_pattern(StaggerLocation loc, int nghost)
 {

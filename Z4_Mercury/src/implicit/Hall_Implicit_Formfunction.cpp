@@ -2,7 +2,7 @@
 
 #if HALL_IMPLICIT == 1
 
-#include "3_field/2_MPCNS_Field.h"
+#include "3_field/Field.h"
 
 PetscErrorCode ImplicitHallSolver::FormFunction_(SNES, Vec X, Vec F, void *ctx)
 {
