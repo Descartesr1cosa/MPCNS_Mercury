@@ -5,8 +5,9 @@
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "includePath": [
                 "${workspaceFolder}/include",
-                // "${workspaceFolder}/Z4_Mercury/include",
-                "${workspaceFolder}/Z5_Mercury/include"
+                "${workspaceFolder}/Z4_Mercury/include",
+                "${workspaceFolder}/Z2_Test/include"
+                // "${workspaceFolder}/Z5_Mercury/include"
             ],
             "compilerPath": "/usr/bin/mpicxx",
             "cStandard": "c17",
