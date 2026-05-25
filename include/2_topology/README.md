@@ -263,7 +263,42 @@ If these fail, the topology orientation convention is inconsistent.
 
 ---
 
-## 8. Recommended usage
+## 8. Halo Pattern Boundary
+
+Topology already stores the adjacency regions needed by a later halo pattern
+builder:
+
+| Topology record | Codimension | Potential halo use |
+|---|---:|---|
+| `InterfacePatch` | 1 | face-region send/receive items |
+| `EdgePatch` | 2 | edge-strip or corner-strip send/receive items |
+| `VertexPatch` | 3 | vertex/corner send/receive items |
+
+These patch records are connectivity descriptions in node index space. They
+allow a future halo redesign to preconstruct one direct pattern for face,
+edge, and corner ghost regions, rather than requiring data to propagate
+through face then edge then corner phases.
+
+The ownership boundary is deliberate:
+
+- `EntityKey` represents real local topology entities.
+- `EntityId` represents quotient topology entities after topology gluing.
+- Ordinary ghost storage is not an `EntityId`.
+- A future halo layer should represent storage destinations and sources using
+  `StorageAddress` or `HaloAddress`.
+- A field descriptor together with the halo pattern builder decides whether a
+  field needs a particular ghost region.
+- Orientation-aware fields may consume owner/sign information from
+  `TopologyEquiv`.
+- MPI buffer layout, packing, unpacking, and transfer execution remain halo
+  responsibilities, not topology responsibilities.
+
+This section documents available topology input for future work; it does not
+change current halo synchronization behavior.
+
+---
+
+## 9. Recommended usage
 
 Most external modules should depend on the public facade:
 
@@ -283,7 +318,7 @@ Avoid including internal implementation headers outside topology and tests.
 
 ---
 
-## 9. Current status
+## 10. Current status
 
 This module is under refactor.
 

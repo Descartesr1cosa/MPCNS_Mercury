@@ -4,11 +4,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iosfwd>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "0_basic/StaggerLocation.h"
+#include "2_topology/Entity.h"
 #include "2_topology/TopologyTypes.h"
 
 class Grid;
@@ -158,7 +160,11 @@ namespace TOPO
         };
     };
 
-    // canonical physical face key, with sorted canonical corner nodes
+    // Canonical physical face key built from sorted corner NodeEqIDs.
+    // face2sign below records local orientation relative to the canonical
+    // orientation currently inferred from this sorted-corner construction.
+    // Strict DEC use must validate this convention through global incidence,
+    // in particular D2 * D1 == 0, before changing the construction.
     struct FaceKey
     {
         NodeEqID a;
@@ -224,6 +230,9 @@ namespace TOPO
     {
         // local node -> canonical node equivalence id
         std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> node2eq;
+        // Canonical quotient ids used by the EntityKey facade.  These ids are
+        // dimension-local and do not replace owner-sync gids below.
+        std::unordered_map<NodeEqID, int, NodeEqID::Hash> node_eq_to_id;
 
         // local edge -> canonical edge key
         std::unordered_map<EdgeLocalID, EdgeKey, EdgeLocalID::Hash> edge2key;
@@ -248,8 +257,12 @@ namespace TOPO
         int n_global_edge_owner = 0;
         int edge_owner_gid_begin = 0;
         int edge_owner_gid_end = 0; // half-open: [begin, end)
+        std::unordered_map<EdgeKey, int, EdgeKey::Hash> edge_key_to_id;
 
         std::unordered_map<FaceLocalID, FaceKey, FaceLocalID::Hash> face2key;
+        // Sign of a local face relative to the canonical FaceKey orientation.
+        // It is intentionally retained as the existing sorted-corner parity
+        // result; validate_face_orientation_stencils() is the DEC check hook.
         std::unordered_map<FaceLocalID, int8_t, FaceLocalID::Hash> face2sign;
         std::unordered_map<FaceKey, std::vector<FaceLocalID>, FaceKey::Hash> face_members;
         std::unordered_map<FaceKey, FaceLocalID, FaceKey::Hash> face_owner;
@@ -261,6 +274,7 @@ namespace TOPO
         int n_global_face_owner = 0;
         int face_owner_gid_begin = 0;
         int face_owner_gid_end = 0; // half-open: [begin, end)
+        std::unordered_map<FaceKey, int, FaceKey::Hash> face_key_to_id;
 
         std::vector<EquivClass> node_classes;
         std::vector<EquivClass> edge_classes_general;
@@ -275,12 +289,18 @@ namespace TOPO
 
         const std::vector<EquivClass> &classes(EquivDofKind kind) const;
 
+        EntityId id_of(const EntityKey &key) const;
+        EntityKey owner_of(const EntityKey &key) const;
+        int sign_to_owner(const EntityKey &key) const;
+        bool is_owner(const EntityKey &key) const;
+
         void mirror_legacy_edge_equiv_to_general();
         void mirror_legacy_face_equiv_to_general();
 
         void clear()
         {
             node2eq.clear();
+            node_eq_to_id.clear();
             edge2key.clear();
             edge2sign.clear();
             edge_members.clear();
@@ -289,6 +309,7 @@ namespace TOPO
 
             edge_owner_gid.clear();
             gid2edge_owner.clear();
+            edge_key_to_id.clear();
 
             n_local_edge_owner = 0;
             n_global_edge_owner = 0;
@@ -303,6 +324,7 @@ namespace TOPO
 
             face_owner_gid.clear();
             gid2face_owner.clear();
+            face_key_to_id.clear();
 
             n_local_face_owner = 0;
             n_global_face_owner = 0;
@@ -357,6 +379,13 @@ namespace TOPO
         const FaceLocalID &f,
         const std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> &node2eq,
         int8_t &sign_to_canonical);
+
+    // Compares global edge boundary stencils induced by all members of each
+    // FaceKey after normalization by their current face2sign value.  This is
+    // a validation hook for the existing sorted-corner orientation rule; it
+    // does not change that rule.
+    bool validate_face_orientation_stencils(const TopologyEquiv &equiv,
+                                            std::ostream &diagnostics);
 
     // ============================================================
     // single public build entry

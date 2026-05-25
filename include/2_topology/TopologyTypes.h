@@ -70,6 +70,14 @@ namespace TOPO
     //
     //   In other words, `this_block` is the local destination / receiver side
     //   of the coupling buffer.
+    //
+    // Halo redesign contract:
+    //   These patches describe topology-side adjacency only.  A future halo
+    //   pattern builder may combine codim-1 / codim-2 / codim-3 patches into
+    //   one precomputed send/receive plan, with StorageAddress or HaloAddress
+    //   describing actual field storage.  Topology does not create EntityId
+    //   values for ordinary ghost slots, decide which fields need ghosts, or
+    //   pack/unpack communication buffers.
     // =========================================================================
 
     // 接口类型：内部同 rank、跨 rank、物理外边界
@@ -89,6 +97,9 @@ namespace TOPO
         Int3 offset; // 整数偏移
     };
 
+    // Codimension-1 face adjacency: a block interface available to a future
+    // face communication pattern builder.  This is connectivity, not a halo
+    // storage address and not an MPI operation.
     // 块-块接口：Inner + Parallel 共用
     struct InterfacePatch
     {
@@ -145,6 +156,9 @@ namespace TOPO
         const Physical_Boundary *raw = nullptr;
     };
 
+    // Codimension-2 adjacency: edge / edge-strip / corner-strip connectivity.
+    // A halo builder may use it directly for edge-region ghost items instead
+    // of relying on face-to-edge propagation.
     // 二维角区 / edge strip
     struct EdgePatch
     {
@@ -174,6 +188,8 @@ namespace TOPO
         bool is_coupling = false;
     };
 
+    // Codimension-3 adjacency: vertex / corner connectivity.  A future halo
+    // plan may map it directly to corner StorageAddress/HaloAddress items.
     // 三维角区 / vertex patch
     struct VertexPatch
     {
@@ -203,6 +219,11 @@ namespace TOPO
         bool is_coupling = false;
     };
 
+    // Aggregated topology-side adjacency.  The patch lists are sufficient
+    // input for a later halo pattern builder to construct direct face, edge,
+    // and vertex send/receive items.  Field descriptors decide whether a
+    // field participates and TopologyEquiv supplies owner/sign information
+    // for orientation-aware fields; topology itself performs no MPI transfer.
     // 汇总 topology
     struct Topology
     {

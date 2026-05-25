@@ -7,6 +7,11 @@
 
 namespace TOPO_VIEW
 {
+    // Query facade over topology-side patch adjacency.  These views expose
+    // codim-1 faces and the underlying codim-2/codim-3 patch lists for halo
+    // pattern construction; they do not describe ghost storage or transfer
+    // buffers.  A future halo layer should introduce StorageAddress or
+    // HaloAddress when expanding these regions for a particular field.
     struct FacePatchView
     {
         TOPO::PatchKind kind;
@@ -49,6 +54,8 @@ namespace TOPO_VIEW
     std::vector<FacePatchView> noncoupling_interfaces(const TOPO::Topology &topo);
     std::vector<FacePatchView> faces_on_block(const TOPO::Topology &topo, int this_block);
 
+    // Codim-2/codim-3 adjacency accessors for direct edge/corner halo plans.
+    // They intentionally return topology patches, not ghost entities.
     const std::vector<TOPO::EdgePatch> &edge_patches(const TOPO::Topology &topo, TOPO::PatchKind kind);
     const std::vector<TOPO::VertexPatch> &vertex_patches(const TOPO::Topology &topo, TOPO::PatchKind kind);
     std::vector<const TOPO::EdgePatch *> edge_patches_on_block(const TOPO::Topology &topo, TOPO::PatchKind kind, int this_block);

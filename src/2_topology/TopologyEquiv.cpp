@@ -1,4 +1,6 @@
 #include "2_topology/TopologyEquiv.h"
+#include "2_topology/EntityAdapters.h"
+#include "2_topology/LocalIncidence.h"
 #include "2_topology/TopologyOps.h"
 
 #include "0_basic/MPI_WRAPPER.h"
@@ -8,6 +10,8 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
+#include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -76,6 +80,43 @@ namespace TOPO
         {
             pack_node(buf, a);
             pack_node(buf, b);
+        }
+
+        std::vector<int> allgather_packed_records(std::vector<int> send_buf,
+                                                  int record_size,
+                                                  const char *context)
+        {
+            int nrank = 1;
+            PARALLEL::mpi_size(&nrank);
+
+            int send_count = static_cast<int>(send_buf.size());
+            std::vector<int> recv_counts(nrank, 0);
+            std::vector<int> displs(nrank, 0);
+            PARALLEL::mpi_gather(&send_count, 1, recv_counts.data(), 1, 0);
+            PARALLEL::mpi_bcast(recv_counts.data(), nrank, 0);
+
+            int total_recv = 0;
+            for (int r = 0; r < nrank; ++r)
+            {
+                displs[r] = total_recv;
+                total_recv += recv_counts[r];
+            }
+
+            std::vector<int> recv_buf(total_recv, 0);
+            PARALLEL::mpi_allgatherv(
+                send_count > 0 ? send_buf.data() : nullptr,
+                send_count,
+                total_recv > 0 ? recv_buf.data() : nullptr,
+                recv_counts.data(),
+                displs.data());
+
+            if (total_recv % record_size != 0)
+            {
+                std::ostringstream oss;
+                oss << context << ": gathered int count is not multiple of " << record_size << ".";
+                throw std::runtime_error(oss.str());
+            }
+            return recv_buf;
         }
 
         // ============================================================
@@ -361,6 +402,37 @@ namespace TOPO
             }
         }
 
+        void build_node_entity_ids_impl(TopologyEquiv &equiv)
+        {
+            std::vector<NodeEqID> local_keys;
+            local_keys.reserve(equiv.node2eq.size());
+            for (const auto &[node, eq] : equiv.node2eq)
+            {
+                (void)node;
+                local_keys.push_back(eq);
+            }
+            std::sort(local_keys.begin(), local_keys.end());
+            local_keys.erase(std::unique(local_keys.begin(), local_keys.end()), local_keys.end());
+
+            std::vector<int> send_buf;
+            send_buf.reserve(local_keys.size() * 5);
+            for (const NodeEqID &eq : local_keys)
+                pack_node(send_buf, to_local_node_id(eq));
+
+            const std::vector<int> recv_buf =
+                allgather_packed_records(send_buf, 5, "build_topology_equiv node EntityId");
+            std::vector<NodeEqID> global_keys;
+            global_keys.reserve(recv_buf.size() / 5);
+            for (std::size_t n = 0; n < recv_buf.size(); n += 5)
+                global_keys.push_back(to_node_eq_id(unpack_node(recv_buf.data() + n)));
+
+            std::sort(global_keys.begin(), global_keys.end());
+            global_keys.erase(std::unique(global_keys.begin(), global_keys.end()), global_keys.end());
+            equiv.node_eq_to_id.clear();
+            for (std::size_t n = 0; n < global_keys.size(); ++n)
+                equiv.node_eq_to_id[global_keys[n]] = static_cast<int>(n);
+        }
+
         inline int node_equiv_count(
             const std::unordered_map<NodeEqID, int, NodeEqID::Hash> &node_eq_counts,
             const NodeEqID &node)
@@ -434,14 +506,47 @@ namespace TOPO
             return EdgeKey{to_node_eq_id(a), to_node_eq_id(b)};
         }
 
+        void build_edge_entity_ids_impl(TopologyEquiv &equiv)
+        {
+            std::vector<EdgeKey> local_keys;
+            local_keys.reserve(equiv.edge2key.size());
+            for (const auto &[edge, key] : equiv.edge2key)
+            {
+                (void)edge;
+                local_keys.push_back(key);
+            }
+            std::sort(local_keys.begin(), local_keys.end());
+            local_keys.erase(std::unique(local_keys.begin(), local_keys.end()), local_keys.end());
+
+            std::vector<int> send_buf;
+            send_buf.reserve(local_keys.size() * 10);
+            for (const EdgeKey &key : local_keys)
+                pack_edge_key(send_buf, key);
+
+            const std::vector<int> recv_buf =
+                allgather_packed_records(send_buf, 10, "build_topology_equiv edge EntityId");
+            std::vector<EdgeKey> global_keys;
+            global_keys.reserve(recv_buf.size() / 10);
+            for (std::size_t n = 0; n < recv_buf.size(); n += 10)
+                global_keys.push_back(unpack_edge_key(recv_buf.data() + n));
+
+            std::sort(global_keys.begin(), global_keys.end());
+            global_keys.erase(std::unique(global_keys.begin(), global_keys.end()), global_keys.end());
+            equiv.edge_key_to_id.clear();
+            for (std::size_t n = 0; n < global_keys.size(); ++n)
+                equiv.edge_key_to_id[global_keys[n]] = static_cast<int>(n);
+        }
+
         inline void pack_edge_owner_candidate(
             std::vector<int> &buf,
             const EdgeKey &key,
-            const EdgeLocalID &e)
+            const EdgeLocalID &e,
+            int8_t sign)
         {
-            // 10 ints for EdgeKey + 6 ints for EdgeLocalID = 16 ints
+            // 10 ints for EdgeKey + 6 ints for EdgeLocalID + 1 sign = 17 ints
             pack_edge_key(buf, key);
             pack_edge_local(buf, e);
+            buf.push_back(static_cast<int>(sign));
         }
 
         inline void select_edge_owner_parallel_impl(
@@ -462,7 +567,9 @@ namespace TOPO
 
                 for (const auto &e : members)
                 {
-                    pack_edge_owner_candidate(send_buf, key, e);
+                    const auto sign_it = equiv.edge2sign.find(e);
+                    const int8_t sign = (sign_it != equiv.edge2sign.end()) ? sign_it->second : int8_t{+1};
+                    pack_edge_owner_candidate(send_buf, key, e, sign);
                 }
             }
 
@@ -496,10 +603,10 @@ namespace TOPO
                 recv_counts.data(),
                 displs.data());
 
-            if (total_recv % 16 != 0)
+            if (total_recv % 17 != 0)
             {
                 throw std::runtime_error(
-                    "build_topology_equiv: gathered edge-candidate int count is not multiple of 16.");
+                    "build_topology_equiv: gathered edge-candidate int count is not multiple of 17.");
             }
 
             // ------------------------------------------------------------
@@ -508,14 +615,17 @@ namespace TOPO
             std::unordered_map<EdgeKey, EdgeLocalID, EdgeKey::Hash> global_owner;
             std::unordered_map<EdgeKey, std::vector<EdgeLocalID>, EdgeKey::Hash> global_members;
 
-            const int ncand = total_recv / 16;
+            const int ncand = total_recv / 17;
             for (int c = 0; c < ncand; ++c)
             {
-                const int *base = recv_buf.data() + 16 * c;
+                const int *base = recv_buf.data() + 17 * c;
 
                 EdgeKey key = unpack_edge_key(base + 0);
                 EdgeLocalID e = unpack_edge_local(base + 10);
+                int8_t sign = static_cast<int8_t>(base[16]);
 
+                equiv.edge2key[e] = key;
+                equiv.edge2sign[e] = sign;
                 global_members[key].push_back(e);
 
                 auto it = global_owner.find(key);
@@ -694,6 +804,37 @@ namespace TOPO
             LocalNodeID c = unpack_node(p + 10);
             LocalNodeID d = unpack_node(p + 15);
             return FaceKey{to_node_eq_id(a), to_node_eq_id(b), to_node_eq_id(c), to_node_eq_id(d)};
+        }
+
+        void build_face_entity_ids_impl(TopologyEquiv &equiv)
+        {
+            std::vector<FaceKey> local_keys;
+            local_keys.reserve(equiv.face2key.size());
+            for (const auto &[face, key] : equiv.face2key)
+            {
+                (void)face;
+                local_keys.push_back(key);
+            }
+            std::sort(local_keys.begin(), local_keys.end());
+            local_keys.erase(std::unique(local_keys.begin(), local_keys.end()), local_keys.end());
+
+            std::vector<int> send_buf;
+            send_buf.reserve(local_keys.size() * 20);
+            for (const FaceKey &key : local_keys)
+                pack_face_key(send_buf, key);
+
+            const std::vector<int> recv_buf =
+                allgather_packed_records(send_buf, 20, "build_topology_equiv face EntityId");
+            std::vector<FaceKey> global_keys;
+            global_keys.reserve(recv_buf.size() / 20);
+            for (std::size_t n = 0; n < recv_buf.size(); n += 20)
+                global_keys.push_back(unpack_face_key(recv_buf.data() + n));
+
+            std::sort(global_keys.begin(), global_keys.end());
+            global_keys.erase(std::unique(global_keys.begin(), global_keys.end()), global_keys.end());
+            equiv.face_key_to_id.clear();
+            for (std::size_t n = 0; n < global_keys.size(); ++n)
+                equiv.face_key_to_id[global_keys[n]] = static_cast<int>(n);
         }
 
         inline void pack_face_owner_candidate(
@@ -1006,6 +1147,10 @@ namespace TOPO
         const std::unordered_map<LocalNodeID, NodeEqID, LocalNodeID::Hash> &node2eq,
         int8_t &sign_to_canonical)
     {
+        // Retain the established convention: the sorted corner NodeEqIDs are
+        // the physical FaceKey, and permutation parity supplies local sign
+        // relative to that canonical ordering.  Strict DEC validation is
+        // supplied below rather than changing this rule speculatively.
         auto local_corners = corners(f);
         std::array<NodeEqID, 4> corner_eq{};
 
@@ -1147,6 +1292,253 @@ namespace TOPO
         }
     }
 
+    EntityId TopologyEquiv::id_of(const EntityKey &key) const
+    {
+        switch (key.dim)
+        {
+        case EntityDim::Node:
+        {
+            const LocalNodeID local = to_local_node_id(key);
+            const auto eq_it = node2eq.find(local);
+            if (eq_it == node2eq.end())
+                throw std::runtime_error("TopologyEquiv::id_of: node is not present in node2eq.");
+            const auto id_it = node_eq_to_id.find(eq_it->second);
+            if (id_it == node_eq_to_id.end())
+                throw std::runtime_error("TopologyEquiv::id_of: node quotient id is not built.");
+            return EntityId{EntityDim::Node, id_it->second};
+        }
+        case EntityDim::Edge:
+        {
+            const EdgeLocalID local = to_edge_local_id(key);
+            const auto key_it = edge2key.find(local);
+            if (key_it == edge2key.end())
+                throw std::runtime_error("TopologyEquiv::id_of: edge is not present in edge2key.");
+            const auto id_it = edge_key_to_id.find(key_it->second);
+            if (id_it == edge_key_to_id.end())
+                throw std::runtime_error("TopologyEquiv::id_of: edge quotient id is not built.");
+            return EntityId{EntityDim::Edge, id_it->second};
+        }
+        case EntityDim::Face:
+        {
+            const FaceLocalID local = to_face_local_id(key);
+            const auto key_it = face2key.find(local);
+            if (key_it == face2key.end())
+                throw std::runtime_error("TopologyEquiv::id_of: face is not present in face2key.");
+            const auto id_it = face_key_to_id.find(key_it->second);
+            if (id_it == face_key_to_id.end())
+                throw std::runtime_error("TopologyEquiv::id_of: face quotient id is not built.");
+            return EntityId{EntityDim::Face, id_it->second};
+        }
+        case EntityDim::Cell:
+            throw std::runtime_error(
+                "TopologyEquiv::id_of: cell quotient ids are not implemented in this phase.");
+        }
+        throw std::runtime_error("TopologyEquiv::id_of: invalid entity dimension.");
+    }
+
+    EntityKey TopologyEquiv::owner_of(const EntityKey &key) const
+    {
+        switch (key.dim)
+        {
+        case EntityDim::Node:
+        {
+            const auto it = node2eq.find(to_local_node_id(key));
+            if (it == node2eq.end())
+                throw std::runtime_error("TopologyEquiv::owner_of: node is not present in node2eq.");
+            return make_node(it->second.rank, it->second.gblock,
+                             it->second.i, it->second.j, it->second.k);
+        }
+        case EntityDim::Edge:
+        {
+            const EdgeLocalID local = to_edge_local_id(key);
+            const auto key_it = edge2key.find(local);
+            if (key_it == edge2key.end())
+                throw std::runtime_error("TopologyEquiv::owner_of: edge is not present in edge2key.");
+            const auto owner_it = edge_owner.find(key_it->second);
+            return owner_it == edge_owner.end() ? key : to_entity_key(owner_it->second);
+        }
+        case EntityDim::Face:
+        {
+            const FaceLocalID local = to_face_local_id(key);
+            const auto key_it = face2key.find(local);
+            if (key_it == face2key.end())
+                throw std::runtime_error("TopologyEquiv::owner_of: face is not present in face2key.");
+            const auto owner_it = face_owner.find(key_it->second);
+            return owner_it == face_owner.end() ? key : to_entity_key(owner_it->second);
+        }
+        case EntityDim::Cell:
+            throw std::runtime_error(
+                "TopologyEquiv::owner_of: cell owner-alias is not implemented in this phase.");
+        }
+        throw std::runtime_error("TopologyEquiv::owner_of: invalid entity dimension.");
+    }
+
+    int TopologyEquiv::sign_to_owner(const EntityKey &key) const
+    {
+        // Existing maps store member signs relative to canonical key
+        // orientation.  Convert that convention to member relative to the
+        // selected owner: member_sign / owner_sign == member_sign*owner_sign.
+        switch (key.dim)
+        {
+        case EntityDim::Node:
+            (void)owner_of(key);
+            return +1;
+        case EntityDim::Edge:
+        {
+            const EdgeLocalID local = to_edge_local_id(key);
+            const auto sign_it = edge2sign.find(local);
+            if (sign_it == edge2sign.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: edge sign is not present.");
+            const auto key_it = edge2key.find(local);
+            if (key_it == edge2key.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: edge key is not present.");
+            const auto owner_it = edge_owner.find(key_it->second);
+            if (owner_it == edge_owner.end())
+                return +1;
+            const auto owner_sign_it = edge2sign.find(owner_it->second);
+            if (owner_sign_it == edge2sign.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: owner edge sign is not present.");
+            return static_cast<int>(sign_it->second) *
+                   static_cast<int>(owner_sign_it->second);
+        }
+        case EntityDim::Face:
+        {
+            const FaceLocalID local = to_face_local_id(key);
+            const auto sign_it = face2sign.find(local);
+            if (sign_it == face2sign.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: face sign is not present.");
+            const auto key_it = face2key.find(local);
+            if (key_it == face2key.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: face key is not present.");
+            const auto owner_it = face_owner.find(key_it->second);
+            if (owner_it == face_owner.end())
+                return +1;
+            const auto owner_sign_it = face2sign.find(owner_it->second);
+            if (owner_sign_it == face2sign.end())
+                throw std::runtime_error("TopologyEquiv::sign_to_owner: owner face sign is not present.");
+            return static_cast<int>(sign_it->second) *
+                   static_cast<int>(owner_sign_it->second);
+        }
+        case EntityDim::Cell:
+            throw std::runtime_error(
+                "TopologyEquiv::sign_to_owner: cell owner-alias is not implemented in this phase.");
+        }
+        throw std::runtime_error("TopologyEquiv::sign_to_owner: invalid entity dimension.");
+    }
+
+    bool TopologyEquiv::is_owner(const EntityKey &key) const
+    {
+        return owner_of(key) == key;
+    }
+
+    namespace
+    {
+        void print_face_key(std::ostream &os, const FaceKey &key)
+        {
+            const NodeEqID corners[4] = {key.a, key.b, key.c, key.d};
+            os << "[";
+            for (int n = 0; n < 4; ++n)
+            {
+                if (n != 0)
+                    os << ", ";
+                os << "(" << corners[n].rank << "," << corners[n].gblock << ","
+                   << corners[n].i << "," << corners[n].j << "," << corners[n].k << ")";
+            }
+            os << "]";
+        }
+
+        void print_edge_stencil(std::ostream &os, const std::map<EntityId, int> &stencil)
+        {
+            os << "{";
+            bool first = true;
+            for (const auto &[edge, coefficient] : stencil)
+            {
+                if (!first)
+                    os << ", ";
+                first = false;
+                os << "edge#" << edge.id << ":" << coefficient;
+            }
+            os << "}";
+        }
+    }
+
+    bool validate_face_orientation_stencils(const TopologyEquiv &equiv,
+                                            std::ostream &diagnostics)
+    {
+        bool valid = true;
+        for (const auto &[key, members] : equiv.face_members)
+        {
+            bool have_reference = false;
+            std::map<EntityId, int> reference;
+            std::map<EntityId, int> reference_raw;
+            FaceLocalID reference_member{};
+            int reference_sign = +1;
+
+            for (const FaceLocalID &member : members)
+            {
+                std::map<EntityId, int> raw_stencil;
+                std::map<EntityId, int> normalized_stencil;
+                int face_sign = +1;
+                try
+                {
+                    const EntityKey local_face = to_entity_key(member);
+                    face_sign = equiv.sign_to_owner(local_face);
+                    for (const IncidenceEntry &local_edge : boundary_of_face(local_face))
+                    {
+                        const EntityId edge_id = equiv.id_of(local_edge.entity);
+                        raw_stencil[edge_id] +=
+                            local_edge.sign * equiv.sign_to_owner(local_edge.entity);
+                    }
+
+                    normalized_stencil = raw_stencil;
+                    for (auto &entry : normalized_stencil)
+                        entry.second *= face_sign;
+                }
+                catch (const std::exception &error)
+                {
+                    valid = false;
+                    diagnostics << "TopologyEquiv face orientation stencil validation unavailable: FaceKey=";
+                    print_face_key(diagnostics, key);
+                    diagnostics << "\n  member=(" << member.rank << "," << member.gblock << ","
+                                << member.i << "," << member.j << "," << member.k << ",axis="
+                                << member.dir << ") error=" << error.what() << "\n";
+                    continue;
+                }
+
+                if (!have_reference)
+                {
+                    have_reference = true;
+                    reference = normalized_stencil;
+                    reference_raw = raw_stencil;
+                    reference_member = member;
+                    reference_sign = face_sign;
+                    continue;
+                }
+                if (normalized_stencil == reference)
+                    continue;
+
+                valid = false;
+                diagnostics << "TopologyEquiv face orientation stencil mismatch: FaceKey=";
+                print_face_key(diagnostics, key);
+                diagnostics << "\n  reference member=(" << reference_member.rank << ","
+                            << reference_member.gblock << "," << reference_member.i << ","
+                            << reference_member.j << "," << reference_member.k << ",axis="
+                            << reference_member.dir << ") local_sign=" << reference_sign << " raw=";
+                print_edge_stencil(diagnostics, reference_raw);
+                diagnostics << " normalized=";
+                print_edge_stencil(diagnostics, reference);
+                diagnostics << "\n  member=(" << member.rank << "," << member.gblock << ","
+                            << member.i << "," << member.j << "," << member.k << ",axis="
+                            << member.dir << ") local_sign=" << face_sign << " raw=";
+                print_edge_stencil(diagnostics, raw_stencil);
+                diagnostics << " normalized=";
+                print_edge_stencil(diagnostics, normalized_stencil);
+                diagnostics << "\n";
+            }
+        }
+        return valid;
+    }
+
     const std::vector<EquivClass> &TopologyEquiv::classes(EquivDofKind kind) const
     {
         switch (kind)
@@ -1277,9 +1669,11 @@ namespace TOPO
 
         auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
         reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv, node_eq_counts);
+        build_node_entity_ids_impl(equiv);
 
         auto all_local_edges = collect_all_local_edges_impl(grid, my_rank, dimension);
         build_edge_equivalence_from_nodes_impl(all_local_edges, equiv);
+        build_edge_entity_ids_impl(equiv);
 
         select_edge_owner_parallel_impl(equiv, node_eq_counts);
         build_edge_owner_gid_impl(my_rank, equiv);
@@ -1287,6 +1681,7 @@ namespace TOPO
 
         auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
         build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
+        build_face_entity_ids_impl(equiv);
 
         select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
@@ -1324,6 +1719,7 @@ namespace TOPO
             auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
             reconcile_node_equivalence_parallel_impl(topo, my_rank, all_local_nodes, equiv, node_eq_counts);
         }
+        build_node_entity_ids_impl(equiv);
         std::unordered_map<NodeEqID, int, NodeEqID::Hash> node_eq_counts;
         for (const auto &[node, eq] : equiv.node2eq)
         {
@@ -1333,6 +1729,7 @@ namespace TOPO
 
         auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
         build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
+        build_face_entity_ids_impl(equiv);
 
         select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
