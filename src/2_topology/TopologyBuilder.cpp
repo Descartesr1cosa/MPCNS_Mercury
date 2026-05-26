@@ -1,8 +1,11 @@
 #include "2_topology/TopologyBuilder.h"
+#include "2_topology/TopologyBuildDetail.h"
 #include "2_topology/TopologyOps.h"
 
 #include "0_basic/MPI_WRAPPER.h"
 #include "0_basic/Error.h"
+#include "1_grid/1_MPCNS_Grid.h"
+#include "1_grid/Grid_Boundary.h"
 
 #include <unordered_map>
 #include <algorithm>
@@ -14,22 +17,6 @@
 
 namespace TOPO
 {
-    namespace detail
-    {
-        void build_equivalence(
-            Topology &topology,
-            Grid &grid,
-            int my_rank,
-            int dimension);
-        void build_edge_patches(Grid &grid, Topology &topology, int dimension);
-        void build_vertex_patches(Grid &grid, Topology &topology, int dimension);
-        void append_coupling_faces_as_physical_patches(
-            Grid &grid,
-            Topology &topology,
-            int dimension,
-            const std::string &prefix);
-    }
-
     namespace
     {
         // ============================================================

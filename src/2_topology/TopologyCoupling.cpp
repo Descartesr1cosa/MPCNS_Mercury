@@ -1,5 +1,6 @@
 #include "0_basic/Error.h"
-#include "2_topology/TopologyBuilder.h"
+#include "2_topology/TopologyBuildDetail.h"
+#include "1_grid/1_MPCNS_Grid.h"
 #include <unordered_set>
 #include <sstream>
 #include <stdexcept>
@@ -7,49 +8,8 @@ namespace TOPO
 {
     namespace detail
     {
-    // // 推断一个 face patch 的 direction：±1/±2/±3
-    // // 依据：this_box_node 在某一维厚度为 1，且贴在该维的 0 或 max（max=imax/jmax/kmax）
-    // static int infer_face_direction_from_node_box(const Block &blk,
-    //                                               const Box3 &b,
-    //                                               int dimension)
-    // {
-    //     auto extent_i = b.hi.i - b.lo.i;
-    //     auto extent_j = b.hi.j - b.lo.j;
-    //     auto extent_k = b.hi.k - b.lo.k;
-
-    //     // 只在 active 维度里找法向：2D 只考虑 i/j；3D 考虑 i/j/k
-    //     if (dimension >= 1 && extent_i == 1)
-    //     {
-    //         if (b.lo.i == 0)
-    //             return -1;
-    //         if (b.lo.i == blk.mx)
-    //             return +1;
-    //     }
-    //     if (dimension >= 2 && extent_j == 1)
-    //     {
-    //         if (b.lo.j == 0)
-    //             return -2;
-    //         if (b.lo.j == blk.my)
-    //             return +2;
-    //     }
-    //     if (dimension >= 3 && extent_k == 1)
-    //     {
-    //         if (b.lo.k == 0)
-    //             return -3;
-    //         if (b.lo.k == blk.mz)
-    //             return +3;
-    //     }
-
-    //     std::ostringstream oss;
-    //     oss << "[append_coupling_faces_as_physical_patches] cannot infer direction. "
-    //         << "dim=" << dimension
-    //         << " box=[(" << b.lo.i << "," << b.lo.j << "," << b.lo.k << ")->("
-    //         << b.hi.i << "," << b.hi.j << "," << b.hi.k << ")] "
-    //         << "blk(max)=(" << blk.imax << "," << blk.jmax << "," << blk.kmax << ")";
-    //     ERROR::Abort(oss.str());
-    // }
-
-    // 生成一个去重 key：block + dir + bc_name + box
+    // Coupling interfaces reuse their established face direction and box.
+    // Build a key only to avoid inserting an identical physical patch twice.
     static std::string make_physical_key(const PhysicalPatch &p)
     {
         std::ostringstream oss;

@@ -4,9 +4,6 @@
 
 #include "2_topology/Topology.h"
 
-#include "1_grid/1_MPCNS_Grid.h"
-#include "1_grid/Grid_Boundary.h"
-
 namespace TOPO
 {
     // Stable construction entry: build patches and entity equivalence in one call.

@@ -1,9 +1,10 @@
-#include "2_topology/TopologyBuilder.h"
+#include "2_topology/TopologyBuildDetail.h"
 #include "2_topology/TopologyOps.h"
 
 #include "0_basic/BoxOps.h"
 #include "0_basic/Direction.h"
 #include "0_basic/Error.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 #include <map>
 #include <algorithm>

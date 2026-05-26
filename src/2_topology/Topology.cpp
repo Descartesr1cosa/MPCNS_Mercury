@@ -1,4 +1,5 @@
 #include "2_topology/Topology.h"
+#include "2_topology/TopologyBuildDetail.h"
 #include "2_topology/LocalIncidence.h"
 #include "2_topology/TopologyOps.h"
 
