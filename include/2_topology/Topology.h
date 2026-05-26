@@ -222,47 +222,6 @@ namespace TOPO
         int sign_to_owner(const EntityKey &key) const;
         bool is_owner(const EntityKey &key) const;
 
-        void rebuild_edge_classes();
-        void rebuild_face_classes();
-
-        void clear_equivalence()
-        {
-            node2eq.clear();
-            node_eq_to_id.clear();
-            edge2key.clear();
-            edge2sign.clear();
-            edge_members.clear();
-            edge_owner.clear();
-            edge_is_owner.clear();
-
-            edge_owner_gid.clear();
-            gid2edge_owner.clear();
-            edge_key_to_id.clear();
-
-            n_local_edge_owner = 0;
-            n_global_edge_owner = 0;
-            edge_owner_gid_begin = 0;
-            edge_owner_gid_end = 0; // half-open: [begin, end)
-
-            face2key.clear();
-            face2sign.clear();
-            face_members.clear();
-            face_owner.clear();
-            face_is_owner.clear();
-
-            face_owner_gid.clear();
-            gid2face_owner.clear();
-            face_key_to_id.clear();
-
-            n_local_face_owner = 0;
-            n_global_face_owner = 0;
-            face_owner_gid_begin = 0;
-            face_owner_gid_end = 0; // half-open: [begin, end)
-
-            node_classes.clear();
-            edge_classes.clear();
-            face_classes.clear();
-        }
     };
 
     // ============================================================
@@ -304,27 +263,5 @@ namespace TOPO
     // does not change that rule.
     bool validate_face_orientation_stencils(const Topology &topology,
                                             std::ostream &diagnostics);
-
-    // ============================================================
-    // single public build entry
-    // ============================================================
-
-    void build_topology_equivalence(
-        Topology &topology,
-        Grid &grid,
-        int my_rank,
-        int dimension);
-
-    void build_node_equivalence(
-        Topology &topology,
-        Grid &grid,
-        int my_rank,
-        int dimension);
-
-    void build_face_equivalence(
-        Topology &topology,
-        Grid &grid,
-        int my_rank,
-        int dimension);
 
 } // namespace TOPO

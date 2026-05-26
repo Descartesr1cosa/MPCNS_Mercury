@@ -5,6 +5,8 @@
 #include <stdexcept>
 namespace TOPO
 {
+    namespace detail
+    {
     // // 推断一个 face patch 的 direction：±1/±2/±3
     // // 依据：this_box_node 在某一维厚度为 1，且贴在该维的 0 或 max（max=imax/jmax/kmax）
     // static int infer_face_direction_from_node_box(const Block &blk,
@@ -111,5 +113,6 @@ namespace TOPO
 
         // 注意：这里不重排 topo.physical_patches，以免改变你原有物理边界覆盖顺序。
         // 如果你确实需要 Coupled-* 参与 Priority 排序，你可以在调用方再跑一次 stable_sort。
+    }
     }
 }

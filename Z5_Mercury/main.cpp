@@ -48,7 +48,6 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build topology
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));
-        TOPO::build_topology_equivalence(topology, *grd, myid, par->GetInt("dimension"));
         //--------------------------------------------------------------------------
         int ngg = par->GetInt("ngg");
         // Build Field

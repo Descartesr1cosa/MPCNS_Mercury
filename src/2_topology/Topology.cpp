@@ -270,7 +270,7 @@ namespace TOPO
                             if (!BOX::contains_point(patch.nb_box_node, p_nb))
                             {
                                 std::ostringstream oss;
-                                oss << "build_topology_equivalence: mapped node out of nb_box_node. "
+                                oss << "build_topology: mapped node out of nb_box_node. "
                                     << "this_rank=" << patch.this_rank
                                     << " nb_rank=" << patch.nb_rank
                                     << " this_block=" << patch.this_block
@@ -324,7 +324,7 @@ namespace TOPO
 
             if (total_recv % 10 != 0)
             {
-                throw std::runtime_error("build_topology_equivalence: gathered node-pair int count is not multiple of 10.");
+                throw std::runtime_error("build_topology: gathered node-pair int count is not multiple of 10.");
             }
 
             std::unordered_map<EntityKey, int, EntityKey::Hash> node2idx;
@@ -389,7 +389,7 @@ namespace TOPO
                 if (it == node2idx.end())
                 {
                     std::ostringstream oss;
-                    oss << "build_topology_equivalence: local node missing in node2idx. "
+                    oss << "build_topology: local node missing in node2idx. "
                         << "(" << nid.rank << "," << nid.block << ","
                         << nid.i << "," << nid.j << "," << nid.k << ")";
                     throw std::runtime_error(oss.str());
@@ -419,7 +419,7 @@ namespace TOPO
                 pack_node(send_buf, eq);
 
             const std::vector<int> recv_buf =
-                allgather_packed_records(send_buf, 5, "build_topology_equivalence node EntityId");
+                allgather_packed_records(send_buf, 5, "build_topology node EntityId");
             std::vector<EntityKey> global_keys;
             global_keys.reserve(recv_buf.size() / 5);
             for (std::size_t n = 0; n < recv_buf.size(); n += 5)
@@ -523,7 +523,7 @@ namespace TOPO
                 pack_edge_key(send_buf, key);
 
             const std::vector<int> recv_buf =
-                allgather_packed_records(send_buf, 10, "build_topology_equivalence edge EntityId");
+                allgather_packed_records(send_buf, 10, "build_topology edge EntityId");
             std::vector<EdgeKey> global_keys;
             global_keys.reserve(recv_buf.size() / 10);
             for (std::size_t n = 0; n < recv_buf.size(); n += 10)
@@ -605,7 +605,7 @@ namespace TOPO
             if (total_recv % 17 != 0)
             {
                 throw std::runtime_error(
-                    "build_topology_equivalence: gathered edge-candidate int count is not multiple of 17.");
+                    "build_topology: gathered edge-candidate int count is not multiple of 17.");
             }
 
             // ------------------------------------------------------------
@@ -649,7 +649,7 @@ namespace TOPO
                 if (it == global_owner.end())
                 {
                     throw std::runtime_error(
-                        "build_topology_equivalence: shared edge key missing in global_owner.");
+                        "build_topology: shared edge key missing in global_owner.");
                 }
 
                 const EntityKey &owner = it->second;
@@ -739,7 +739,7 @@ namespace TOPO
             if (total_recv % 7 != 0)
             {
                 throw std::runtime_error(
-                    "build_topology_equivalence: gathered edge-owner-gid int count is not multiple of 7.");
+                    "build_topology: gathered edge-owner-gid int count is not multiple of 7.");
             }
 
             const int nowners = total_recv / 7;
@@ -823,7 +823,7 @@ namespace TOPO
                 pack_face_key(send_buf, key);
 
             const std::vector<int> recv_buf =
-                allgather_packed_records(send_buf, 20, "build_topology_equivalence face EntityId");
+                allgather_packed_records(send_buf, 20, "build_topology face EntityId");
             std::vector<FaceKey> global_keys;
             global_keys.reserve(recv_buf.size() / 20);
             for (std::size_t n = 0; n < recv_buf.size(); n += 20)
@@ -898,7 +898,7 @@ namespace TOPO
             if (total_recv % 27 != 0)
             {
                 throw std::runtime_error(
-                    "build_topology_equivalence: gathered face-candidate int count is not multiple of 27.");
+                    "build_topology: gathered face-candidate int count is not multiple of 27.");
             }
 
             std::unordered_map<FaceKey, EntityKey, FaceKey::Hash> global_owner;
@@ -936,7 +936,7 @@ namespace TOPO
                 if (it == global_owner.end())
                 {
                     throw std::runtime_error(
-                        "build_topology_equivalence: local face key missing in global_owner.");
+                        "build_topology: local face key missing in global_owner.");
                 }
 
                 const EntityKey &owner = it->second;
@@ -1027,7 +1027,7 @@ namespace TOPO
             if (total_recv % 7 != 0)
             {
                 throw std::runtime_error(
-                    "build_topology_equivalence: gathered face-owner-gid int count is not multiple of 7.");
+                    "build_topology: gathered face-owner-gid int count is not multiple of 7.");
             }
 
             const int nowners = total_recv / 7;
@@ -1514,181 +1514,176 @@ namespace TOPO
         return node_classes;
     }
 
-    void Topology::rebuild_edge_classes()
+    namespace detail
     {
-        edge_classes.clear();
-        edge_classes.reserve(edge_members.size());
-
-        for (const auto &[key, members] : edge_members)
+        void clear_equivalence(Topology &equiv)
         {
-            EquivClass cls;
-            cls.dim = EntityDim::Edge;
+            equiv.node2eq.clear();
+            equiv.node_eq_to_id.clear();
+            equiv.edge2key.clear();
+            equiv.edge2sign.clear();
+            equiv.edge_members.clear();
+            equiv.edge_owner.clear();
+            equiv.edge_is_owner.clear();
 
-            auto owner_it = edge_owner.find(key);
-            const bool has_owner = (owner_it != edge_owner.end());
-            EntityKey owner{};
+            equiv.edge_owner_gid.clear();
+            equiv.gid2edge_owner.clear();
+            equiv.edge_key_to_id.clear();
+            equiv.n_local_edge_owner = 0;
+            equiv.n_global_edge_owner = 0;
+            equiv.edge_owner_gid_begin = 0;
+            equiv.edge_owner_gid_end = 0;
 
-            if (has_owner)
-            {
-                owner = owner_it->second;
-                auto gid_it = edge_owner_gid.find(owner);
-                if (gid_it != edge_owner_gid.end())
-                    cls.global_id = gid_it->second;
+            equiv.face2key.clear();
+            equiv.face2sign.clear();
+            equiv.face_members.clear();
+            equiv.face_owner.clear();
+            equiv.face_is_owner.clear();
 
-                int owner_sign = +1;
-                auto sign_it = edge2sign.find(owner);
-                if (sign_it != edge2sign.end())
-                    owner_sign = static_cast<int>(sign_it->second);
+            equiv.face_owner_gid.clear();
+            equiv.gid2face_owner.clear();
+            equiv.face_key_to_id.clear();
+            equiv.n_local_face_owner = 0;
+            equiv.n_global_face_owner = 0;
+            equiv.face_owner_gid_begin = 0;
+            equiv.face_owner_gid_end = 0;
 
-                cls.owner = make_edge_member(owner, owner_sign, true);
-            }
-
-            cls.members.reserve(members.size());
-            for (const auto &e : members)
-            {
-                int orient_sign = +1;
-                auto sign_it = edge2sign.find(e);
-                if (sign_it != edge2sign.end())
-                    orient_sign = static_cast<int>(sign_it->second);
-
-                bool is_owner = false;
-                auto owner_flag_it = edge_is_owner.find(e);
-                if (owner_flag_it != edge_is_owner.end())
-                    is_owner = owner_flag_it->second;
-                else if (has_owner)
-                    is_owner = (e == owner);
-
-                cls.members.push_back(make_edge_member(e, orient_sign, is_owner));
-            }
-
-            edge_classes.push_back(cls);
+            equiv.node_classes.clear();
+            equiv.edge_classes.clear();
+            equiv.face_classes.clear();
         }
-    }
 
-    void Topology::rebuild_face_classes()
-    {
-        face_classes.clear();
-        face_classes.reserve(face_members.size());
-
-        for (const auto &[key, members] : face_members)
+        void rebuild_edge_classes(Topology &equiv)
         {
-            EquivClass cls;
-            cls.dim = EntityDim::Face;
+            equiv.edge_classes.clear();
+            equiv.edge_classes.reserve(equiv.edge_members.size());
 
-            auto owner_it = face_owner.find(key);
-            const bool has_owner = (owner_it != face_owner.end());
-            EntityKey owner{};
-
-            if (has_owner)
+            for (const auto &[key, members] : equiv.edge_members)
             {
-                owner = owner_it->second;
-                auto gid_it = face_owner_gid.find(owner);
-                if (gid_it != face_owner_gid.end())
-                    cls.global_id = gid_it->second;
+                EquivClass cls;
+                cls.dim = EntityDim::Edge;
 
-                int owner_sign = +1;
-                auto sign_it = face2sign.find(owner);
-                if (sign_it != face2sign.end())
-                    owner_sign = static_cast<int>(sign_it->second);
+                auto owner_it = equiv.edge_owner.find(key);
+                const bool has_owner = (owner_it != equiv.edge_owner.end());
+                EntityKey owner{};
 
-                cls.owner = make_face_member(owner, owner_sign, true);
+                if (has_owner)
+                {
+                    owner = owner_it->second;
+                    auto gid_it = equiv.edge_owner_gid.find(owner);
+                    if (gid_it != equiv.edge_owner_gid.end())
+                        cls.global_id = gid_it->second;
+
+                    int owner_sign = +1;
+                    auto sign_it = equiv.edge2sign.find(owner);
+                    if (sign_it != equiv.edge2sign.end())
+                        owner_sign = static_cast<int>(sign_it->second);
+
+                    cls.owner = make_edge_member(owner, owner_sign, true);
+                }
+
+                cls.members.reserve(members.size());
+                for (const auto &e : members)
+                {
+                    int orient_sign = +1;
+                    auto sign_it = equiv.edge2sign.find(e);
+                    if (sign_it != equiv.edge2sign.end())
+                        orient_sign = static_cast<int>(sign_it->second);
+
+                    bool is_owner = false;
+                    auto owner_flag_it = equiv.edge_is_owner.find(e);
+                    if (owner_flag_it != equiv.edge_is_owner.end())
+                        is_owner = owner_flag_it->second;
+                    else if (has_owner)
+                        is_owner = (e == owner);
+
+                    cls.members.push_back(make_edge_member(e, orient_sign, is_owner));
+                }
+
+                equiv.edge_classes.push_back(cls);
             }
-
-            cls.members.reserve(members.size());
-            for (const auto &f : members)
-            {
-                int orient_sign = +1;
-                auto sign_it = face2sign.find(f);
-                if (sign_it != face2sign.end())
-                    orient_sign = static_cast<int>(sign_it->second);
-
-                bool is_owner = false;
-                auto owner_flag_it = face_is_owner.find(f);
-                if (owner_flag_it != face_is_owner.end())
-                    is_owner = owner_flag_it->second;
-                else if (has_owner)
-                    is_owner = (f == owner);
-
-                cls.members.push_back(make_face_member(f, orient_sign, is_owner));
-            }
-
-            face_classes.push_back(cls);
         }
-    }
 
-    void build_topology_equivalence(
-        Topology &equiv,
-        Grid &grid,
-        int my_rank,
-        int dimension)
-    {
-        equiv.clear_equivalence();
-        std::unordered_map<EntityKey, int, EntityKey::Hash> node_eq_counts;
-
-        auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
-        reconcile_node_equivalence_parallel_impl(equiv, my_rank, all_local_nodes, equiv, node_eq_counts);
-        build_node_entity_ids_impl(equiv);
-
-        auto all_local_edges = collect_all_local_edges_impl(grid, my_rank, dimension);
-        build_edge_equivalence_from_nodes_impl(all_local_edges, equiv);
-        build_edge_entity_ids_impl(equiv);
-
-        select_edge_owner_parallel_impl(equiv, node_eq_counts);
-        build_edge_owner_gid_impl(my_rank, equiv);
-        equiv.rebuild_edge_classes();
-
-        auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
-        build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
-        build_face_entity_ids_impl(equiv);
-
-        select_face_owner_parallel_impl(equiv, node_eq_counts);
-        build_face_owner_gid_impl(my_rank, equiv);
-        equiv.rebuild_face_classes();
-    }
-
-    void build_node_equivalence(
-        Topology &equiv,
-        Grid &grid,
-        int my_rank,
-        int dimension)
-    {
-        (void)grid;
-        (void)my_rank;
-        (void)dimension;
-        (void)equiv;
-        // TODO:
-        // Build node equivalence classes for node-based owner sync.
-        // This is reserved for Halo OwnerSyncPolicy::NodeOwner.
-        // Current behavior unchanged.
-    }
-
-    void build_face_equivalence(
-        Topology &equiv,
-        Grid &grid,
-        int my_rank,
-        int dimension)
-    {
-        if (equiv.node2eq.empty())
+        void rebuild_face_classes(Topology &equiv)
         {
+            equiv.face_classes.clear();
+            equiv.face_classes.reserve(equiv.face_members.size());
+
+            for (const auto &[key, members] : equiv.face_members)
+            {
+                EquivClass cls;
+                cls.dim = EntityDim::Face;
+
+                auto owner_it = equiv.face_owner.find(key);
+                const bool has_owner = (owner_it != equiv.face_owner.end());
+                EntityKey owner{};
+
+                if (has_owner)
+                {
+                    owner = owner_it->second;
+                    auto gid_it = equiv.face_owner_gid.find(owner);
+                    if (gid_it != equiv.face_owner_gid.end())
+                        cls.global_id = gid_it->second;
+
+                    int owner_sign = +1;
+                    auto sign_it = equiv.face2sign.find(owner);
+                    if (sign_it != equiv.face2sign.end())
+                        owner_sign = static_cast<int>(sign_it->second);
+
+                    cls.owner = make_face_member(owner, owner_sign, true);
+                }
+
+                cls.members.reserve(members.size());
+                for (const auto &f : members)
+                {
+                    int orient_sign = +1;
+                    auto sign_it = equiv.face2sign.find(f);
+                    if (sign_it != equiv.face2sign.end())
+                        orient_sign = static_cast<int>(sign_it->second);
+
+                    bool is_owner = false;
+                    auto owner_flag_it = equiv.face_is_owner.find(f);
+                    if (owner_flag_it != equiv.face_is_owner.end())
+                        is_owner = owner_flag_it->second;
+                    else if (has_owner)
+                        is_owner = (f == owner);
+
+                    cls.members.push_back(make_face_member(f, orient_sign, is_owner));
+                }
+
+                equiv.face_classes.push_back(cls);
+            }
+        }
+
+        void build_equivalence(
+            Topology &equiv,
+            Grid &grid,
+            int my_rank,
+            int dimension)
+        {
+            clear_equivalence(equiv);
             std::unordered_map<EntityKey, int, EntityKey::Hash> node_eq_counts;
+
             auto all_local_nodes = collect_all_local_nodes_impl(grid, my_rank);
             reconcile_node_equivalence_parallel_impl(equiv, my_rank, all_local_nodes, equiv, node_eq_counts);
-        }
-        build_node_entity_ids_impl(equiv);
-        std::unordered_map<EntityKey, int, EntityKey::Hash> node_eq_counts;
-        for (const auto &[node, eq] : equiv.node2eq)
-        {
-            (void)node;
-            ++node_eq_counts[eq];
-        }
+            build_node_entity_ids_impl(equiv);
 
-        auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
-        build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
-        build_face_entity_ids_impl(equiv);
+            auto all_local_edges = collect_all_local_edges_impl(grid, my_rank, dimension);
+            build_edge_equivalence_from_nodes_impl(all_local_edges, equiv);
+            build_edge_entity_ids_impl(equiv);
 
-        select_face_owner_parallel_impl(equiv, node_eq_counts);
-        build_face_owner_gid_impl(my_rank, equiv);
-        equiv.rebuild_face_classes();
+            select_edge_owner_parallel_impl(equiv, node_eq_counts);
+            build_edge_owner_gid_impl(my_rank, equiv);
+            rebuild_edge_classes(equiv);
+
+            auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
+            build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
+            build_face_entity_ids_impl(equiv);
+
+            select_face_owner_parallel_impl(equiv, node_eq_counts);
+            build_face_owner_gid_impl(my_rank, equiv);
+            rebuild_face_classes(equiv);
+        }
     }
 
 } // namespace TOPO

@@ -57,11 +57,6 @@ namespace TOPO
         return box;
     }
 
-    void fill_node_box_from_subsup(const int sub[3], const int sup[3], Box3 &box)
-    {
-        box = make_node_box_from_subsup(sub, sup);
-    }
-
     IndexTransform identity_transform()
     {
         IndexTransform tr{};

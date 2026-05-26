@@ -22,7 +22,6 @@ int main(int argc, char **argv)
 
         const int dimension = param.GetInt("dimension");
         TOPO::Topology topology = TOPO::build_topology(grid, myid, dimension);
-        TOPO::build_topology_equivalence(topology, grid, myid, dimension);
     }
 
     PARALLEL::mpi_finalize();

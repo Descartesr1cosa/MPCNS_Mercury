@@ -11,6 +11,8 @@
 
 namespace TOPO
 {
+    namespace detail
+    {
 
     // 统一 inner / parallel / physical 三种面的信息（只在本 .cpp 里用）
     struct FaceOnBlock
@@ -402,4 +404,5 @@ namespace TOPO
         }
     }
 
+    } // namespace detail
 } // namespace TOPO

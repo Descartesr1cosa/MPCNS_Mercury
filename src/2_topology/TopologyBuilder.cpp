@@ -14,6 +14,22 @@
 
 namespace TOPO
 {
+    namespace detail
+    {
+        void build_equivalence(
+            Topology &topology,
+            Grid &grid,
+            int my_rank,
+            int dimension);
+        void build_edge_patches(Grid &grid, Topology &topology, int dimension);
+        void build_vertex_patches(Grid &grid, Topology &topology, int dimension);
+        void append_coupling_faces_as_physical_patches(
+            Grid &grid,
+            Topology &topology,
+            int dimension,
+            const std::string &prefix);
+    }
+
     namespace
     {
         // ============================================================
@@ -417,12 +433,12 @@ namespace TOPO
                                             Topology &topo,
                                             int dimension)
         {
-            build_edge_patches(grid, topo, dimension);
-            build_vertex_patches(grid, topo, dimension);
+            detail::build_edge_patches(grid, topo, dimension);
+            detail::build_vertex_patches(grid, topo, dimension);
 
             // 追加 Coupled-* 到 physical_patches。
             // 保持原有行为：不重新排序 physical_patches。
-            append_coupling_faces_as_physical_patches(
+            detail::append_coupling_faces_as_physical_patches(
                 grid,
                 topo,
                 dimension,
@@ -450,6 +466,7 @@ namespace TOPO
             dimension);
 
         build_derived_topology_patches(grid, topo, dimension);
+        detail::build_equivalence(topo, grid, my_rank, dimension);
 
         if (my_rank == 0)
         {

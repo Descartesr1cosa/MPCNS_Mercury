@@ -82,7 +82,6 @@ namespace Z0
         const int nghost = par->GetInt("ngg");
 
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, dimension);
-        TOPO::build_topology_equivalence(topology, *grd, myid, dimension);
 
         auto fields = std::make_unique<Field>(grd.get(), par.get(), nghost);
         register_core_debug_fields(*fields, nghost);

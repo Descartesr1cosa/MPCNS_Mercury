@@ -19,9 +19,6 @@ namespace TOPO
     // 这里统一转为 node-space 半开区间 [lo, hi)。
     Box3 make_node_box_from_subsup(const int sub[3], const int sup[3]);
 
-    // 保留旧接口的实现入口，方便逐步迁移。
-    void fill_node_box_from_subsup(const int sub[3], const int sup[3], Box3 &box);
-
     // ------------------------------------------------------------
     // IndexTransform helpers
     // ------------------------------------------------------------
