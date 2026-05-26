@@ -318,17 +318,19 @@ namespace Z0
                 const FieldDescriptor &desc = fields.descriptor(fid);
                 for (const auto &cls : equiv.classes(kind))
                 {
-                    if (cls.owner.rank != my_rank || cls.owner.location != desc.location)
+                    if (cls.owner.entity.rank != my_rank ||
+                        TOPO::stagger_location(cls.owner.entity) != desc.location)
                         continue;
-                    FieldBlock &owner_fb = fields.field(fid, cls.owner.block);
-                    const double ov = owner_fb(cls.owner.i, cls.owner.j, cls.owner.k, 0);
+                    FieldBlock &owner_fb = fields.field(fid, cls.owner.entity.block);
+                    const double ov = owner_fb(cls.owner.entity.i, cls.owner.entity.j, cls.owner.entity.k, 0);
                     for (const auto &alias : cls.members)
                     {
-                        if (alias.is_owner || alias.rank != my_rank || alias.location != desc.location)
+                        if (alias.is_owner || alias.entity.rank != my_rank ||
+                            TOPO::stagger_location(alias.entity) != desc.location)
                             continue;
                         const int sign = alias.orient_sign * cls.owner.orient_sign;
-                        FieldBlock &alias_fb = fields.field(fid, alias.block);
-                        const double actual = alias_fb(alias.i, alias.j, alias.k, 0);
+                        FieldBlock &alias_fb = fields.field(fid, alias.entity.block);
+                        const double actual = alias_fb(alias.entity.i, alias.entity.j, alias.entity.k, 0);
                         const double expected = static_cast<double>(sign) * ov;
                         update_result(result, std::abs(actual - expected));
                     }

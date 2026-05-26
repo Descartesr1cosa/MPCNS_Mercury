@@ -433,15 +433,12 @@ namespace TOPO_VALIDATOR
             for (std::size_t n = 0; n < classes.size(); ++n)
             {
                 const TOPO::EquivClass &cls = classes[n];
-                using MemberKey = std::tuple<int, int, int, int, int, int>;
                 const auto member_key = [](const TOPO::EquivMember &member)
                 {
-                    return MemberKey{member.rank, member.block,
-                                     static_cast<int>(member.location),
-                                     member.i, member.j, member.k};
+                    return member.entity;
                 };
 
-                std::set<MemberKey> unique;
+                std::set<TOPO::EntityKey> unique;
                 int flagged_owners = 0;
                 bool owner_is_member = false;
                 for (const TOPO::EquivMember &member : cls.members)
@@ -449,10 +446,10 @@ namespace TOPO_VALIDATOR
                     if (!unique.insert(member_key(member)).second)
                     {
                         report.add(std::string(kind) + " class[" + std::to_string(n) +
-                                   "]: duplicate member rank=" + std::to_string(member.rank) +
-                                   " block=" + std::to_string(member.block) +
-                                   " ijk=(" + std::to_string(member.i) + "," +
-                                   std::to_string(member.j) + "," + std::to_string(member.k) + ")");
+                                   "]: duplicate member rank=" + std::to_string(member.entity.rank) +
+                                   " block=" + std::to_string(member.entity.block) +
+                                   " ijk=(" + std::to_string(member.entity.i) + "," +
+                                   std::to_string(member.entity.j) + "," + std::to_string(member.entity.k) + ")");
                     }
                     if (member.is_owner)
                         ++flagged_owners;

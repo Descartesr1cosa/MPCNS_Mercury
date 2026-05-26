@@ -321,17 +321,17 @@ bool Halo::owner_member_matches_field_(const HaloOwnerRequest &req,
         switch (req.location)
         {
         case StaggerLocation::FaceXi:
-            return member.location == StaggerLocation::FaceXi;
+            return member.entity.axis == TOPO::EntityAxis::Xi;
         case StaggerLocation::FaceEt:
-            return member.location == StaggerLocation::FaceEt;
+            return member.entity.axis == TOPO::EntityAxis::Eta;
         case StaggerLocation::FaceZe:
-            return member.location == StaggerLocation::FaceZe;
+            return member.entity.axis == TOPO::EntityAxis::Zeta;
         default:
             return false;
         }
     }
 
-    return member.location == req.location;
+    return TOPO::stagger_location(member.entity) == req.location;
 }
 
 void Halo::copy_owner_to_alias_local_(const HaloOwnerRequest &req,
@@ -340,16 +340,16 @@ void Halo::copy_owner_to_alias_local_(const HaloOwnerRequest &req,
                                       const TOPO::EquivMember &alias,
                                       int sign)
 {
-    FieldBlock &owner_block = fld_->field(fid, owner.block);
-    FieldBlock &alias_block = fld_->field(fid, alias.block);
+    FieldBlock &owner_block = fld_->field(fid, owner.entity.block);
+    FieldBlock &alias_block = fld_->field(fid, alias.entity.block);
 
     if (!owner_block.is_allocated() || !alias_block.is_allocated())
         return;
 
     for (int m = 0; m < req.ncomp; ++m)
     {
-        alias_block(alias.i, alias.j, alias.k, m) =
-            static_cast<double>(sign) * owner_block(owner.i, owner.j, owner.k, m);
+        alias_block(alias.entity.i, alias.entity.j, alias.entity.k, m) =
+            static_cast<double>(sign) * owner_block(owner.entity.i, owner.entity.j, owner.entity.k, m);
     }
 }
 
@@ -400,23 +400,23 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
             const int sign = owner_alias_sign_(req, owner, alias);
 
-            if (owner.rank == my_rank && alias.rank == my_rank)
+            if (owner.entity.rank == my_rank && alias.entity.rank == my_rank)
             {
                 OwnerSyncLocalOp op;
                 op.fid = fid;
-                op.owner_block = owner.block;
-                op.owner_i = owner.i;
-                op.owner_j = owner.j;
-                op.owner_k = owner.k;
-                op.alias_block = alias.block;
-                op.alias_i = alias.i;
-                op.alias_j = alias.j;
-                op.alias_k = alias.k;
+                op.owner_block = owner.entity.block;
+                op.owner_i = owner.entity.i;
+                op.owner_j = owner.entity.j;
+                op.owner_k = owner.entity.k;
+                op.alias_block = alias.entity.block;
+                op.alias_i = alias.entity.i;
+                op.alias_j = alias.entity.j;
+                op.alias_k = alias.entity.k;
                 op.ncomp = req.ncomp;
                 op.sign = sign;
                 pat.local_ops.push_back(op);
             }
-            else if (owner.rank == my_rank && alias.rank != my_rank)
+            else if (owner.entity.rank == my_rank && alias.entity.rank != my_rank)
             {
                 if (cls.global_id < 0)
                 {
@@ -429,17 +429,17 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
                 OwnerSyncSendOp op;
                 op.fid = fid;
-                op.owner_block = owner.block;
-                op.owner_i = owner.i;
-                op.owner_j = owner.j;
-                op.owner_k = owner.k;
+                op.owner_block = owner.entity.block;
+                op.owner_i = owner.entity.i;
+                op.owner_j = owner.entity.j;
+                op.owner_k = owner.entity.k;
                 op.ncomp = req.ncomp;
                 op.sign_for_alias = sign;
-                op.dst_rank = alias.rank;
-                op.tag = owner_sync_tag_(req, cls.global_id, alias.rank);
+                op.dst_rank = alias.entity.rank;
+                op.tag = owner_sync_tag_(req, cls.global_id, alias.entity.rank);
                 pat.send_ops.push_back(op);
             }
-            else if (owner.rank != my_rank && alias.rank == my_rank)
+            else if (owner.entity.rank != my_rank && alias.entity.rank == my_rank)
             {
                 if (cls.global_id < 0)
                 {
@@ -452,13 +452,13 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
                 OwnerSyncRecvOp op;
                 op.fid = fid;
-                op.alias_block = alias.block;
-                op.alias_i = alias.i;
-                op.alias_j = alias.j;
-                op.alias_k = alias.k;
+                op.alias_block = alias.entity.block;
+                op.alias_i = alias.entity.i;
+                op.alias_j = alias.entity.j;
+                op.alias_k = alias.entity.k;
                 op.ncomp = req.ncomp;
-                op.src_rank = owner.rank;
-                op.tag = owner_sync_tag_(req, cls.global_id, alias.rank);
+                op.src_rank = owner.entity.rank;
+                op.tag = owner_sync_tag_(req, cls.global_id, alias.entity.rank);
                 pat.recv_ops.push_back(op);
             }
         }

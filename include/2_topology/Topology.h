@@ -95,20 +95,51 @@ namespace TOPO
 
     struct EquivMember
     {
-        int rank = 0;
-        int block = -1;
-
-        StaggerLocation location = StaggerLocation::Cell;
-
-        int i = 0;
-        int j = 0;
-        int k = 0;
+        EntityKey entity{EntityDim::Cell, 0, 0, 0, 0, 0, EntityAxis::None};
 
         // member 相对 canonical orientation 的符号。
         int orient_sign = +1;
 
         bool is_owner = false;
     };
+
+    inline StaggerLocation stagger_location(const EntityKey &entity)
+    {
+        switch (entity.dim)
+        {
+        case EntityDim::Node:
+            return StaggerLocation::Node;
+        case EntityDim::Cell:
+            return StaggerLocation::Cell;
+        case EntityDim::Edge:
+            switch (entity.axis)
+            {
+            case EntityAxis::Xi:
+                return StaggerLocation::EdgeXi;
+            case EntityAxis::Eta:
+                return StaggerLocation::EdgeEt;
+            case EntityAxis::Zeta:
+                return StaggerLocation::EdgeZe;
+            default:
+                break;
+            }
+            break;
+        case EntityDim::Face:
+            switch (entity.axis)
+            {
+            case EntityAxis::Xi:
+                return StaggerLocation::FaceXi;
+            case EntityAxis::Eta:
+                return StaggerLocation::FaceEt;
+            case EntityAxis::Zeta:
+                return StaggerLocation::FaceZe;
+            default:
+                break;
+            }
+            break;
+        }
+        throw std::invalid_argument("TOPO::stagger_location: entity has an invalid dimension/axis combination.");
+    }
 
     struct EquivClass
     {

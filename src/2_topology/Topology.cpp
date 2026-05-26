@@ -1230,61 +1230,19 @@ namespace TOPO
 
     namespace
     {
-        StaggerLocation edge_location_from_dir(int dir)
-        {
-            switch (dir)
-            {
-            case 1:
-                return StaggerLocation::EdgeXi;
-            case 2:
-                return StaggerLocation::EdgeEt;
-            case 3:
-                return StaggerLocation::EdgeZe;
-            default:
-                ERROR::Abort("Topology: invalid edge dir");
-                return StaggerLocation::Cell;
-            }
-        }
-
         EquivMember make_edge_member(const EntityKey &e, int orient_sign, bool is_owner)
         {
             EquivMember m;
-            m.rank = e.rank;
-            m.block = e.block;
-            m.location = edge_location_from_dir(axis_number(e.axis));
-            m.i = e.i;
-            m.j = e.j;
-            m.k = e.k;
+            m.entity = e;
             m.orient_sign = orient_sign;
             m.is_owner = is_owner;
             return m;
         }
 
-        StaggerLocation face_location_from_dir(int dir)
-        {
-            switch (dir)
-            {
-            case 1:
-                return StaggerLocation::FaceXi;
-            case 2:
-                return StaggerLocation::FaceEt;
-            case 3:
-                return StaggerLocation::FaceZe;
-            default:
-                ERROR::Abort("Topology: invalid face dir");
-                return StaggerLocation::Cell;
-            }
-        }
-
         EquivMember make_face_member(const EntityKey &f, int orient_sign, bool is_owner)
         {
             EquivMember m;
-            m.rank = f.rank;
-            m.block = f.block;
-            m.location = face_location_from_dir(axis_number(f.axis));
-            m.i = f.i;
-            m.j = f.j;
-            m.k = f.k;
+            m.entity = f;
             m.orient_sign = orient_sign;
             m.is_owner = is_owner;
             return m;

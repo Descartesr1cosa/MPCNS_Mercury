@@ -1,5 +1,6 @@
 #include "6_boundary/Boundary.h"
 #include "0_basic/Error.h"
+#include "2_topology/Topology.h"
 #include <iostream>
 #include <cstdlib>
 #include "4_halo/detail/HaloBuildBoxMakers.h"

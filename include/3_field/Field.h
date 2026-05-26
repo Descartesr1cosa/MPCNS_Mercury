@@ -6,6 +6,11 @@
 #include "3_field/FieldStorage.h"
 #include "3_field/CouplingTypes.h"
 
+namespace TOPO
+{
+    struct Topology;
+}
+
 class Field
 {
 public:
