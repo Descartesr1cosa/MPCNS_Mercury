@@ -354,7 +354,7 @@ private:
 
     bool field_is_component_copy_(const std::string &field_name) const;
 
-    TOPO::EquivDofKind owner_policy_to_equiv_kind_(OwnerSyncPolicy policy) const;
+    TOPO::EntityDim owner_policy_to_entity_dim_(OwnerSyncPolicy policy) const;
 
     void require_owner_equiv_available_(OwnerSyncPolicy policy,
                                         const std::string &field_name) const;

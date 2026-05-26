@@ -465,7 +465,7 @@ namespace TOPO_VALIDATOR
             }
         };
         check_declared_classes(equiv.node_classes, "Node");
-        check_declared_classes(equiv.edge_classes_general, "Edge");
+        check_declared_classes(equiv.edge_classes, "Edge");
         check_declared_classes(equiv.face_classes, "Face");
         return report;
     }

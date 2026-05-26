@@ -1496,31 +1496,33 @@ namespace TOPO
         return valid;
     }
 
-    const std::vector<EquivClass> &Topology::classes(EquivDofKind kind) const
+    const std::vector<EquivClass> &Topology::classes(EntityDim dim) const
     {
-        switch (kind)
+        switch (dim)
         {
-        case EquivDofKind::Node:
+        case EntityDim::Node:
             return node_classes;
-        case EquivDofKind::Edge:
-            return edge_classes_general;
-        case EquivDofKind::Face:
+        case EntityDim::Edge:
+            return edge_classes;
+        case EntityDim::Face:
             return face_classes;
+        case EntityDim::Cell:
+            break;
         }
 
-        ERROR::Abort("Topology::classes: invalid EquivDofKind");
+        ERROR::Abort("Topology::classes: equivalence classes are unavailable for this entity dimension");
         return node_classes;
     }
 
-    void Topology::mirror_legacy_edge_equiv_to_general()
+    void Topology::rebuild_edge_classes()
     {
-        edge_classes_general.clear();
-        edge_classes_general.reserve(edge_members.size());
+        edge_classes.clear();
+        edge_classes.reserve(edge_members.size());
 
         for (const auto &[key, members] : edge_members)
         {
             EquivClass cls;
-            cls.kind = EquivDofKind::Edge;
+            cls.dim = EntityDim::Edge;
 
             auto owner_it = edge_owner.find(key);
             const bool has_owner = (owner_it != edge_owner.end());
@@ -1559,11 +1561,11 @@ namespace TOPO
                 cls.members.push_back(make_edge_member(e, orient_sign, is_owner));
             }
 
-            edge_classes_general.push_back(cls);
+            edge_classes.push_back(cls);
         }
     }
 
-    void Topology::mirror_legacy_face_equiv_to_general()
+    void Topology::rebuild_face_classes()
     {
         face_classes.clear();
         face_classes.reserve(face_members.size());
@@ -1571,7 +1573,7 @@ namespace TOPO
         for (const auto &[key, members] : face_members)
         {
             EquivClass cls;
-            cls.kind = EquivDofKind::Face;
+            cls.dim = EntityDim::Face;
 
             auto owner_it = face_owner.find(key);
             const bool has_owner = (owner_it != face_owner.end());
@@ -1633,7 +1635,7 @@ namespace TOPO
 
         select_edge_owner_parallel_impl(equiv, node_eq_counts);
         build_edge_owner_gid_impl(my_rank, equiv);
-        equiv.mirror_legacy_edge_equiv_to_general();
+        equiv.rebuild_edge_classes();
 
         auto all_local_faces = collect_all_local_faces_impl(grid, my_rank, dimension);
         build_face_equivalence_from_nodes_impl(all_local_faces, equiv);
@@ -1641,7 +1643,7 @@ namespace TOPO
 
         select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
-        equiv.mirror_legacy_face_equiv_to_general();
+        equiv.rebuild_face_classes();
     }
 
     void build_node_equivalence(
@@ -1686,7 +1688,7 @@ namespace TOPO
 
         select_face_owner_parallel_impl(equiv, node_eq_counts);
         build_face_owner_gid_impl(my_rank, equiv);
-        equiv.mirror_legacy_face_equiv_to_general();
+        equiv.rebuild_face_classes();
     }
 
 } // namespace TOPO

@@ -59,9 +59,9 @@ namespace Z0
     void dump_topology_equiv_summary(const TOPO::Topology &equiv, int my_rank, std::ostream &os)
     {
         os << "[rank " << my_rank << "] Topology summary"
-           << " node_classes=" << equiv.classes(TOPO::EquivDofKind::Node).size()
-           << " edge_classes=" << equiv.classes(TOPO::EquivDofKind::Edge).size()
-           << " face_classes=" << equiv.classes(TOPO::EquivDofKind::Face).size()
+           << " node_classes=" << equiv.classes(TOPO::EntityDim::Node).size()
+           << " edge_classes=" << equiv.classes(TOPO::EntityDim::Edge).size()
+           << " face_classes=" << equiv.classes(TOPO::EntityDim::Face).size()
            << "\n";
     }
 

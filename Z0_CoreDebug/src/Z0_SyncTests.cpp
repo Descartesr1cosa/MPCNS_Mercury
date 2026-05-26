@@ -306,7 +306,7 @@ namespace Z0
     {
         (void)halo;
         TestResult result;
-        auto check_group = [&](const std::string &group, TOPO::EquivDofKind kind)
+        auto check_group = [&](const std::string &group, TOPO::EntityDim dim)
         {
             halo.sync_group(group);
             const std::vector<std::string> names =
@@ -316,7 +316,7 @@ namespace Z0
             {
                 const int fid = fields.field_id(name);
                 const FieldDescriptor &desc = fields.descriptor(fid);
-                for (const auto &cls : equiv.classes(kind))
+                for (const auto &cls : equiv.classes(dim))
                 {
                     if (cls.owner.entity.rank != my_rank ||
                         TOPO::stagger_location(cls.owner.entity) != desc.location)
@@ -337,8 +337,8 @@ namespace Z0
                 }
             }
         };
-        check_group("Eedge", TOPO::EquivDofKind::Edge);
-        check_group("Bface", TOPO::EquivDofKind::Face);
+        check_group("Eedge", TOPO::EntityDim::Edge);
+        check_group("Bface", TOPO::EntityDim::Face);
         report_test("OwnerAlias", result, os);
         return result;
     }

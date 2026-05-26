@@ -235,22 +235,22 @@ void Halo::dump_sync_registry(std::ostream &os) const
     os << "========================================\n";
 }
 
-TOPO::EquivDofKind Halo::owner_policy_to_equiv_kind_(OwnerSyncPolicy policy) const
+TOPO::EntityDim Halo::owner_policy_to_entity_dim_(OwnerSyncPolicy policy) const
 {
     switch (policy)
     {
     case OwnerSyncPolicy::NodeOwner:
-        return TOPO::EquivDofKind::Node;
+        return TOPO::EntityDim::Node;
     case OwnerSyncPolicy::EdgeOwner:
-        return TOPO::EquivDofKind::Edge;
+        return TOPO::EntityDim::Edge;
     case OwnerSyncPolicy::FaceOwner:
-        return TOPO::EquivDofKind::Face;
+        return TOPO::EntityDim::Face;
     case OwnerSyncPolicy::None:
         break;
     }
 
-    ERROR::Abort("[Halo] owner_policy_to_equiv_kind_: invalid OwnerSyncPolicy");
-    return TOPO::EquivDofKind::Node;
+    ERROR::Abort("[Halo] owner_policy_to_entity_dim_: invalid OwnerSyncPolicy");
+    return TOPO::EntityDim::Node;
 }
 
 void Halo::require_owner_equiv_available_(OwnerSyncPolicy policy,
@@ -377,8 +377,8 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
     pat.orientation_aware = req.orientation_aware;
 
     const int fid = fld_->field_id(req.field_name);
-    const TOPO::EquivDofKind kind = owner_policy_to_equiv_kind_(req.policy);
-    const auto &classes = equiv_->classes(kind);
+    const TOPO::EntityDim dim = owner_policy_to_entity_dim_(req.policy);
+    const auto &classes = equiv_->classes(dim);
 
     int my_rank = 0;
     PARALLEL::mpi_rank(&my_rank);

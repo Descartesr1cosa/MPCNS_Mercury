@@ -86,13 +86,6 @@ namespace TOPO
     // equivalence-class containers
     // ============================================================
 
-    enum class EquivDofKind
-    {
-        Node,
-        Edge,
-        Face
-    };
-
     struct EquivMember
     {
         EntityKey entity{EntityDim::Cell, 0, 0, 0, 0, 0, EntityAxis::None};
@@ -143,7 +136,7 @@ namespace TOPO
 
     struct EquivClass
     {
-        EquivDofKind kind = EquivDofKind::Node;
+        EntityDim dim = EntityDim::Node;
 
         int global_id = -1;
 
@@ -212,25 +205,25 @@ namespace TOPO
         std::unordered_map<FaceKey, int, FaceKey::Hash> face_key_to_id;
 
         std::vector<EquivClass> node_classes;
-        std::vector<EquivClass> edge_classes_general;
+        std::vector<EquivClass> edge_classes;
         std::vector<EquivClass> face_classes;
 
         bool has_node_equiv() const { return !node_classes.empty(); }
         bool has_edge_equiv() const
         {
-            return !edge_classes_general.empty() || !edge_owner.empty();
+            return !edge_classes.empty() || !edge_owner.empty();
         }
         bool has_face_equiv() const { return !face_classes.empty(); }
 
-        const std::vector<EquivClass> &classes(EquivDofKind kind) const;
+        const std::vector<EquivClass> &classes(EntityDim dim) const;
 
         EntityId id_of(const EntityKey &key) const;
         EntityKey owner_of(const EntityKey &key) const;
         int sign_to_owner(const EntityKey &key) const;
         bool is_owner(const EntityKey &key) const;
 
-        void mirror_legacy_edge_equiv_to_general();
-        void mirror_legacy_face_equiv_to_general();
+        void rebuild_edge_classes();
+        void rebuild_face_classes();
 
         void clear_equivalence()
         {
@@ -267,7 +260,7 @@ namespace TOPO
             face_owner_gid_end = 0; // half-open: [begin, end)
 
             node_classes.clear();
-            edge_classes_general.clear();
+            edge_classes.clear();
             face_classes.clear();
         }
     };
