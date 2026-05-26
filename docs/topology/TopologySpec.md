@@ -344,7 +344,7 @@ Each equivalence class must have exactly one owner.
 Conceptual interface:
 
 ```cpp
-class TopologyEquiv {
+class Topology {
 public:
     EntityKey owner_of(const EntityKey& e) const;
 
@@ -577,7 +577,6 @@ The first-stage topology API should provide:
 class Topology {
 public:
     const BlockConnectivity& connectivity() const;
-    const TopologyEquiv& equiv() const;
     const Incidence& incidence() const;
 
     EntityKey owner_of(const EntityKey& e) const;

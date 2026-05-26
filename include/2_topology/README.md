@@ -60,7 +60,7 @@ It should not depend on:
 | `EntityIndex.h` | helper functions for creating node/edge/face/cell keys |
 | `EntityOrientation.h` | orientation utility functions, if needed |
 | `BlockConnectivity.h` | block-to-block connection graph |
-| `TopologyEquiv.h` | equivalence class, owner, alias, and sign relation |
+| `Topology.h` | connectivity plus equivalence class, owner, alias, and sign relation |
 | `Incidence.h` | metric-free d0, d1, d2 incidence stencils |
 | `Topology.h` | public facade of the topology module |
 
@@ -215,7 +215,7 @@ The first implementation stage should provide:
 4. `FaceAxis`;
 5. entity construction helpers;
 6. local incidence stencils;
-7. minimal `TopologyEquiv`;
+7. entity equivalence data within `Topology`;
 8. minimal `BlockConnectivity`;
 9. minimal `Topology` facade;
 10. tests for `d1*d0 = 0` and `d2*d1 = 0`.
@@ -289,7 +289,7 @@ The ownership boundary is deliberate:
 - A field descriptor together with the halo pattern builder decides whether a
   field needs a particular ghost region.
 - Orientation-aware fields may consume owner/sign information from
-  `TopologyEquiv`.
+  `Topology`.
 - MPI buffer layout, packing, unpacking, and transfer execution remain halo
   responsibilities, not topology responsibilities.
 
@@ -310,7 +310,7 @@ Specialized topology tests may include:
 
 ```cpp
 #include "2_topology/Incidence.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "2_topology/BlockConnectivity.h"
 ```
 

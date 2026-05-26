@@ -9,10 +9,9 @@
 #include <tuple>
 #include <vector>
 
-#include "2_topology/EntityAdapters.h"
 #include "2_topology/GlobalIncidence.h"
 #include "2_topology/LocalIncidence.h"
-#include "2_topology/TopologyTypes.h"
+#include "2_topology/Topology.h"
 
 namespace TOPO_VALIDATOR
 {
@@ -324,45 +323,46 @@ namespace TOPO_VALIDATOR
         return report;
     }
 
-    inline std::string edge_member_string(const TOPO::EdgeLocalID &member)
+    inline std::string edge_member_string(const TOPO::EntityKey &member)
     {
         std::ostringstream oss;
-        oss << "rank=" << member.rank << " block=" << member.gblock
-            << " dim=Edge axis=" << member.dir << " ijk=("
+        oss << "rank=" << member.rank << " block=" << member.block
+            << " dim=Edge axis=" << TOPO::axis_number(member.axis) << " ijk=("
             << member.i << "," << member.j << "," << member.k << ")";
         return oss.str();
     }
 
-    inline std::string face_member_string(const TOPO::FaceLocalID &member)
+    inline std::string face_member_string(const TOPO::EntityKey &member)
     {
         std::ostringstream oss;
-        oss << "rank=" << member.rank << " block=" << member.gblock
-            << " dim=Face axis=" << member.dir << " ijk=("
+        oss << "rank=" << member.rank << " block=" << member.block
+            << " dim=Face axis=" << TOPO::axis_number(member.axis) << " ijk=("
             << member.i << "," << member.j << "," << member.k << ")";
         return oss.str();
     }
 
-    inline ValidationReport check_equivalence(const TOPO::TopologyEquiv &equiv)
+    inline ValidationReport check_equivalence(const TOPO::Topology &equiv)
     {
         ValidationReport report;
-        std::map<TOPO::NodeEqID, std::set<TOPO::LocalNodeID>> node_members;
+        std::map<TOPO::EntityKey, std::set<TOPO::EntityKey>> node_members;
         for (const auto &[node, owner] : equiv.node2eq)
         {
             node_members[owner].insert(node);
             if (equiv.node_eq_to_id.find(owner) == equiv.node_eq_to_id.end())
             {
                 report.add("Node equivalence owner rank=" + std::to_string(owner.rank) +
-                           " block=" + std::to_string(owner.gblock) +
+                           " block=" + std::to_string(owner.block) +
                            ": missing quotient EntityId");
             }
         }
         for (const auto &[owner, members] : node_members)
         {
-            const TOPO::LocalNodeID canonical{owner.rank, owner.gblock, owner.i, owner.j, owner.k};
+            const TOPO::EntityKey canonical =
+                TOPO::make_node(owner.rank, owner.block, owner.i, owner.j, owner.k);
             const auto local_owner = equiv.node2eq.find(canonical);
             if (local_owner != equiv.node2eq.end() && !(local_owner->second == owner))
-                report.add("Node canonical owner maps to a different NodeEqID at rank=" +
-                           std::to_string(owner.rank) + " block=" + std::to_string(owner.gblock));
+                report.add("Node canonical owner maps to a different EntityKey at rank=" +
+                           std::to_string(owner.rank) + " block=" + std::to_string(owner.block));
             (void)members;
         }
 
@@ -385,9 +385,9 @@ namespace TOPO_VALIDATOR
                 report.add("Edge equivalence class has no owner");
                 continue;
             }
-            std::set<TOPO::EdgeLocalID> unique;
+            std::set<TOPO::EntityKey> unique;
             int owner_count = 0;
-            for (const TOPO::EdgeLocalID &member : members)
+            for (const TOPO::EntityKey &member : members)
             {
                 if (!unique.insert(member).second)
                     report.add(edge_member_string(member) + ": duplicate edge class member");
@@ -410,9 +410,9 @@ namespace TOPO_VALIDATOR
                 report.add("Face equivalence class has no owner");
                 continue;
             }
-            std::set<TOPO::FaceLocalID> unique;
+            std::set<TOPO::EntityKey> unique;
             int owner_count = 0;
-            for (const TOPO::FaceLocalID &member : members)
+            for (const TOPO::EntityKey &member : members)
             {
                 if (!unique.insert(member).second)
                     report.add(face_member_string(member) + ": duplicate face class member");
@@ -473,7 +473,7 @@ namespace TOPO_VALIDATOR
         return report;
     }
 
-    inline ValidationReport check_face_orientation(const TOPO::TopologyEquiv &equiv)
+    inline ValidationReport check_face_orientation(const TOPO::Topology &equiv)
     {
         ValidationReport report;
         std::ostringstream diagnostics;

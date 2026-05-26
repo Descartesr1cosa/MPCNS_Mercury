@@ -3,7 +3,7 @@
 #include <vector>
 
 #include "0_basic/MPI_WRAPPER.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/HaloEdgeOwnerTypes.h"
 
@@ -15,8 +15,8 @@ namespace HALO_OWNER
 
     struct EdgeOwnerLocalAliasItem
     {
-        TOPO::EdgeLocalID owner; // local owner rep
-        TOPO::EdgeLocalID rep;   // local non-owner rep
+        TOPO::EntityKey owner; // local owner rep
+        TOPO::EntityKey rep;   // local non-owner rep
         int8_t sign;             // for 1-form; ignored by vec copy
     };
 
@@ -24,14 +24,14 @@ namespace HALO_OWNER
     {
         int tar_id;              // target rank id
         TOPO::EdgeKey key;       //
-        TOPO::EdgeLocalID owner; // local owner rep
+        TOPO::EntityKey owner; // local owner rep
     };
 
     struct EdgeOwnerRecvItem
     {
         int tar_id;            // remote owner rank id
         TOPO::EdgeKey key;     //
-        TOPO::EdgeLocalID rep; // local non-owner rep
+        TOPO::EntityKey rep; // local non-owner rep
         int8_t sign;           // for 1-form; ignored by vec copy
     };
 
@@ -84,7 +84,7 @@ namespace HALO_OWNER
     // ============================================================
 
     void build_edge_owner_sync_pattern(
-        const TOPO::TopologyEquiv &equiv,
+        const TOPO::Topology &equiv,
         EdgeOwnerSyncPattern &pattern);
 
     // ============================================================
@@ -92,8 +92,8 @@ namespace HALO_OWNER
     // ============================================================
 
     void gather_local_owner_edges_sorted(
-        const TOPO::TopologyEquiv &equiv,
-        std::vector<TOPO::EdgeLocalID> &owner_edges_sorted);
+        const TOPO::Topology &equiv,
+        std::vector<TOPO::EntityKey> &owner_edges_sorted);
 
     // Treat every component on edge as a 1-form component:
     // rep(comp) = sign * owner(comp)
@@ -112,16 +112,16 @@ namespace HALO_OWNER
     void pack_owner_edge_1form_local(
         Field &fld,
         const IdTriplet &field_id,
-        const TOPO::TopologyEquiv &equiv,
-        const std::vector<TOPO::EdgeLocalID> &owner_edges_sorted,
+        const TOPO::Topology &equiv,
+        const std::vector<TOPO::EntityKey> &owner_edges_sorted,
         std::vector<double> &buf_local);
 
     void unpack_owner_edge_1form_local(
         const std::vector<double> &buf_local,
         Field &fld,
         const IdTriplet &field_id,
-        const TOPO::TopologyEquiv &equiv,
-        const std::vector<TOPO::EdgeLocalID> &owner_edges_sorted,
+        const TOPO::Topology &equiv,
+        const std::vector<TOPO::EntityKey> &owner_edges_sorted,
         EdgeOwnerSyncPattern &pattern);
 
 } // namespace HALO_OWNER

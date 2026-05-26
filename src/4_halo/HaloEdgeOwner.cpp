@@ -14,22 +14,22 @@ namespace HALO_OWNER
         struct EdgeMemberCandidate
         {
             TOPO::EdgeKey key;
-            TOPO::EdgeLocalID rep;
+            TOPO::EntityKey rep;
             int8_t sign_to_canonical; // ±1
         };
 
-        inline void pack_node(std::vector<int> &buf, const TOPO::NodeEqID &x)
+        inline void pack_node(std::vector<int> &buf, const TOPO::EntityKey &x)
         {
             buf.push_back(x.rank);
-            buf.push_back(x.gblock);
+            buf.push_back(x.block);
             buf.push_back(x.i);
             buf.push_back(x.j);
             buf.push_back(x.k);
         }
 
-        inline TOPO::NodeEqID unpack_node_eq(const int *p)
+        inline TOPO::EntityKey unpack_node_eq(const int *p)
         {
-            return TOPO::NodeEqID{p[0], p[1], p[2], p[3], p[4]};
+            return TOPO::make_node(p[0], p[1], p[2], p[3], p[4]);
         }
 
         inline void pack_edge_key(std::vector<int> &buf, const TOPO::EdgeKey &key)
@@ -45,19 +45,19 @@ namespace HALO_OWNER
                 unpack_node_eq(p + 5)};
         }
 
-        inline void pack_edge_local(std::vector<int> &buf, const TOPO::EdgeLocalID &e)
+        inline void pack_edge_local(std::vector<int> &buf, const TOPO::EntityKey &e)
         {
             buf.push_back(e.rank);
-            buf.push_back(e.gblock);
+            buf.push_back(e.block);
             buf.push_back(e.i);
             buf.push_back(e.j);
             buf.push_back(e.k);
-            buf.push_back(e.dir);
+            buf.push_back(TOPO::axis_number(e.axis));
         }
 
-        inline TOPO::EdgeLocalID unpack_edge_local(const int *p)
+        inline TOPO::EntityKey unpack_edge_local(const int *p)
         {
-            return TOPO::EdgeLocalID{p[0], p[1], p[2], p[3], p[4], p[5]};
+            return TOPO::make_edge(p[0], p[1], p[2], p[3], p[4], TOPO::entity_axis(p[5]));
         }
 
         inline void pack_edge_member_candidate(std::vector<int> &buf,
@@ -85,7 +85,7 @@ namespace HALO_OWNER
     } // namespace
 
     void build_edge_owner_sync_pattern(
-        const TOPO::TopologyEquiv &equiv,
+        const TOPO::Topology &equiv,
         EdgeOwnerSyncPattern &pattern)
     {
         pattern.clear();
@@ -194,7 +194,7 @@ namespace HALO_OWNER
                         "build_edge_owner_sync_pattern: local key missing in equiv.edge_owner.");
                 }
 
-                const TOPO::EdgeLocalID &owner = it_owner->second;
+                const TOPO::EntityKey &owner = it_owner->second;
 
                 auto it_global = global_members.find(key);
                 if (it_global == global_members.end())

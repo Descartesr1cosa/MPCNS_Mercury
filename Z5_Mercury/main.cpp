@@ -8,7 +8,7 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "2_topology/TopologyBuilder.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
 #include "4_halo/HaloEdgeOwner.h"
@@ -48,8 +48,7 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build topology
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));
-        TOPO::TopologyEquiv topo_equiv;
-        TOPO::build_topology_equiv(topology, *grd, myid, par->GetInt("dimension"), topo_equiv);
+        TOPO::build_topology_equivalence(topology, *grd, myid, par->GetInt("dimension"));
         //--------------------------------------------------------------------------
         int ngg = par->GetInt("ngg");
         // Build Field
@@ -63,12 +62,12 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build owner sync pattern once; both explicit and implicit edge fields use it.
         HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pattern;
-        HALO_OWNER::build_edge_owner_sync_pattern(topo_equiv, edge_owner_pattern);
+        HALO_OWNER::build_edge_owner_sync_pattern(topology, edge_owner_pattern);
         //=============================================================================================
 
         //=============================================================================================
         MercurySolver solver(grd, &topology, fld, hal, par,
-                             &topo_equiv,
+                             &topology,
                              &edge_owner_pattern);
         solver.Advance();
         if (myid == 0)

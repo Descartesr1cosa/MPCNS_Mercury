@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "2_topology/EntityAdapters.h"
+#include "2_topology/Topology.h"
 #include "2_topology/LocalIncidence.h"
 
 namespace TOPO
@@ -19,18 +19,18 @@ namespace TOPO
 
     // Metric-free incidence on quotient entities.  This view performs no
     // communication: it builds rows for the canonical entities represented
-    // in the supplied, already-built TopologyEquiv instance.
+    // in the supplied, already-built Topology instance.
     class GlobalIncidence
     {
     public:
-        explicit GlobalIncidence(const TopologyEquiv &equiv)
+        explicit GlobalIncidence(const Topology &equiv)
             : equiv_(equiv)
         {
             build_edge_rows();
             build_face_rows();
         }
 
-        GlobalIncidence(const TopologyEquiv &equiv,
+        GlobalIncidence(const Topology &equiv,
                         const std::vector<EntityKey> &local_cells)
             : GlobalIncidence(equiv)
         {
@@ -60,13 +60,13 @@ namespace TOPO
             {
                 throw std::runtime_error(
                     "GlobalIncidence::boundary_of_global_cell: cell quotient ids "
-                    "are not implemented in TopologyEquiv in this phase.");
+                    "are not implemented in Topology in this phase.");
             }
             return boundary_row(cell_rows_, cell_id, "boundary_of_global_cell");
         }
 
         // Extension point for the phase that adds cell EntityId support.
-        // At present TopologyEquiv::id_of(cell) deliberately reports TODO.
+        // At present Topology::id_of(cell) deliberately reports TODO.
         void add_local_cell(const EntityKey &cell)
         {
             if (cell.dim != EntityDim::Cell)
@@ -125,7 +125,7 @@ namespace TOPO
         using Row = std::map<EntityId, int>;
         using Rows = std::map<EntityId, Row>;
 
-        const TopologyEquiv &equiv_;
+        const Topology &equiv_;
         Rows edge_rows_;
         Rows face_rows_;
         Rows cell_rows_;
@@ -193,7 +193,7 @@ namespace TOPO
             for (const auto &[edge, key] : equiv_.edge2key)
             {
                 (void)key;
-                const EntityKey local_edge = to_entity_key(edge);
+                const EntityKey local_edge = edge;
                 if (!has_local_base_node(local_edge))
                     continue;
                 insert_row(edge_rows_, local_edge, boundary_of_edge(local_edge), "edge");
@@ -205,7 +205,7 @@ namespace TOPO
             for (const auto &[face, key] : equiv_.face2key)
             {
                 (void)key;
-                const EntityKey local_face = to_entity_key(face);
+                const EntityKey local_face = face;
                 if (!has_local_base_node(local_face))
                     continue;
                 insert_row(face_rows_, local_face, boundary_of_face(local_face), "face");
@@ -214,7 +214,7 @@ namespace TOPO
 
         bool has_local_base_node(const EntityKey &entity) const
         {
-            const LocalNodeID base{entity.rank, entity.block, entity.i, entity.j, entity.k};
+            const EntityKey base = make_node(entity.rank, entity.block, entity.i, entity.j, entity.k);
             return equiv_.node2eq.find(base) != equiv_.node2eq.end();
         }
     };

@@ -258,6 +258,36 @@ namespace TOPO
         return EntityKey{EntityDim::Face, rank, block, i, j, k, axis};
     }
 
+    inline int axis_number(EntityAxis axis)
+    {
+        switch (axis)
+        {
+        case EntityAxis::Xi:
+            return 1;
+        case EntityAxis::Eta:
+            return 2;
+        case EntityAxis::Zeta:
+            return 3;
+        default:
+            throw std::invalid_argument("TOPO::axis_number: entity axis must be Xi, Eta, or Zeta.");
+        }
+    }
+
+    inline EntityAxis entity_axis(int number)
+    {
+        switch (number)
+        {
+        case 1:
+            return EntityAxis::Xi;
+        case 2:
+            return EntityAxis::Eta;
+        case 3:
+            return EntityAxis::Zeta;
+        default:
+            throw std::invalid_argument("TOPO::entity_axis: axis number must be 1, 2, or 3.");
+        }
+    }
+
     inline EntityKey make_cell(int rank, int block, int i, int j, int k)
     {
         return EntityKey{EntityDim::Cell, rank, block, i, j, k, EntityAxis::None};

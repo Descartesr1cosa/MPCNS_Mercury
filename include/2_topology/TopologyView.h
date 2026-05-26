@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "2_topology/TopologyTypes.h"
+#include "2_topology/Topology.h"
 
 namespace TOPO_VIEW
 {

@@ -18,7 +18,7 @@
 //     查询 / 适配层。
 //     给 Halo、Boundary、Coupling 提供统一 patch view。
 
-// TopologyEquiv.h
+// Topology.h
 //     等价类 / owner-alias 层。
 //     处理 node/edge/face 物理同一 DOF、owner、alias、orientation sign。
 
@@ -217,27 +217,6 @@ namespace TOPO
         int32_t recv_flag = 0;
 
         bool is_coupling = false;
-    };
-
-    // Aggregated topology-side adjacency.  The patch lists are sufficient
-    // input for a later halo pattern builder to construct direct face, edge,
-    // and vertex send/receive items.  Field descriptors decide whether a
-    // field participates and TopologyEquiv supplies owner/sign information
-    // for orientation-aware fields; topology itself performs no MPI transfer.
-    // 汇总 topology
-    struct Topology
-    {
-        std::vector<InterfacePatch> inner_patches;
-        std::vector<InterfacePatch> parallel_patches;
-        std::vector<PhysicalPatch> physical_patches;
-
-        std::vector<EdgePatch> inner_edge_patches;
-        std::vector<EdgePatch> parallel_edge_patches;
-        std::vector<EdgePatch> physical_edge_patches;
-
-        std::vector<VertexPatch> inner_vertex_patches;
-        std::vector<VertexPatch> parallel_vertex_patches;
-        std::vector<VertexPatch> physical_vertex_patches;
     };
 
 } // namespace TOPO

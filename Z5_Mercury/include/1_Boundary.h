@@ -16,7 +16,7 @@
 class Grid;
 namespace TOPO
 {
-    class Topology;
+    struct Topology;
 }
 namespace HALO_OWNER
 {

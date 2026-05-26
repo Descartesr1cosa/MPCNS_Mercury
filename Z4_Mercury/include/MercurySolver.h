@@ -38,8 +38,7 @@ struct NumInfo
 class Grid;
 namespace TOPO
 {
-    class Topology;
-    struct TopologyEquiv;
+    struct Topology;
 }
 namespace HALO_OWNER
 {
@@ -54,7 +53,7 @@ class MercurySolver
 {
 public:
     MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
-                  TOPO::TopologyEquiv *topo_equiv = nullptr,
+                  TOPO::Topology *topo_equiv = nullptr,
                   HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
 
     static void RegisterFields(Field *fld, int ngg);
@@ -71,7 +70,7 @@ private:
     Halo *halo_{nullptr};
     Param *par_{nullptr};
 
-    TOPO::TopologyEquiv *topo_equiv_{nullptr};
+    TOPO::Topology *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
 #if HALL_IMPLICIT == 1
     ImplicitHallSolver hall_implicit_;

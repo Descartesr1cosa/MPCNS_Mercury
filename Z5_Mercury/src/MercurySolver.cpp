@@ -10,7 +10,7 @@
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
-                             TOPO::TopologyEquiv *topo_equiv,
+                             TOPO::Topology *topo_equiv,
                              HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat)
     : grd_(grd),
       topo_(topo),

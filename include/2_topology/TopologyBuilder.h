@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "2_topology/TopologyTypes.h"
+#include "2_topology/Topology.h"
 
 #include "1_grid/1_MPCNS_Grid.h"
 #include "1_grid/Grid_Boundary.h"

@@ -29,7 +29,7 @@ namespace Z0
     void print_banner()
     {
         std::cout << "========== Z0_CoreDebug Framework Test ==========\n"
-                  << "Field / Topology / TopologyEquiv / Halo / Coupling / IO validation only.\n"
+                  << "Field / Topology / Topology / Halo / Coupling / IO validation only.\n"
                   << "No Mercury PDE solver or implicit Hall path is executed.\n"
                   << "=================================================\n";
     }
@@ -56,9 +56,9 @@ namespace Z0
         }
     }
 
-    void dump_topology_equiv_summary(const TOPO::TopologyEquiv &equiv, int my_rank, std::ostream &os)
+    void dump_topology_equiv_summary(const TOPO::Topology &equiv, int my_rank, std::ostream &os)
     {
-        os << "[rank " << my_rank << "] TopologyEquiv summary"
+        os << "[rank " << my_rank << "] Topology summary"
            << " node_classes=" << equiv.classes(TOPO::EquivDofKind::Node).size()
            << " edge_classes=" << equiv.classes(TOPO::EquivDofKind::Edge).size()
            << " face_classes=" << equiv.classes(TOPO::EquivDofKind::Face).size()
@@ -67,7 +67,7 @@ namespace Z0
 
     void print_diagnostics(const Field &fields,
                            const TOPO::Topology &topology,
-                           const TOPO::TopologyEquiv &equiv,
+                           const TOPO::Topology &equiv,
                            int dimension,
                            int nghost,
                            std::ostream &os)

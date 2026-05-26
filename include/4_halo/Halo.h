@@ -1,5 +1,5 @@
 #pragma once
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "4_halo/HaloTypes.h"
 #include "3_field/Field.h"
 #include "0_basic/MPI_WRAPPER.h"
@@ -32,12 +32,12 @@ public:
 
     void dump_sync_registry(std::ostream &os) const;
 
-    void set_topology_equiv(const TOPO::TopologyEquiv *equiv)
+    void set_topology_equiv(const TOPO::Topology *equiv)
     {
         equiv_ = equiv;
     }
 
-    const TOPO::TopologyEquiv *topology_equiv() const
+    const TOPO::Topology *topology_equiv() const
     {
         return equiv_;
     }
@@ -190,7 +190,7 @@ private:
 private:
     Field *fld_;
     TOPO::Topology *topo_;
-    const TOPO::TopologyEquiv *equiv_ = nullptr;
+    const TOPO::Topology *equiv_ = nullptr;
 
     enum class HaloSyncSemantics
     {

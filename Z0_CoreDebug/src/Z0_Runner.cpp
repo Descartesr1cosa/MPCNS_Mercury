@@ -11,7 +11,7 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "1_grid/1_MPCNS_Grid.h"
 #include "2_topology/TopologyBuilder.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
 
@@ -82,8 +82,7 @@ namespace Z0
         const int nghost = par->GetInt("ngg");
 
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, dimension);
-        TOPO::TopologyEquiv topology_equiv;
-        TOPO::build_topology_equiv(topology, *grd, myid, dimension, topology_equiv);
+        TOPO::build_topology_equivalence(topology, *grd, myid, dimension);
 
         auto fields = std::make_unique<Field>(grd.get(), par.get(), nghost);
         register_core_debug_fields(*fields, nghost);
@@ -94,7 +93,7 @@ namespace Z0
         fields->build_coupling_buffers(topology, dimension);
 
         auto halo = std::make_unique<Halo>(fields.get(), &topology);
-        halo->set_topology_equiv(&topology_equiv);
+        halo->set_topology_equiv(&topology);
         halo->register_halo_fields(fields->halo_requests());
         halo->build_registered_patterns();
 
@@ -108,7 +107,7 @@ namespace Z0
         {
             if (myid == 0)
             {
-                print_diagnostics(*fields, topology, topology_equiv, dimension, nghost, std::cout);
+                print_diagnostics(*fields, topology, topology, dimension, nghost, std::cout);
                 halo->dump_sync_registry(std::cout);
             }
         }
@@ -119,7 +118,7 @@ namespace Z0
             merge_result(total, test_component_halo(*fields, *halo, topology, myid, std::cout));
             merge_result(total, test_edge_1form_triplet_halo(*fields, *halo, topology, myid, std::cout));
             merge_result(total, test_face_2form_triplet_halo(*fields, *halo, topology, myid, std::cout));
-            merge_result(total, test_owner_alias_sync(*fields, *halo, topology_equiv, myid, std::cout));
+            merge_result(total, test_owner_alias_sync(*fields, *halo, topology, myid, std::cout));
             merge_result(total, test_sync_group_order(*fields, topology, myid, std::cout));
         }
 

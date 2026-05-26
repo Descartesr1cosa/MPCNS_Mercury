@@ -10,7 +10,7 @@
 #include <petscsnes.h>
 
 #include "0_SolverFields.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "operators/CTOperators.h"
 #include "4_Hall_Implicit_Type.h"
@@ -19,7 +19,7 @@
 class Grid;
 namespace TOPO
 {
-    class Topology;
+    struct Topology;
 }
 class Field;
 class Halo;
@@ -68,7 +68,7 @@ public:
                Param *par,
                MercuryBoundary *bound,
                const SolverFields &fid,
-               const TOPO::TopologyEquiv &equiv,
+               const TOPO::Topology &equiv,
                const HALO_OWNER::EdgeOwnerSyncPattern &owner_pat,
                std::vector<HallFaceScratchBlock_> *hall_face_scratch);
 
@@ -92,7 +92,7 @@ private:
     MercuryBoundary *bound_{nullptr};
 
     SolverFields fid_;
-    TOPO::TopologyEquiv equiv_;
+    TOPO::Topology equiv_;
     HALO_OWNER::EdgeOwnerSyncPattern owner_pat_;
     Callbacks cb_;
 
@@ -116,7 +116,7 @@ private:
     std::vector<Scalar> Bstar_eta_;
     std::vector<Scalar> Bstar_ze_;
 
-    std::vector<TOPO::EdgeLocalID> owner_edges_sorted_;
+    std::vector<TOPO::EntityKey> owner_edges_sorted_;
 
 private:
     static PetscErrorCode FormFunction_(SNES snes, Vec X, Vec F, void *ctx);

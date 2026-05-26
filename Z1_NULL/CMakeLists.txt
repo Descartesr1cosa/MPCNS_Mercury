@@ -18,24 +18,11 @@ include_directories(.)
 aux_source_directory(../src/0_basic DIRSRCS0)
 aux_source_directory(../src/1_grid DIRSRCS1)
 aux_source_directory(../src/2_topology DIRSRCS2)
-aux_source_directory(../src/3_field DIRSRCS3)
-aux_source_directory(../src/4_halo DIRSRCS4)
-aux_source_directory(../src/5_io DIRSRCS5)
-
-aux_source_directory(./src Z1_SRCS)
-aux_source_directory(./src/boundary Z1_BOUNDARY_SRCS)
-aux_source_directory(./src/physics Z1_PHYSICS_SRCS)
-
 add_executable(z1_null
     main.cpp
-    ${Z1_SRCS}
-    ${Z1_BOUNDARY_SRCS}
-    ${Z1_PHYSICS_SRCS}
+    ./src/Z1_Control.cpp
     ${DIRSRCS0}
     ${DIRSRCS1}
-    ${DIRSRCS2}
-    ${DIRSRCS3}
-    ${DIRSRCS4}
-    ${DIRSRCS5})
+    ${DIRSRCS2})
 
 target_link_libraries(z1_null PRIVATE ${MPI_LIBRARIES} stdc++fs)

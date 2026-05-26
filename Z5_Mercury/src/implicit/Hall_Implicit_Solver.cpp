@@ -26,7 +26,7 @@ void ImplicitHallSolver::Setup(Grid *grd,
                                Param *par,
                                MercuryBoundary *bound,
                                const SolverFields &fid,
-                               const TOPO::TopologyEquiv &equiv,
+                               const TOPO::Topology &equiv,
                                const HALO_OWNER::EdgeOwnerSyncPattern &owner_pat,
                                std::vector<HallFaceScratchBlock_> *hall_face_scratch)
 {

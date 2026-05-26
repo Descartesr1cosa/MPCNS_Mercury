@@ -10,17 +10,17 @@ namespace HALO_OWNER
 
         inline FieldBlock &edge_block(Field &fld,
                                       const IdTriplet &fid,
-                                      const TOPO::EdgeLocalID &e)
+                                      const TOPO::EntityKey &e)
         {
-            return fld.field(fid.at(e.dir), e.gblock);
+            return fld.field(fid.at(TOPO::axis_number(e.axis)), e.block);
         }
 
         inline const FieldBlock &edge_block_const(const Field &fld,
                                                   const IdTriplet &fid,
-                                                  const TOPO::EdgeLocalID &e)
+                                                  const TOPO::EntityKey &e)
         {
             // Field::field 没有 const 重载的话，就别用这个 helper
-            return const_cast<Field &>(fld).field(fid.at(e.dir), e.gblock);
+            return const_cast<Field &>(fld).field(fid.at(TOPO::axis_number(e.axis)), e.block);
         }
 
         inline int check_edge_triplet_and_get_ncomp(Field &fld, const IdTriplet &fid)
@@ -237,7 +237,7 @@ namespace HALO_OWNER
         //=================================================================
 
         inline int local_owner_index_from_gid(
-            const TOPO::TopologyEquiv &equiv,
+            const TOPO::Topology &equiv,
             int gid)
         {
             if (gid < equiv.edge_owner_gid_begin || gid >= equiv.edge_owner_gid_end)
@@ -251,8 +251,8 @@ namespace HALO_OWNER
     }
 
     void gather_local_owner_edges_sorted(
-        const TOPO::TopologyEquiv &equiv,
-        std::vector<TOPO::EdgeLocalID> &owner_edges_sorted)
+        const TOPO::Topology &equiv,
+        std::vector<TOPO::EntityKey> &owner_edges_sorted)
     {
         owner_edges_sorted.clear();
         owner_edges_sorted.reserve(equiv.n_local_edge_owner);
@@ -263,7 +263,7 @@ namespace HALO_OWNER
         }
 
         std::sort(owner_edges_sorted.begin(), owner_edges_sorted.end(),
-                  [&](const TOPO::EdgeLocalID &a, const TOPO::EdgeLocalID &b)
+                  [&](const TOPO::EntityKey &a, const TOPO::EntityKey &b)
                   {
                       return equiv.edge_owner_gid.at(a) < equiv.edge_owner_gid.at(b);
                   });
@@ -298,8 +298,8 @@ namespace HALO_OWNER
     void pack_owner_edge_1form_local(
         Field &fld,
         const IdTriplet &field_id,
-        const TOPO::TopologyEquiv &equiv,
-        const std::vector<TOPO::EdgeLocalID> &owner_edges_sorted,
+        const TOPO::Topology &equiv,
+        const std::vector<TOPO::EntityKey> &owner_edges_sorted,
         std::vector<double> &buf_local)
     {
         const int ncomp = check_edge_triplet_and_get_ncomp(fld, field_id);
@@ -321,7 +321,7 @@ namespace HALO_OWNER
 
         for (int lid = 0; lid < equiv.n_local_edge_owner; ++lid)
         {
-            const TOPO::EdgeLocalID &e = owner_edges_sorted[lid];
+            const TOPO::EntityKey &e = owner_edges_sorted[lid];
             FieldBlock &fb = edge_block(fld, field_id, e);
 
             const int base = lid * ncomp;
@@ -336,8 +336,8 @@ namespace HALO_OWNER
         const std::vector<double> &buf_local,
         Field &fld,
         const IdTriplet &field_id,
-        const TOPO::TopologyEquiv &equiv,
-        const std::vector<TOPO::EdgeLocalID> &owner_edges_sorted,
+        const TOPO::Topology &equiv,
+        const std::vector<TOPO::EntityKey> &owner_edges_sorted,
         EdgeOwnerSyncPattern &pattern)
     {
         const int ncomp = check_edge_triplet_and_get_ncomp(fld, field_id);
@@ -360,7 +360,7 @@ namespace HALO_OWNER
         // 1) 写回本 rank owner edges
         for (int lid = 0; lid < equiv.n_local_edge_owner; ++lid)
         {
-            const TOPO::EdgeLocalID &e = owner_edges_sorted[lid];
+            const TOPO::EntityKey &e = owner_edges_sorted[lid];
             FieldBlock &fb = edge_block(fld, field_id, e);
 
             const int base = lid * ncomp;

@@ -8,7 +8,7 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "2_topology/TopologyBuilder.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
 
@@ -47,8 +47,7 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build topology
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));
-        TOPO::TopologyEquiv topo_equiv;
-        TOPO::build_topology_equiv(topology, *grd, myid, par->GetInt("dimension"), topo_equiv);
+        TOPO::build_topology_equivalence(topology, *grd, myid, par->GetInt("dimension"));
         //--------------------------------------------------------------------------
         int ngg = par->GetInt("ngg");
         // Build Field
@@ -58,7 +57,7 @@ int main(int arg, char **argv)
         //--------------------------------------------------------------------------
         // Build Halo Communicator
         Halo *hal = new Halo(fld, &topology);
-        hal->set_topology_equiv(&topo_equiv);
+        hal->set_topology_equiv(&topology);
         MercurySolver::RegisterHaloFields(fld, hal);
         //--------------------------------------------------------------------------
         // Z4 uses Halo synchronization framework owner-sync patterns.
@@ -67,7 +66,7 @@ int main(int arg, char **argv)
 
         //=============================================================================================
         MercurySolver solver(grd, &topology, fld, hal, par,
-                             &topo_equiv,
+                             &topology,
                              nullptr);
         solver.Advance();
         if (myid == 0)

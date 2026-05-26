@@ -302,7 +302,7 @@ namespace Z0
         return result;
     }
 
-    TestResult test_owner_alias_sync(Field &fields, Halo &halo, const TOPO::TopologyEquiv &equiv, int my_rank, std::ostream &os)
+    TestResult test_owner_alias_sync(Field &fields, Halo &halo, const TOPO::Topology &equiv, int my_rank, std::ostream &os)
     {
         (void)halo;
         TestResult result;

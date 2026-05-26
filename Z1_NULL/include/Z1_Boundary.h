@@ -10,7 +10,6 @@ class Param;
 namespace TOPO
 {
     struct Topology;
-    struct TopologyEquiv;
 }
 
 class Z1_Boundary
@@ -20,7 +19,7 @@ public:
                 Field *field,
                 Halo *halo,
                 TOPO::Topology *topology,
-                TOPO::TopologyEquiv *topology_equiv,
+                TOPO::Topology *topology_equiv,
                 Param *param);
 
     void ApplyPhysicalBoundary(const std::string &group);
@@ -39,6 +38,6 @@ private:
     Field *field_ = nullptr;
     Halo *halo_ = nullptr;
     TOPO::Topology *topology_ = nullptr;
-    TOPO::TopologyEquiv *topology_equiv_ = nullptr;
+    TOPO::Topology *topology_equiv_ = nullptr;
     Param *param_ = nullptr;
 };

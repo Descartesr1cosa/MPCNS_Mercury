@@ -1,7 +1,7 @@
 #pragma once
 
 #include "2_topology/TopologyBuilder.h"
-#include "2_topology/TopologyEquiv.h"
+#include "2_topology/Topology.h"
 #include "3_field/FieldDescriptor.h"
 
 #include <iosfwd>
@@ -21,12 +21,12 @@ namespace Z0
     void print_banner();
     void print_diagnostics(const Field &fields,
                            const TOPO::Topology &topology,
-                           const TOPO::TopologyEquiv &equiv,
+                           const TOPO::Topology &equiv,
                            int dimension,
                            int nghost,
                            std::ostream &os);
     void dump_field_catalog(const Field &fields, int my_rank, std::ostream &os);
-    void dump_topology_equiv_summary(const TOPO::TopologyEquiv &equiv, int my_rank, std::ostream &os);
+    void dump_topology_equiv_summary(const TOPO::Topology &equiv, int my_rank, std::ostream &os);
     void report_test(const std::string &name, const TestResult &result, std::ostream &os);
     void report_failure(const char *test,
                         const Field &fields,

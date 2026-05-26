@@ -268,7 +268,7 @@ void Halo::require_owner_equiv_available_(OwnerSyncPolicy policy,
 
     if (!equiv_)
     {
-        ERROR::Abort("[Halo] OwnerAliasSync requested but TopologyEquiv is not bound. field=" +
+        ERROR::Abort("[Halo] OwnerAliasSync requested but Topology is not bound. field=" +
                      field_name);
     }
 
