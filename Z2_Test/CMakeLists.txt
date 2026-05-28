@@ -21,6 +21,7 @@ aux_source_directory(../src/2_topology DIRSRCS2)
 aux_source_directory(../src/3_field DIRSRCS3)
 aux_source_directory(../src/4_halo DIRSRCS4)
 aux_source_directory(../src/6_io DIRSRCS6)
+aux_source_directory(../src/7_metric DIRSRCS7)
 
 aux_source_directory(./src Z2_Test)
 
@@ -32,6 +33,7 @@ add_executable(Z2_Test
     ${DIRSRCS2}
     ${DIRSRCS3}
     ${DIRSRCS4}
-    ${DIRSRCS6})
+    ${DIRSRCS6}
+    ${DIRSRCS7})
 
 target_link_libraries(Z2_Test PRIVATE ${MPI_LIBRARIES} stdc++fs)
