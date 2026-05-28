@@ -393,6 +393,9 @@ void IOModule::WriteTecplotBinFile(int step, double time)
         const int NiN = blk.mx + 1;
         const int NjN = blk.my + 1;
         const int NkN = (dim == 2) ? 1 : (blk.mz + 1);
+        // Tecplot binary pads ordered cell-centered data along the fastest
+        // indices: write IMax*JMax*(KMax-1) values for IJK zones.
+        const int NkCellWrite = (dim == 2) ? 1 : (NkN - 1);
 
         int IMax = 0, JMax = 0, KMax = 0;
         if (tec_mode_ == TecplotMode::CellAsNode)
@@ -468,11 +471,12 @@ void IOModule::WriteTecplotBinFile(int step, double time)
 
                 if (is_cell_var)
                 {
-                    for (int k = 0; k < NkC; ++k)
-                        for (int j = 0; j < NjC; ++j)
-                            for (int i = 0; i < NiC; ++i)
+                    for (int k = 0; k < NkCellWrite; ++k)
+                        for (int j = 0; j < NjN; ++j)
+                            for (int i = 0; i < NiN; ++i)
                             {
-                                double val = EvalValue_Mixed_(tv, ib, i, j, k);
+                                const bool is_real_cell = (i < NiC && j < NjC && k < NkC);
+                                double val = is_real_cell ? EvalValue_Mixed_(tv, ib, i, j, k) : 0.0;
                                 if (first)
                                 {
                                     vmin = vmax = val;
@@ -545,11 +549,12 @@ void IOModule::WriteTecplotBinFile(int step, double time)
 
                 if (is_cell_var)
                 {
-                    for (int k = 0; k < NkC; ++k)
-                        for (int j = 0; j < NjC; ++j)
-                            for (int i = 0; i < NiC; ++i)
+                    for (int k = 0; k < NkCellWrite; ++k)
+                        for (int j = 0; j < NjN; ++j)
+                            for (int i = 0; i < NiN; ++i)
                             {
-                                float fv = (float)EvalValue_Mixed_(tv, ib, i, j, k);
+                                const bool is_real_cell = (i < NiC && j < NjC && k < NkC);
+                                float fv = is_real_cell ? (float)EvalValue_Mixed_(tv, ib, i, j, k) : 0.0f;
                                 TecWriteF32_(fp, fv);
                             }
                 }
