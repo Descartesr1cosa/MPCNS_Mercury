@@ -9,7 +9,7 @@
 #include <iosfwd>
 #include <map>
 
-#include "6_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
+#include "5_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
 #include "4_halo/Halo.h"   // Halo, HaloLevel
 #include "3_field/Field.h" // Field, FieldBlock, StaggerLocation
 // Grid/Topology/Param forward decl

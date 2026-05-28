@@ -20,7 +20,7 @@ aux_source_directory(../src/1_grid DIRSRCS1)
 aux_source_directory(../src/2_topology DIRSRCS2)
 aux_source_directory(../src/3_field DIRSRCS3)
 aux_source_directory(../src/4_halo DIRSRCS4)
-aux_source_directory(../src/5_io DIRSRCS5)
+aux_source_directory(../src/6_io DIRSRCS6)
 
 aux_source_directory(./src Z0_CORE_SRCS)
 
@@ -32,6 +32,6 @@ add_executable(z0_core_debug
     ${DIRSRCS2}
     ${DIRSRCS3}
     ${DIRSRCS4}
-    ${DIRSRCS5})
+    ${DIRSRCS6})
 
 target_link_libraries(z0_core_debug PRIVATE ${MPI_LIBRARIES} stdc++fs)

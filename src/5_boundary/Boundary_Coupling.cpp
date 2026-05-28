@@ -1,6 +1,6 @@
 #include "3_field/CouplingTypes.h"
 #include "2_topology/TopologyBuilder.h"
-#include "6_boundary/Boundary.h"
+#include "5_boundary/Boundary.h"
 #include "0_basic/Error.h"
 
 // ------------------------------------------------------------

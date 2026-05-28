@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <cstdio>
 
-#include "6_boundary/BoundaryTypes.h"
+#include "5_boundary/BoundaryTypes.h"
 
 #include "1_grid/1_MPCNS_Grid.h"
 
