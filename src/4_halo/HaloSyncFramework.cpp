@@ -47,16 +47,32 @@ void Halo::sync_component_copy_field_(const std::string &field_name)
 {
     const FieldHaloRequest &req = halo_request_(field_name);
 
-    exchange_inner(field_name);
-    exchange_parallel(field_name);
+    sync_component_copy_field_stage_(field_name, HaloLevel::FaceOnly);
 
     if (halo_level_includes_edge_(req.level))
+        sync_component_copy_field_stage_(field_name, HaloLevel::Edge);
+
+    if (halo_level_includes_vertex_(req.level))
+        sync_component_copy_field_stage_(field_name, HaloLevel::Vertex);
+}
+
+void Halo::sync_component_copy_field_stage_(const std::string &field_name, HaloLevel stage)
+{
+    const FieldHaloRequest &req = halo_request_(field_name);
+    if (static_cast<int>(req.level) < static_cast<int>(stage))
+        return;
+
+    if (stage == HaloLevel::FaceOnly)
+    {
+        exchange_inner(field_name);
+        exchange_parallel(field_name);
+    }
+    else if (stage == HaloLevel::Edge)
     {
         exchange_inner_edge(field_name);
         exchange_parallel_edge(field_name);
     }
-
-    if (halo_level_includes_vertex_(req.level))
+    else if (stage == HaloLevel::Vertex)
     {
         exchange_inner_vertex(field_name);
         exchange_parallel_vertex(field_name);
@@ -67,6 +83,12 @@ void Halo::sync_component_copy_registered_()
 {
     for (const std::string &field_name : component_copy_fields_)
         sync_component_copy_field_(field_name);
+}
+
+void Halo::sync_component_copy_registered_stage_(HaloLevel stage)
+{
+    for (const std::string &field_name : component_copy_fields_)
+        sync_component_copy_field_stage_(field_name, stage);
 }
 
 void Halo::sync_edge_1form_triplet_(const HaloTripletRequest &tri)
@@ -84,10 +106,39 @@ void Halo::sync_edge_1form_triplet_(const HaloTripletRequest &tri)
     data_trans_edge_1form_triplet(fields, tri.level);
 }
 
+void Halo::sync_edge_1form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage)
+{
+    if (static_cast<int>(tri.level) < static_cast<int>(stage))
+        return;
+
+    const std::vector<std::string> fields{tri.xi, tri.eta, tri.zeta};
+    if (stage == HaloLevel::FaceOnly)
+    {
+        exchange_inner_face_edge_1form_triplet_(fields);
+        exchange_parallel_face_edge_1form_triplet_(fields);
+    }
+    else if (stage == HaloLevel::Edge)
+    {
+        exchange_inner_edge_edge_1form_triplet_(fields);
+        exchange_parallel_edge_edge_1form_triplet_(fields);
+    }
+    else if (stage == HaloLevel::Vertex)
+    {
+        exchange_inner_vertex_edge_1form_triplet_(fields);
+        exchange_parallel_vertex_edge_1form_triplet_(fields);
+    }
+}
+
 void Halo::sync_edge_1form_triplets_registered_()
 {
     for (const auto &kv : edge_1form_triplets_)
         sync_edge_1form_triplet_(kv.second);
+}
+
+void Halo::sync_edge_1form_triplets_registered_stage_(HaloLevel stage)
+{
+    for (const auto &kv : edge_1form_triplets_)
+        sync_edge_1form_triplet_stage_(kv.second, stage);
 }
 
 void Halo::sync_face_2form_triplet_(const HaloTripletRequest &tri)
@@ -124,10 +175,29 @@ void Halo::sync_face_2form_triplet_(const HaloTripletRequest &tri)
         sync_face_2form_triplet_vertex_level_(tri);
 }
 
+void Halo::sync_face_2form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage)
+{
+    if (static_cast<int>(tri.level) < static_cast<int>(stage))
+        return;
+
+    if (stage == HaloLevel::FaceOnly)
+        sync_face_2form_triplet_face_level_(tri);
+    else if (stage == HaloLevel::Edge)
+        sync_face_2form_triplet_edge_level_(tri);
+    else if (stage == HaloLevel::Vertex)
+        sync_face_2form_triplet_vertex_level_(tri);
+}
+
 void Halo::sync_face_2form_triplets_registered_()
 {
     for (const auto &kv : face_2form_triplets_)
         sync_face_2form_triplet_(kv.second);
+}
+
+void Halo::sync_face_2form_triplets_registered_stage_(HaloLevel stage)
+{
+    for (const auto &kv : face_2form_triplets_)
+        sync_face_2form_triplet_stage_(kv.second, stage);
 }
 
 void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
@@ -145,10 +215,27 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
     execute_owner_sync_mpi_ops_(pat);
 }
 
+void Halo::sync_owner_alias_request_stage_(const HaloOwnerRequest &req, HaloLevel stage)
+{
+    const bool stage_matches =
+        (stage == HaloLevel::FaceOnly && req.policy == OwnerSyncPolicy::FaceOwner) ||
+        (stage == HaloLevel::Edge && req.policy == OwnerSyncPolicy::EdgeOwner) ||
+        (stage == HaloLevel::Vertex && req.policy == OwnerSyncPolicy::NodeOwner);
+
+    if (stage_matches)
+        sync_owner_alias_request_(req);
+}
+
 void Halo::sync_owner_alias_registered_()
 {
     for (const auto &req : owner_sync_requests_)
         sync_owner_alias_request_(req);
+}
+
+void Halo::sync_owner_alias_registered_stage_(HaloLevel stage)
+{
+    for (const auto &req : owner_sync_requests_)
+        sync_owner_alias_request_stage_(req, stage);
 }
 
 bool Halo::field_is_component_copy_(const std::string &field_name) const
@@ -614,6 +701,17 @@ void Halo::sync_registered()
     sync_owner_alias_registered_();
 }
 
+void Halo::sync_registered(HaloLevel stage)
+{
+    sync_component_copy_registered_stage_(stage);
+
+    sync_edge_1form_triplets_registered_stage_(stage);
+
+    sync_face_2form_triplets_registered_stage_(stage);
+
+    sync_owner_alias_registered_stage_(stage);
+}
+
 void Halo::sync_field(const std::string &field_name)
 {
     const FieldHaloRequest &req = halo_request_(field_name);
@@ -648,6 +746,43 @@ void Halo::sync_field(const std::string &field_name)
     {
         if (own.field_name == field_name)
             sync_owner_alias_request_(own);
+    }
+}
+
+void Halo::sync_field(const std::string &field_name, HaloLevel stage)
+{
+    const FieldHaloRequest &req = halo_request_(field_name);
+
+    const std::string group =
+        req.sync_group.empty() ? req.field_name : req.sync_group;
+
+    const HaloSyncSemantics sem = sync_semantics_(req);
+
+    if (sem == HaloSyncSemantics::ComponentCopy)
+    {
+        sync_component_copy_field_stage_(field_name, stage);
+    }
+    else if (sem == HaloSyncSemantics::Edge1FormTriplet)
+    {
+        auto it = edge_1form_triplets_.find(group);
+        if (it == edge_1form_triplets_.end())
+            ERROR::Abort("[Halo] sync_field(stage): missing edge 1-form group for field: " + field_name);
+
+        sync_edge_1form_triplet_stage_(it->second, stage);
+    }
+    else if (sem == HaloSyncSemantics::Face2FormTriplet)
+    {
+        auto it = face_2form_triplets_.find(group);
+        if (it == face_2form_triplets_.end())
+            ERROR::Abort("[Halo] sync_field(stage): missing face 2-form group for field: " + field_name);
+
+        sync_face_2form_triplet_stage_(it->second, stage);
+    }
+
+    for (const auto &own : owner_sync_requests_)
+    {
+        if (own.field_name == field_name)
+            sync_owner_alias_request_stage_(own, stage);
     }
 }
 
@@ -691,4 +826,46 @@ void Halo::sync_group(const std::string &group_name)
 
     if (!handled)
         ERROR::Abort("[Halo] sync_group: unknown or empty group: " + group_name);
+}
+
+void Halo::sync_group(const std::string &group_name, HaloLevel stage)
+{
+    bool handled = false;
+
+    auto eit = edge_1form_triplets_.find(group_name);
+    if (eit != edge_1form_triplets_.end())
+    {
+        sync_edge_1form_triplet_stage_(eit->second, stage);
+        handled = true;
+    }
+
+    auto fit = face_2form_triplets_.find(group_name);
+    if (fit != face_2form_triplets_.end())
+    {
+        sync_face_2form_triplet_stage_(fit->second, stage);
+        handled = true;
+    }
+
+    for (const auto &field_name : component_copy_fields_)
+    {
+        auto git = field_to_group_.find(field_name);
+
+        if (git != field_to_group_.end() && git->second == group_name)
+        {
+            sync_component_copy_field_stage_(field_name, stage);
+            handled = true;
+        }
+    }
+
+    for (const auto &own : owner_sync_requests_)
+    {
+        if (own.sync_group == group_name)
+        {
+            sync_owner_alias_request_stage_(own, stage);
+            handled = true;
+        }
+    }
+
+    if (!handled)
+        ERROR::Abort("[Halo] sync_group(stage): unknown or empty group: " + group_name);
 }

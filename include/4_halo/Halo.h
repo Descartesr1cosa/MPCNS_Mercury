@@ -25,8 +25,11 @@ public:
 
     // High-level sync API.
     void sync_registered();
+    void sync_registered(HaloLevel stage);
     void sync_field(const std::string &field_name);
+    void sync_field(const std::string &field_name, HaloLevel stage);
     void sync_group(const std::string &group_name);
+    void sync_group(const std::string &group_name, HaloLevel stage);
     void dump_sync_registry(std::ostream &os) const;
 
     // Topology equivalence is required by owner-alias synchronization.
@@ -251,14 +254,19 @@ private:
     const FieldHaloRequest &halo_request_(const std::string &field_name) const;
 
     void sync_component_copy_field_(const std::string &field_name);
+    void sync_component_copy_field_stage_(const std::string &field_name, HaloLevel stage);
 
     void sync_component_copy_registered_();
+    void sync_component_copy_registered_stage_(HaloLevel stage);
 
     void sync_edge_1form_triplet_(const HaloTripletRequest &tri);
+    void sync_edge_1form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage);
 
     void sync_edge_1form_triplets_registered_();
+    void sync_edge_1form_triplets_registered_stage_(HaloLevel stage);
 
     void sync_face_2form_triplet_(const HaloTripletRequest &tri);
+    void sync_face_2form_triplet_stage_(const HaloTripletRequest &tri, HaloLevel stage);
 
     void sync_face_2form_triplet_face_level_(const HaloTripletRequest &tri);
 
@@ -267,10 +275,13 @@ private:
     void sync_face_2form_triplet_vertex_level_(const HaloTripletRequest &tri);
 
     void sync_face_2form_triplets_registered_();
+    void sync_face_2form_triplets_registered_stage_(HaloLevel stage);
 
     void sync_owner_alias_request_(const HaloOwnerRequest &req);
+    void sync_owner_alias_request_stage_(const HaloOwnerRequest &req, HaloLevel stage);
 
     void sync_owner_alias_registered_();
+    void sync_owner_alias_registered_stage_(HaloLevel stage);
 
     bool field_is_component_copy_(const std::string &field_name) const;
 

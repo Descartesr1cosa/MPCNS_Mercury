@@ -23,33 +23,35 @@ CornerStage ToCornerStage(HaloLevel level)
 
 void MercuryBoundary::Sync_(const BoundGroup &g)
 {
-    // Z4 synchronization path:
-    // 1. Physical boundary handlers still live in MercuryBoundary/BoundaryCore.
-    // 2. Same-field halo, orientation-aware triplet sync, and owner-alias sync are
-    //    delegated to Halo::sync_group(g.name).
-    // 3. Coupling buffers are still handled by the existing staged coupling path.
-
-    if (g.do_physical)
+    auto apply_physical_barrier = [&]()
     {
+        if (!g.do_physical)
+            return;
+
         bound_.ApplyPhysical(g.fields);
         bound_.ApplyPhysicalCornerDefault(g.fields);
-    }
+    };
 
-    if (g.do_halo)
+    auto apply_stage = [&](HaloLevel stage)
     {
-        halo_->sync_group(g.name);
-    }
+        if (g.do_halo)
+            halo_->sync_group(g.name, stage);
 
-    if (g.do_coupling)
-    {
-        ApplyCouplingStage_(g, HaloLevel::FaceOnly);
+        if (g.do_coupling)
+            ApplyCouplingStage_(g, stage);
 
-        if (g.halo_level == HaloLevel::Edge || g.halo_level == HaloLevel::Vertex)
-            ApplyCouplingStage_(g, HaloLevel::Edge);
+        apply_physical_barrier();
+    };
 
-        if (g.halo_level == HaloLevel::Vertex)
-            ApplyCouplingStage_(g, HaloLevel::Vertex);
-    }
+    apply_physical_barrier();
+
+    apply_stage(HaloLevel::FaceOnly);
+
+    if (static_cast<int>(g.halo_level) >= static_cast<int>(HaloLevel::Edge))
+        apply_stage(HaloLevel::Edge);
+
+    if (static_cast<int>(g.halo_level) >= static_cast<int>(HaloLevel::Vertex))
+        apply_stage(HaloLevel::Vertex);
 }
 
 void MercuryBoundary::ApplyOwnerEdgeSync_(const BoundGroup &g)
