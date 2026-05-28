@@ -5,134 +5,59 @@
 #include "0_basic/MPI_WRAPPER.h"
 
 #include <iosfwd>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 class Halo
 {
 public:
-    Halo(Field *field, TOPO::Topology *topo)
-    {
-        fld_ = field;
-        topo_ = topo;
-    };
+    Halo(Field *field, TOPO::Topology *topo);
 
-    // 记录哪个物理场需要 halo，做到哪个 corner 等级
+    // Registration and pattern lifecycle.
     void register_halo_field(const FieldHaloRequest &request);
     void register_halo_field(const std::string &field_name,
                              HaloLevel level = HaloLevel::Vertex);
     void register_halo_fields(const std::vector<FieldHaloRequest> &requests);
 
-    // 统一构建 pattern（只构建 registry 中需要的）
     void build_registered_patterns();
 
+    // High-level sync API.
     void sync_registered();
-
     void sync_field(const std::string &field_name);
-
     void sync_group(const std::string &group_name);
-
     void dump_sync_registry(std::ostream &os) const;
 
-    void set_topology_equiv(const TOPO::Topology *equiv)
-    {
-        equiv_ = equiv;
-    }
+    // Topology equivalence is required by owner-alias synchronization.
+    void set_topology_equiv(const TOPO::Topology *equiv);
+    const TOPO::Topology *topology_equiv() const;
 
-    const TOPO::Topology *topology_equiv() const
-    {
-        return equiv_;
-    }
-
-    //=========================================================================
-    // 普通面虚网格halo通信
-    void data_trans_1DCorner(std::string &field_name)
-    {
-        exchange_inner(field_name);
-        exchange_parallel(field_name);
-    }
-
-    // 2D棱虚网格halo通信
-    void data_trans_2DCorner(std::string &field_name)
-    {
-        exchange_inner_edge(field_name);
-        exchange_parallel_edge(field_name);
-    }
-
-    // 3D角虚网格halo通信
-    void data_trans_3DCorner(std::string &field_name)
-    {
-        exchange_inner_vertex(field_name);
-        exchange_parallel_vertex(field_name);
-    }
-
-    // Orientation-aware triplet halo for edge 1-forms such as E/J/dE.
-    // fields must be ordered {xi, eta, zeta}. Across block transforms, the
-    // source component is selected by IndexTransform::perm and multiplied by
-    // IndexTransform::sign.
+    // Legacy halo transfer API. Prefer sync_registered/sync_field for new code.
+    void data_trans_1DCorner(std::string &field_name);
+    void data_trans_2DCorner(std::string &field_name);
+    void data_trans_3DCorner(std::string &field_name);
     void data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
                                        HaloLevel stage);
-    //=========================================================================
 
-    //=========================================================================
-    // 普通面虚网格耦合通信（fill coupling buffer, no ghost write）
-    void coupling_trans_1DCorner(std::string &src, std::string &dst)
-    {
-        coupling_inner_face(src, dst);
-        coupling_parallel_face(src, dst);
-    }
-
-    // fill coupling buffer, no ghost write, only for field: field_name -> field_cids
-    // field_cids: corresponding channel ids for field_name(s)
-    void coupling_trans_1DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids)
-    {
-        coupling_inner_face(src, dst, field_cids);
-        coupling_parallel_face(src, dst, field_cids);
-    }
-
-    // 2D棱虚网格耦合通信（fill coupling buffer, no ghost write）
-    void coupling_trans_2DCorner(std::string &src, std::string &dst)
-    {
-        coupling_inner_edge(src, dst);
-        coupling_parallel_edge(src, dst);
-    }
-
-    // fill coupling buffer, no ghost write, only for field: field_name -> field_cids
-    // field_cids: corresponding channel ids for field_name(s)
-    void coupling_trans_2DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids)
-    {
-        coupling_inner_edge(src, dst, field_cids);
-        coupling_parallel_edge(src, dst, field_cids);
-    }
-
-    // 3D角虚网格耦合通信（fill coupling buffer, no ghost write）
-    void coupling_trans_3DCorner(std::string &src, std::string &dst)
-    {
-        coupling_inner_vertex(src, dst);
-        coupling_parallel_vertex(src, dst);
-    }
-
-    // fill coupling buffer, no ghost write, only for field: field_name -> field_cids
-    // field_cids: corresponding channel ids for field_name(s)
-    void coupling_trans_3DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids)
-    {
-        coupling_inner_vertex(src, dst, field_cids);
-        coupling_parallel_vertex(src, dst, field_cids);
-    }
-    //=========================================================================
+    // Coupling transfer API. These fill coupling buffers and do not write ghosts.
+    void coupling_trans_1DCorner(std::string &src, std::string &dst);
+    void coupling_trans_1DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_trans_2DCorner(std::string &src, std::string &dst);
+    void coupling_trans_2DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
+    void coupling_trans_3DCorner(std::string &src, std::string &dst);
+    void coupling_trans_3DCorner(std::string &src, std::string &dst, std::vector<int32_t> &field_cids);
 
 private:
-    //=========================================================================
-    // face
+    // Same-field component copy exchange.
     void exchange_inner(std::string field_name);
     void exchange_parallel(std::string field_name);
-
-    // edge
     void exchange_inner_edge(std::string field_name);
     void exchange_parallel_edge(std::string field_name);
-
-    // vertex
     void exchange_inner_vertex(std::string field_name);
     void exchange_parallel_vertex(std::string field_name);
 
+    // Orientation-aware triplet exchange.
     void exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_parallel_face_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_inner_edge_edge_1form_triplet_(const std::vector<std::string> &fields);
@@ -146,27 +71,22 @@ private:
     void exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields);
     void exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
     void exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
-    //=========================================================================
 
-    //=========================================================================
-    // coupling face
+    // Coupling buffer exchange.
     void coupling_inner_face(const std::string &src, const std::string &dst);
     void coupling_parallel_face(const std::string &src, const std::string &dst);
     void coupling_inner_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
-
-    // coupling edge
     void coupling_inner_edge(const std::string &src, const std::string &dst);
     void coupling_parallel_edge(const std::string &src, const std::string &dst);
     void coupling_inner_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
-
-    // coupling vertex
     void coupling_inner_vertex(const std::string &src, const std::string &dst);
     void coupling_parallel_vertex(const std::string &src, const std::string &dst);
     void coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
 
+    // Orientation-aware coupling helpers.
     bool coupling_channel_needs_form_transfer_(const CouplingChannelSpec &ch) const;
     int coupling_form_axis_from_location_(StaggerLocation loc) const;
     StaggerLocation coupling_form_location_from_axis_(FieldValueKind value_kind, int axis) const;
@@ -185,7 +105,6 @@ private:
     std::string find_triplet_field_name_(const std::string &dst_field_name,
                                          FieldValueKind value_kind,
                                          int wanted_src_axis) const;
-    //=========================================================================
 
 private:
     Field *fld_;
@@ -316,6 +235,7 @@ private:
 
     int owner_sync_tag_base_ = 700000;
 
+    // Sync registry helpers.
     HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
 
     void upsert_halo_request_(const FieldHaloRequest &request);
