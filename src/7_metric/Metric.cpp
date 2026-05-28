@@ -36,7 +36,7 @@ void register_metric_fields(Field &fields, int geomtry_ghost_)
     // from covariant 1-form components at cell centers: v = pinvGT_cell * w
     fields.register_field(FieldDescriptor{"pinvGT_cell", StaggerLocation::Cell, 9, 0});
 
-    // Face metrics: |S| (primal face area magnitude), dual-edge length |l*|, beta = |l*|/|S|
+    // Face metrics: |S| (primal face area magnitude), dual-edge length |l*|, Hodge_star_2form_to_1form = |l*|/|S|
     fields.register_field(FieldDescriptor{"Area_xi", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // |S_xi|  (primal face area magnitude)
     fields.register_field(FieldDescriptor{"Area_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |S_eta|
     fields.register_field(FieldDescriptor{"Area_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |S_ze|
@@ -45,11 +45,7 @@ void register_metric_fields(Field &fields, int geomtry_ghost_)
     fields.register_field(FieldDescriptor{"dlstar_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |l*_eta|
     fields.register_field(FieldDescriptor{"dlstar_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |l*_ze|
 
-    fields.register_field(FieldDescriptor{"beta_xi", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // beta_xi  = |l*_xi|/|S_xi|  (Hodge star *_2 scale)
-    fields.register_field(FieldDescriptor{"beta_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // beta_eta = |l*_eta|/|S_eta|
-    fields.register_field(FieldDescriptor{"beta_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // beta_ze  = |l*_ze|/|S_ze|
-
-    // Edge metrics: primal edge length |e|, dual face area vector S* and magnitude |S*|, alpha = |e|/|S*|
+    // Edge metrics: primal edge length |e|, dual face area vector S* and magnitude |S*|, Hodge_star_inverse_2form_to_1form = |e|/|S*|
     fields.register_field(FieldDescriptor{"dl_xi", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // |e_xi|   (primal edge length along xi)
     fields.register_field(FieldDescriptor{"dl_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |e_eta|
     fields.register_field(FieldDescriptor{"dl_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |e_ze|
@@ -62,19 +58,21 @@ void register_metric_fields(Field &fields, int geomtry_ghost_)
     fields.register_field(FieldDescriptor{"Astar_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |S*_eta|
     fields.register_field(FieldDescriptor{"Astar_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |S*_ze|
 
-    fields.register_field(FieldDescriptor{"alpha_xi", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // alpha_xi  = |e_xi|/|S*_xi|  (inverse Hodge *_1^{-1} scale)
-    fields.register_field(FieldDescriptor{"alpha_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // alpha_eta = |e_eta|/|S*_eta|
-    fields.register_field(FieldDescriptor{"alpha_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // alpha_ze  = |e_ze|/|S*_ze|
+    // Canonical lumped/diagonal Hodge scales. Names encode source form, target form, and storage location.
+    fields.register_field(FieldDescriptor{"Hodge_star_0form_to_3form_cell_lumped", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_3form_to_0form_cell_lumped", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
 
-    // Lumped diagonal Hodge scales. Existing beta fields are *_2 and 1/alpha is *_1.
-    fields.register_field(FieldDescriptor{"star0_cell", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star3_cell", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star1_xi", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star1_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star1_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star2_xi", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star2_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"star2_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_xi_lumped", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_eta_lumped", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_zeta_lumped", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
+
+    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_xi_lumped", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_eta_lumped", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_zeta_lumped", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1});
+
+    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_xi_lumped", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_eta_lumped", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_zeta_lumped", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
 }
 
 void compute_metric_fields(Field &fields, Grid &grid)
@@ -343,9 +341,9 @@ void compute_metric_fields(Field &fields, Grid &grid)
         auto &dlstar_eta_ = fields.field("dlstar_eta");
         auto &dlstar_ze_ = fields.field("dlstar_zeta");
 
-        auto &beta_xi_ = fields.field("beta_xi");
-        auto &beta_eta_ = fields.field("beta_eta");
-        auto &beta_ze_ = fields.field("beta_zeta");
+        auto &Hodge_star_2form_to_1form_face_xi_ = fields.field("Hodge_star_2form_to_1form_face_xi_lumped");
+        auto &Hodge_star_2form_to_1form_face_eta_ = fields.field("Hodge_star_2form_to_1form_face_eta_lumped");
+        auto &Hodge_star_2form_to_1form_face_ze_ = fields.field("Hodge_star_2form_to_1form_face_zeta_lumped");
 
         auto &dl_xi_ = fields.field("dl_xi");
         auto &dl_eta_ = fields.field("dl_eta");
@@ -359,9 +357,9 @@ void compute_metric_fields(Field &fields, Grid &grid)
         auto &Astar_eta_ = fields.field("Astar_eta");
         auto &Astar_ze_ = fields.field("Astar_zeta");
 
-        auto &alpha_xi_ = fields.field("alpha_xi");
-        auto &alpha_eta_ = fields.field("alpha_eta");
-        auto &alpha_ze_ = fields.field("alpha_zeta");
+        auto &Hodge_star_inverse_2form_to_1form_edge_xi_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_xi_lumped");
+        auto &Hodge_star_inverse_2form_to_1form_edge_eta_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_eta_lumped");
+        auto &Hodge_star_inverse_2form_to_1form_edge_ze_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
 
         auto get_cellc = [&](double3D &cx, double3D &cy, double3D &cz, int ii, int jj, int kk) -> std::array<double, 3>
         {
@@ -399,7 +397,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
             auto &cz = grd->grids(ib).dual_z;
 
             // -------------------------
-            // Face: Area magnitude, dlstar, beta
+            // Face: Area magnitude, dlstar, Hodge_star_2form_to_1form
             // -------------------------
 
             // FaceXi: face at (i,j,k) uses JDxi(i,j,k,:)
@@ -407,7 +405,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &JDxi = JDxi_[ib];
                 auto &Area = Area_xi_[ib];
                 auto &dlst = dlstar_xi_[ib];
-                auto &beta = beta_xi_[ib];
+                auto &Hodge_star_2form_to_1form_face = Hodge_star_2form_to_1form_face_xi_[ib];
 
                 Int3 lo = Area.get_lo();
                 Int3 hi = Area.get_hi();
@@ -430,7 +428,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Lstar = norm3(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar; // |l*|
 
-                            beta(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag; // beta = |l*|/|S|
+                            Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
                         }
             }
 
@@ -439,7 +437,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &JDet = JDet_[ib];
                 auto &Area = Area_eta_[ib];
                 auto &dlst = dlstar_eta_[ib];
-                auto &beta = beta_eta_[ib];
+                auto &Hodge_star_2form_to_1form_face = Hodge_star_2form_to_1form_face_eta_[ib];
 
                 Int3 lo = Area.get_lo();
                 Int3 hi = Area.get_hi();
@@ -458,7 +456,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Lstar = norm3(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar;
 
-                            beta(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
+                            Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
                         }
             }
 
@@ -467,7 +465,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &JDze = JDze_[ib];
                 auto &Area = Area_ze_[ib];
                 auto &dlst = dlstar_ze_[ib];
-                auto &beta = beta_ze_[ib];
+                auto &Hodge_star_2form_to_1form_face = Hodge_star_2form_to_1form_face_ze_[ib];
 
                 Int3 lo = Area.get_lo();
                 Int3 hi = Area.get_hi();
@@ -486,7 +484,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Lstar = norm3(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar;
 
-                            beta(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
+                            Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
                         }
             }
 
@@ -497,24 +495,24 @@ void compute_metric_fields(Field &fields, Grid &grid)
             // ------------------------------------------------------------
             // If the dual quad around an edge has a collapsed side,
             // then this edge is treated as axis-touching in the dual sense,
-            // and alpha is set to zero directly.
+            // and Hodge star inverse scale is set to zero directly.
             //
             // Geometric meaning:
-            // alpha = |e| / |*e| is singular when |*e| pinches at the axis.
+            // Hodge_star_inverse_2form_to_1form = |e| / |*e| is singular when |*e| pinches at the axis.
             // We therefore do NOT test whether the primal edge itself lies on axis,
             // but whether its dual face is degenerate / touching the axis.
             // ------------------------------------------------------------
             constexpr double HALL_DUAL_COLLAPSE_RATIO = 1e-3;
             constexpr double HALL_EDGE_ABS_TOL = 1e-12;
 
-            auto capped_alpha_from_dual =
+            auto capped_Hodge_star_inverse_2form_to_1form_from_dual =
                 [&](double L,
                     const auto &p00, const auto &p10,
                     const auto &p01, const auto &p11,
                     double Amag, double eps_local) -> double
             {
-                // raw geometric alpha
-                const double alpha_raw = (Amag < eps_local) ? 0.0 : (L / Amag);
+                // raw inverse Hodge scale
+                const double Hodge_star_inverse_raw = (Amag < eps_local) ? 0.0 : (L / Amag);
 
                 // dual quad side lengths
                 const double d00_10 = norm3(minus(p10, p00));
@@ -551,7 +549,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 if (dual_touches_axis)
                     return 0.0;
 
-                return alpha_raw;
+                return Hodge_star_inverse_raw;
             };
 
             // EdgeXi: edge from node(i,j,k) to node(i+1,j,k)
@@ -559,7 +557,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &dl = dl_xi_[ib];
                 auto &Sstar = Sstar_xi_[ib];
                 auto &Astar = Astar_xi_[ib];
-                auto &alpha = alpha_xi_[ib];
+                auto &Hodge_star_inverse_2form_to_1form_edge = Hodge_star_inverse_2form_to_1form_edge_xi_[ib];
 
                 Int3 lo = dl.get_lo();
                 Int3 hi = dl.get_hi();
@@ -589,8 +587,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Amag = norm3(Avec);
                             Astar(i, j, k, 0) = Amag;
 
-                            // alpha(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag; // alpha = |e|/|S*|
-                            alpha(i, j, k, 0) = capped_alpha_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag; // Hodge_star_inverse_2form_to_1form = |e|/|S*|
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
                         }
             }
 
@@ -599,7 +597,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &dl = dl_eta_[ib];
                 auto &Sstar = Sstar_eta_[ib];
                 auto &Astar = Astar_eta_[ib];
-                auto &alpha = alpha_eta_[ib];
+                auto &Hodge_star_inverse_2form_to_1form_edge = Hodge_star_inverse_2form_to_1form_edge_eta_[ib];
 
                 Int3 lo = dl.get_lo();
                 Int3 hi = dl.get_hi();
@@ -627,8 +625,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Amag = norm3(Avec);
                             Astar(i, j, k, 0) = Amag;
 
-                            // alpha(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
-                            alpha(i, j, k, 0) = capped_alpha_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
                         }
             }
 
@@ -637,7 +635,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                 auto &dl = dl_ze_[ib];
                 auto &Sstar = Sstar_ze_[ib];
                 auto &Astar = Astar_ze_[ib];
-                auto &alpha = alpha_ze_[ib];
+                auto &Hodge_star_inverse_2form_to_1form_edge = Hodge_star_inverse_2form_to_1form_edge_ze_[ib];
 
                 Int3 lo = dl.get_lo();
                 Int3 hi = dl.get_hi();
@@ -665,8 +663,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             double Amag = norm3(Avec);
                             Astar(i, j, k, 0) = Amag;
 
-                            // alpha(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
-                            alpha(i, j, k, 0) = capped_alpha_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
                         }
             }
         }
@@ -1329,29 +1327,24 @@ void compute_metric_fields(Field &fields, Grid &grid)
 
     {
         auto &Jac_ = fields.field("Jac");
-        auto &alpha_xi_ = fields.field("alpha_xi");
-        auto &alpha_eta_ = fields.field("alpha_eta");
-        auto &alpha_ze_ = fields.field("alpha_zeta");
-        auto &beta_xi_ = fields.field("beta_xi");
-        auto &beta_eta_ = fields.field("beta_eta");
-        auto &beta_ze_ = fields.field("beta_zeta");
+        auto &Hodge_star_0form_to_3form_cell_ = fields.field("Hodge_star_0form_to_3form_cell_lumped");
+        auto &Hodge_star_3form_to_0form_cell_ = fields.field("Hodge_star_3form_to_0form_cell_lumped");
 
-        auto &star0_ = fields.field("star0_cell");
-        auto &star3_ = fields.field("star3_cell");
-        auto &star1_xi_ = fields.field("star1_xi");
-        auto &star1_eta_ = fields.field("star1_eta");
-        auto &star1_ze_ = fields.field("star1_zeta");
-        auto &star2_xi_ = fields.field("star2_xi");
-        auto &star2_eta_ = fields.field("star2_eta");
-        auto &star2_ze_ = fields.field("star2_zeta");
+        auto &Hodge_star_1form_to_2form_edge_xi_ = fields.field("Hodge_star_1form_to_2form_edge_xi_lumped");
+        auto &Hodge_star_1form_to_2form_edge_eta_ = fields.field("Hodge_star_1form_to_2form_edge_eta_lumped");
+        auto &Hodge_star_1form_to_2form_edge_ze_ = fields.field("Hodge_star_1form_to_2form_edge_zeta_lumped");
+
+        auto &Hodge_star_inverse_2form_to_1form_edge_xi_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_xi_lumped");
+        auto &Hodge_star_inverse_2form_to_1form_edge_eta_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_eta_lumped");
+        auto &Hodge_star_inverse_2form_to_1form_edge_ze_ = fields.field("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
 
         constexpr double eps = 1e-300;
 
         for (int ib = 0; ib < grd->nblock; ++ib)
         {
             auto &Jac = Jac_[ib];
-            auto &star0 = star0_[ib];
-            auto &star3 = star3_[ib];
+            auto &Hodge_star_0form_to_3form_cell = Hodge_star_0form_to_3form_cell_[ib];
+            auto &Hodge_star_3form_to_0form_cell = Hodge_star_3form_to_0form_cell_[ib];
             Int3 lo = Jac.get_lo();
             Int3 hi = Jac.get_hi();
             for (int i = lo.i; i < hi.i; ++i)
@@ -1359,39 +1352,31 @@ void compute_metric_fields(Field &fields, Grid &grid)
                     for (int k = lo.k; k < hi.k; ++k)
                     {
                         const double V = Jac(i, j, k, 0);
-                        star0(i, j, k, 0) = V;
-                        star3(i, j, k, 0) = (std::fabs(V) < eps) ? 0.0 : 1.0 / V;
+                        Hodge_star_0form_to_3form_cell(i, j, k, 0) = V;
+                        Hodge_star_3form_to_0form_cell(i, j, k, 0) = (std::fabs(V) < eps) ? 0.0 : 1.0 / V;
                     }
 
-            auto fill_star1 = [](FieldBlock &star1, FieldBlock &alpha)
-            {
-                Int3 lo = star1.get_lo();
-                Int3 hi = star1.get_hi();
-                for (int i = lo.i; i < hi.i; ++i)
-                    for (int j = lo.j; j < hi.j; ++j)
-                        for (int k = lo.k; k < hi.k; ++k)
-                        {
-                            const double a = alpha(i, j, k, 0);
-                            star1(i, j, k, 0) = (std::fabs(a) < 1e-300) ? 0.0 : 1.0 / a;
-                        }
-            };
-
-            auto copy_scalar = [](FieldBlock &dst, FieldBlock &src)
+            auto fill_Hodge_star_1form_to_2form = [](FieldBlock &dst, FieldBlock &Hodge_star_inverse)
             {
                 Int3 lo = dst.get_lo();
                 Int3 hi = dst.get_hi();
                 for (int i = lo.i; i < hi.i; ++i)
                     for (int j = lo.j; j < hi.j; ++j)
                         for (int k = lo.k; k < hi.k; ++k)
-                            dst(i, j, k, 0) = src(i, j, k, 0);
+                        {
+                            const double Hodge_star_inverse_scale = Hodge_star_inverse(i, j, k, 0);
+                            dst(i, j, k, 0) = (std::fabs(Hodge_star_inverse_scale) < 1e-300)
+                                                  ? 0.0
+                                                  : 1.0 / Hodge_star_inverse_scale;
+                        }
             };
 
-            fill_star1(star1_xi_[ib], alpha_xi_[ib]);
-            fill_star1(star1_eta_[ib], alpha_eta_[ib]);
-            fill_star1(star1_ze_[ib], alpha_ze_[ib]);
-            copy_scalar(star2_xi_[ib], beta_xi_[ib]);
-            copy_scalar(star2_eta_[ib], beta_eta_[ib]);
-            copy_scalar(star2_ze_[ib], beta_ze_[ib]);
+            fill_Hodge_star_1form_to_2form(Hodge_star_1form_to_2form_edge_xi_[ib],
+                                           Hodge_star_inverse_2form_to_1form_edge_xi_[ib]);
+            fill_Hodge_star_1form_to_2form(Hodge_star_1form_to_2form_edge_eta_[ib],
+                                           Hodge_star_inverse_2form_to_1form_edge_eta_[ib]);
+            fill_Hodge_star_1form_to_2form(Hodge_star_1form_to_2form_edge_ze_[ib],
+                                           Hodge_star_inverse_2form_to_1form_edge_ze_[ib]);
         }
     }
 
@@ -1483,21 +1468,27 @@ MetricDiagnostics diagnose_metric_fields(Field &fields)
         scan_positive(fields.field("dl_eta", ib), diag.dl_nonpositive);
         scan_positive(fields.field("dl_zeta", ib), diag.dl_nonpositive);
 
-        scan_finite(fields.field("alpha_xi", ib), diag.alpha_nonfinite);
-        scan_finite(fields.field("alpha_eta", ib), diag.alpha_nonfinite);
-        scan_finite(fields.field("alpha_zeta", ib), diag.alpha_nonfinite);
+        scan_finite(fields.field("Hodge_star_inverse_2form_to_1form_edge_xi_lumped", ib),
+                    diag.Hodge_star_inverse_2form_to_1form_nonfinite);
+        scan_finite(fields.field("Hodge_star_inverse_2form_to_1form_edge_eta_lumped", ib),
+                    diag.Hodge_star_inverse_2form_to_1form_nonfinite);
+        scan_finite(fields.field("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped", ib),
+                    diag.Hodge_star_inverse_2form_to_1form_nonfinite);
 
-        scan_finite(fields.field("beta_xi", ib), diag.beta_nonfinite);
-        scan_finite(fields.field("beta_eta", ib), diag.beta_nonfinite);
-        scan_finite(fields.field("beta_zeta", ib), diag.beta_nonfinite);
+        scan_finite(fields.field("Hodge_star_2form_to_1form_face_xi_lumped", ib),
+                    diag.Hodge_star_2form_to_1form_nonfinite);
+        scan_finite(fields.field("Hodge_star_2form_to_1form_face_eta_lumped", ib),
+                    diag.Hodge_star_2form_to_1form_nonfinite);
+        scan_finite(fields.field("Hodge_star_2form_to_1form_face_zeta_lumped", ib),
+                    diag.Hodge_star_2form_to_1form_nonfinite);
 
         scan_zero(fields.field("Astar_xi", ib), diag.near_axis_singular);
         scan_zero(fields.field("Astar_eta", ib), diag.near_axis_singular);
         scan_zero(fields.field("Astar_zeta", ib), diag.near_axis_singular);
 
-        scan_zero(fields.field("alpha_xi", ib), diag.near_axis_capped);
-        scan_zero(fields.field("alpha_eta", ib), diag.near_axis_capped);
-        scan_zero(fields.field("alpha_zeta", ib), diag.near_axis_capped);
+        scan_zero(fields.field("Hodge_star_inverse_2form_to_1form_edge_xi_lumped", ib), diag.near_axis_capped);
+        scan_zero(fields.field("Hodge_star_inverse_2form_to_1form_edge_eta_lumped", ib), diag.near_axis_capped);
+        scan_zero(fields.field("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped", ib), diag.near_axis_capped);
     }
 
     return diag;

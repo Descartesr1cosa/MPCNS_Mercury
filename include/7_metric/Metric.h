@@ -12,8 +12,8 @@ namespace METRIC
         std::int64_t jac_nonpositive = 0;
         std::int64_t area_nonpositive = 0;
         std::int64_t dl_nonpositive = 0;
-        std::int64_t alpha_nonfinite = 0;
-        std::int64_t beta_nonfinite = 0;
+        std::int64_t Hodge_star_inverse_2form_to_1form_nonfinite = 0;
+        std::int64_t Hodge_star_2form_to_1form_nonfinite = 0;
         std::int64_t near_axis_singular = 0;
         std::int64_t near_axis_capped = 0;
     };

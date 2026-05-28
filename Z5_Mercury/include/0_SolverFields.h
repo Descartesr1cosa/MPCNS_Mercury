@@ -22,12 +22,12 @@ struct SolverFields
     // Face metrics:
     IdTriplet Face_Area;   // Face: |S_xi|  |S_eta| |S_ze| ncomp = 1
     IdTriplet Face_dlstar; // Face: |l*_xi|  |l*_eta| |l*_ze| ncomp = 1
-    IdTriplet Face_beta;   // Face: beta=  |l*_|/|S_| ncomp = 1
+    IdTriplet Hodge_star_2form_to_1form_face;   // Face lumped Hodge: 2-form -> 1-form, |l*|/|S|
     // Edge metrics:
     IdTriplet Edge_metric; // Edge: S*_xi  S*_eta S*_ze ncomp = 3
     IdTriplet Edge_Astar;  // Edge: |S*_xi|  |S*_eta| |S*_ze| ncomp = 1
     IdTriplet Edge_dl;     // Edge: |e_xi|  |e_eta| |e_ze| ncomp = 1
-    IdTriplet Edge_alpha;  // Edge: beta=  |l*_|/|S_| ncomp = 1
+    IdTriplet Hodge_star_inverse_2form_to_1form_edge; // Edge lumped inverse Hodge scale, |e|/|S*|
     IdTriplet Edge_dr;     // Edge: dr_xi  dr_eta dr_zeta  ncomp = 3
 
     // ---- field ids ----
@@ -101,9 +101,9 @@ struct SolverFields
         Face_dlstar.xi = fld->field_id("dlstar_xi");
         Face_dlstar.eta = fld->field_id("dlstar_eta");
         Face_dlstar.zeta = fld->field_id("dlstar_zeta");
-        Face_beta.xi = fld->field_id("beta_xi");
-        Face_beta.eta = fld->field_id("beta_eta");
-        Face_beta.zeta = fld->field_id("beta_zeta");
+        Hodge_star_2form_to_1form_face.xi = fld->field_id("Hodge_star_2form_to_1form_face_xi_lumped");
+        Hodge_star_2form_to_1form_face.eta = fld->field_id("Hodge_star_2form_to_1form_face_eta_lumped");
+        Hodge_star_2form_to_1form_face.zeta = fld->field_id("Hodge_star_2form_to_1form_face_zeta_lumped");
         Edge_metric.xi = fld->field_id("Sstar_xi");
         Edge_metric.eta = fld->field_id("Sstar_eta");
         Edge_metric.zeta = fld->field_id("Sstar_zeta");
@@ -113,9 +113,9 @@ struct SolverFields
         Edge_dl.xi = fld->field_id("dl_xi");
         Edge_dl.eta = fld->field_id("dl_eta");
         Edge_dl.zeta = fld->field_id("dl_zeta");
-        Edge_alpha.xi = fld->field_id("alpha_xi");
-        Edge_alpha.eta = fld->field_id("alpha_eta");
-        Edge_alpha.zeta = fld->field_id("alpha_zeta");
+        Hodge_star_inverse_2form_to_1form_edge.xi = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_xi_lumped");
+        Hodge_star_inverse_2form_to_1form_edge.eta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_eta_lumped");
+        Hodge_star_inverse_2form_to_1form_edge.zeta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
 
         Edge_dr.xi = fld->field_id("dr_xi");
         Edge_dr.eta = fld->field_id("dr_eta");
@@ -222,12 +222,12 @@ struct SolverFields
 
         Face_Area.require_all("Face_Area");
         Face_dlstar.require_all("Face_dlstar");
-        Face_beta.require_all("Face_beta");
+        Hodge_star_2form_to_1form_face.require_all("Hodge_star_2form_to_1form_face");
 
         Edge_metric.require_all("Edge_metric");
         Edge_Astar.require_all("Edge_Astar");
         Edge_dl.require_all("Edge_dl");
-        Edge_alpha.require_all("Edge_alpha");
+        Hodge_star_inverse_2form_to_1form_edge.require_all("Hodge_star_inverse_2form_to_1form_edge");
 
         Edge_dr.require_all("Edge_dr");
 

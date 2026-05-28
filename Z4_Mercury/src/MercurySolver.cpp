@@ -1656,9 +1656,9 @@ void MercurySolver::SetupHallFaceScratch_()
     // auto &dl_eta = fld_->field("dl_eta", ib);
     // auto &dl_zeta = fld_->field("dl_zeta", ib);
 
-    // auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, ib);
-    // auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, ib);
-    // auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, ib);
+    // auto &Hodge_star_inverse_2form_to_1form_edge_xi = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.xi, ib);
+    // auto &Hodge_star_inverse_2form_to_1form_edge_eta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.eta, ib);
+    // auto &Hodge_star_inverse_2form_to_1form_edge_zeta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.zeta, ib);
 
     // auto &x = grd_->grids(ib).x;
     // auto &y = grd_->grids(ib).y;
@@ -1669,7 +1669,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_xi(i, j, k, 0);
-    // alpha = alpha_xi(i, j, k, 0);
+    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_xi(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i + 1, j, k) - x(i, j, k)) * Linv;
@@ -1682,7 +1682,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_eta(i, j, k, 0);
-    // alpha = alpha_eta(i, j, k, 0);
+    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_eta(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i, j + 1, k) - x(i, j, k)) * Linv;
@@ -1695,7 +1695,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_zeta(i, j, k, 0);
-    // alpha = alpha_zeta(i, j, k, 0);
+    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_zeta(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i, j, k + 1) - x(i, j, k)) * Linv;
