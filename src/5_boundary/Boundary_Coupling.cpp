@@ -33,17 +33,33 @@ void BoundaryCore::RegisterCoupling(const std::string &src,
     cpl_reg_[k] = std::move(h);
 }
 
-// ------------------------------------------------------------
-// Apply Coupling
-// ------------------------------------------------------------
+namespace
+{
+    void apply_coupling_buffer_list(Field *fld,
+                                    int fid_dst,
+                                    BOUND::CouplingHandler handler,
+                                    std::vector<CouplingBufferBlock> &buffers,
+                                    const std::string &src,
+                                    const std::string &dst,
+                                    const std::string &tag)
+    {
+        for (auto &buf : buffers)
+        {
+            if (!buf.allocated)
+                continue;
+
+            FieldBlock &Udst = fld->field(fid_dst, buf.this_block);
+            if (handler)
+                handler(Udst, fld, buf, src, dst, tag);
+            else
+                BoundaryCore::DefaultCouplingCopy(Udst, fld, buf, src, dst, tag);
+        }
+    }
+}
+
 void BoundaryCore::ApplyCouplingPair(const std::string &src, const std::string &dst, HaloLevel stage)
 {
-    if (stage == HaloLevel::FaceOnly)
-        ApplyCouplingPair_1DCorner(src, dst);
-    else if (stage == HaloLevel::Edge)
-        ApplyCouplingPair_2DCorner(src, dst);
-    else if (stage == HaloLevel::Vertex)
-        ApplyCouplingPair_3DCorner(src, dst);
+    ApplyCouplingBuffers_(src, dst, stage, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair(const std::string &src,
@@ -51,257 +67,90 @@ void BoundaryCore::ApplyCouplingPair(const std::string &src,
                                      HaloLevel stage,
                                      const std::vector<int32_t> &cids_fields)
 {
-    if (stage == HaloLevel::FaceOnly)
-        ApplyCouplingPair_1DCorner(src, dst, cids_fields);
-    else if (stage == HaloLevel::Edge)
-        ApplyCouplingPair_2DCorner(src, dst, cids_fields);
-    else if (stage == HaloLevel::Vertex)
-        ApplyCouplingPair_3DCorner(src, dst, cids_fields);
+    ApplyCouplingBuffers_(src, dst, stage, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst)
 {
-    auto &bs = fld_->coupling_buffers(src, dst);
-    const auto &channels = bs.desc.channels;
-
-    for (int cid = 0; cid < (int)channels.size(); ++cid)
-    {
-        const auto &ch = channels[cid];
-        const std::string &tag = ch.tag;
-        const StaggerLocation loc = ch.location;
-
-        // 默认：dst field = tag（你可按需要映射）
-        const std::string dst_field = tag;
-        const int fid_dst = fld_->field_id(dst_field);
-
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
-        {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
-
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        apply_list(bs.inner_face[cid]);
-        apply_list(bs.parallel_face[cid]);
-        // apply_list(bs.inner_edge[cid]);
-        // apply_list(bs.parallel_edge[cid]);
-        // apply_list(bs.inner_vertex[cid]);
-        // apply_list(bs.parallel_vertex[cid]);
-    }
+    ApplyCouplingBuffers_(src, dst, HaloLevel::FaceOnly, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
-    auto &bs = fld_->coupling_buffers(src, dst);
-    const auto &channels = bs.desc.channels;
-
-    for (int cid : cids_fields)
-    {
-        const auto &ch = channels[cid];
-        const std::string &tag = ch.tag;
-        const StaggerLocation loc = ch.location;
-
-        // 默认：dst field = tag（你可按需要映射）
-        const std::string dst_field = tag;
-        const int fid_dst = fld_->field_id(dst_field);
-
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
-        {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
-
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        apply_list(bs.inner_face[cid]);
-        apply_list(bs.parallel_face[cid]);
-        // apply_list(bs.inner_edge[cid]);
-        // apply_list(bs.parallel_edge[cid]);
-        // apply_list(bs.inner_vertex[cid]);
-        // apply_list(bs.parallel_vertex[cid]);
-    }
+    ApplyCouplingBuffers_(src, dst, HaloLevel::FaceOnly, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingPair_2DCorner(const std::string &src, const std::string &dst)
 {
-    auto &bs = fld_->coupling_buffers(src, dst);
-    const auto &channels = bs.desc.channels;
-
-    for (int cid = 0; cid < (int)channels.size(); ++cid)
-    {
-        const auto &ch = channels[cid];
-        const std::string &tag = ch.tag;
-        const StaggerLocation loc = ch.location;
-
-        // 默认：dst field = tag（你可按需要映射）
-        const std::string dst_field = tag;
-        const int fid_dst = fld_->field_id(dst_field);
-
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
-        {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
-
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        // apply_list(bs.inner_face[cid]);
-        // apply_list(bs.parallel_face[cid]);
-        apply_list(bs.inner_edge[cid]);
-        apply_list(bs.parallel_edge[cid]);
-        // apply_list(bs.inner_vertex[cid]);
-        // apply_list(bs.parallel_vertex[cid]);
-    }
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Edge, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_2DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
-    auto &bs = fld_->coupling_buffers(src, dst);
-    const auto &channels = bs.desc.channels;
-
-    for (auto cid : cids_fields)
-    {
-        const auto &ch = channels[cid];
-        const std::string &tag = ch.tag;
-        const StaggerLocation loc = ch.location;
-
-        // 默认：dst field = tag（你可按需要映射）
-        const std::string dst_field = tag;
-        const int fid_dst = fld_->field_id(dst_field);
-
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
-        {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
-
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        // apply_list(bs.inner_face[cid]);
-        // apply_list(bs.parallel_face[cid]);
-        apply_list(bs.inner_edge[cid]);
-        apply_list(bs.parallel_edge[cid]);
-        // apply_list(bs.inner_vertex[cid]);
-        // apply_list(bs.parallel_vertex[cid]);
-    }
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Edge, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingPair_3DCorner(const std::string &src, const std::string &dst)
 {
-    auto &bs = fld_->coupling_buffers(src, dst);
-    const auto &channels = bs.desc.channels;
-
-    for (int cid = 0; cid < (int)channels.size(); ++cid)
-    {
-        const auto &ch = channels[cid];
-        const std::string &tag = ch.tag;
-        const StaggerLocation loc = ch.location;
-
-        // 默认：dst field = tag（你可按需要映射）
-        const std::string dst_field = tag;
-        const int fid_dst = fld_->field_id(dst_field);
-
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
-        {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
-
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        // apply_list(bs.inner_face[cid]);
-        // apply_list(bs.parallel_face[cid]);
-        // apply_list(bs.inner_edge[cid]);
-        // apply_list(bs.parallel_edge[cid]);
-        apply_list(bs.inner_vertex[cid]);
-        apply_list(bs.parallel_vertex[cid]);
-    }
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Vertex, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_3DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Vertex, &cids_fields);
+}
+
+void BoundaryCore::ApplyCouplingBuffers_(const std::string &src,
+                                         const std::string &dst,
+                                         HaloLevel stage,
+                                         const std::vector<int32_t> *cids_fields)
+{
     auto &bs = fld_->coupling_buffers(src, dst);
     const auto &channels = bs.desc.channels;
 
-    for (auto cid : cids_fields)
+    auto apply_channel = [&](int cid)
     {
+        if (cid < 0 || cid >= static_cast<int>(channels.size()))
+            ERROR::Abort("[BoundaryCore] ApplyCouplingPair: invalid coupling channel id.");
+
         const auto &ch = channels[cid];
         const std::string &tag = ch.tag;
         const StaggerLocation loc = ch.location;
 
-        // 默认：dst field = tag（你可按需要映射）
         const std::string dst_field = tag;
         const int fid_dst = fld_->field_id(dst_field);
+        auto handler = ResolveCoupling(src, dst, loc, tag, dst_field);
 
-        auto h = ResolveCoupling(src, dst, loc, tag, dst_field);
-
-        auto apply_list = [&](std::vector<CouplingBufferBlock> &lst)
+        if (stage == HaloLevel::FaceOnly)
         {
-            for (auto &buf : lst)
-            {
-                if (!buf.allocated)
-                    continue;
-                FieldBlock &Udst = fld_->field(fid_dst, buf.this_block);
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_face[cid], src, dst, tag);
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_face[cid], src, dst, tag);
+        }
+        else if (stage == HaloLevel::Edge)
+        {
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_edge[cid], src, dst, tag);
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_edge[cid], src, dst, tag);
+        }
+        else if (stage == HaloLevel::Vertex)
+        {
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_vertex[cid], src, dst, tag);
+            apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_vertex[cid], src, dst, tag);
+        }
+        else
+        {
+            ERROR::Abort("[BoundaryCore] ApplyCouplingPair: unsupported halo stage.");
+        }
+    };
 
-                if (h)
-                    h(Udst, fld_, buf, src, dst, tag);
-                else
-                    DefaultCouplingCopy(Udst, fld_, buf, src, dst, tag);
-            }
-        };
-
-        // apply_list(bs.inner_face[cid]);
-        // apply_list(bs.parallel_face[cid]);
-        // apply_list(bs.inner_edge[cid]);
-        // apply_list(bs.parallel_edge[cid]);
-        apply_list(bs.inner_vertex[cid]);
-        apply_list(bs.parallel_vertex[cid]);
+    if (cids_fields)
+    {
+        for (int32_t cid : *cids_fields)
+            apply_channel(static_cast<int>(cid));
+    }
+    else
+    {
+        for (int cid = 0; cid < static_cast<int>(channels.size()); ++cid)
+            apply_channel(cid);
     }
 }
 
