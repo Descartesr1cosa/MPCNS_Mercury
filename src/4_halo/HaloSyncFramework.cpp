@@ -2,6 +2,7 @@
 #include "0_basic/Error.h"
 #include "0_basic/LayoutTraits.h"
 
+#include <algorithm>
 #include <ostream>
 #include <vector>
 
@@ -516,14 +517,20 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
                 OwnerSyncSendOp op;
                 op.fid = fid;
+                op.class_gid = cls.global_id;
                 op.owner_block = owner.entity.block;
                 op.owner_i = owner.entity.i;
                 op.owner_j = owner.entity.j;
                 op.owner_k = owner.entity.k;
+                op.alias_rank = alias.entity.rank;
+                op.alias_block = alias.entity.block;
+                op.alias_i = alias.entity.i;
+                op.alias_j = alias.entity.j;
+                op.alias_k = alias.entity.k;
                 op.ncomp = req.ncomp;
                 op.sign_for_alias = sign;
                 op.dst_rank = alias.entity.rank;
-                op.tag = owner_sync_tag_(req, cls.global_id, alias.entity.rank);
+                op.tag = owner_sync_tag_(req);
                 pat.send_ops.push_back(op);
             }
             else if (owner.entity.rank != my_rank && alias.entity.rank == my_rank)
@@ -539,37 +546,72 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
                 OwnerSyncRecvOp op;
                 op.fid = fid;
+                op.class_gid = cls.global_id;
                 op.alias_block = alias.entity.block;
                 op.alias_i = alias.entity.i;
                 op.alias_j = alias.entity.j;
                 op.alias_k = alias.entity.k;
                 op.ncomp = req.ncomp;
                 op.src_rank = owner.entity.rank;
-                op.tag = owner_sync_tag_(req, cls.global_id, alias.entity.rank);
+                op.tag = owner_sync_tag_(req);
                 pat.recv_ops.push_back(op);
             }
         }
     }
 
+    std::sort(pat.send_ops.begin(), pat.send_ops.end(),
+              [](const OwnerSyncSendOp &a, const OwnerSyncSendOp &b)
+              {
+                  if (a.dst_rank != b.dst_rank)
+                      return a.dst_rank < b.dst_rank;
+                  if (a.class_gid != b.class_gid)
+                      return a.class_gid < b.class_gid;
+                  if (a.alias_rank != b.alias_rank)
+                      return a.alias_rank < b.alias_rank;
+                  if (a.alias_block != b.alias_block)
+                      return a.alias_block < b.alias_block;
+                  if (a.alias_i != b.alias_i)
+                      return a.alias_i < b.alias_i;
+                  if (a.alias_j != b.alias_j)
+                      return a.alias_j < b.alias_j;
+                  if (a.alias_k != b.alias_k)
+                      return a.alias_k < b.alias_k;
+                  return a.fid < b.fid;
+              });
+
+    std::sort(pat.recv_ops.begin(), pat.recv_ops.end(),
+              [](const OwnerSyncRecvOp &a, const OwnerSyncRecvOp &b)
+              {
+                  if (a.src_rank != b.src_rank)
+                      return a.src_rank < b.src_rank;
+                  if (a.class_gid != b.class_gid)
+                      return a.class_gid < b.class_gid;
+                  if (a.alias_block != b.alias_block)
+                      return a.alias_block < b.alias_block;
+                  if (a.alias_i != b.alias_i)
+                      return a.alias_i < b.alias_i;
+                  if (a.alias_j != b.alias_j)
+                      return a.alias_j < b.alias_j;
+                  if (a.alias_k != b.alias_k)
+                      return a.alias_k < b.alias_k;
+                  return a.fid < b.fid;
+              });
+
     resize_owner_sync_buffers_(pat);
     return pat;
 }
 
-int Halo::owner_sync_tag_(const HaloOwnerRequest &req,
-                          int class_gid,
-                          int alias_rank) const
+int Halo::owner_sync_tag_(const HaloOwnerRequest &req) const
 {
-    if (class_gid < 0)
-        ERROR::Abort("[Halo] owner_sync_tag_: invalid EquivClass::global_id for field: " + req.field_name);
+    if (req.policy == OwnerSyncPolicy::FaceOwner)
+        return owner_sync_tag_base_ + 1;
+    if (req.policy == OwnerSyncPolicy::EdgeOwner)
+        return owner_sync_tag_base_ + 2;
+    if (req.policy == OwnerSyncPolicy::NodeOwner)
+        return owner_sync_tag_base_ + 3;
 
-    const int fid = fld_->field_id(req.field_name);
-    // TODO: replace this formula with a centralized tag allocator for
-    // production scaling. It assumes class global ids are consistent across
-    // ranks and reserves a high tag range away from ordinary topology flags.
-    return owner_sync_tag_base_ +
-           fid * 1000000 +
-           (class_gid % 1000) * 1000 +
-           (alias_rank % 1000);
+    ERROR::Abort("[Halo] owner_sync_tag_: invalid OwnerSyncPolicy for field: " + req.field_name);
+    return owner_sync_tag_base_;
 }
 
 void Halo::resize_owner_sync_buffers_(OwnerSyncPattern &pat) const
@@ -651,37 +693,69 @@ void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
     if (pat.send_ops.empty() && pat.recv_ops.empty())
         return;
 
-    // First implementation uses one MPI message per owner-alias op. Future
-    // optimization can aggregate ops by rank/tag group into compact batches.
     pack_owner_sync_send_buffer_(pat);
 
-    std::vector<MPI_Request> recv_requests(pat.recv_ops.size());
-    std::vector<MPI_Request> send_requests(pat.send_ops.size());
-    std::vector<MPI_Status> recv_statuses(pat.recv_ops.size());
-    std::vector<MPI_Status> send_statuses(pat.send_ops.size());
+    std::vector<MPI_Request> recv_requests;
+    std::vector<MPI_Request> send_requests;
+    std::vector<MPI_Status> recv_statuses;
+    std::vector<MPI_Status> send_statuses;
 
-    for (std::size_t i = 0; i < pat.recv_ops.size(); ++i)
+    recv_requests.reserve(pat.recv_ops.size());
+    send_requests.reserve(pat.send_ops.size());
+
+    for (std::size_t first = 0; first < pat.recv_ops.size();)
     {
-        const OwnerSyncRecvOp &op = pat.recv_ops[i];
+        std::size_t last = first + 1;
+        while (last < pat.recv_ops.size() &&
+               pat.recv_ops[last].src_rank == pat.recv_ops[first].src_rank)
+        {
+            ++last;
+        }
+
+        int length = 0;
+        for (std::size_t i = first; i < last; ++i)
+            length += pat.recv_ops[i].ncomp;
+
+        const OwnerSyncRecvOp &op = pat.recv_ops[first];
+        recv_requests.push_back(MPI_Request{});
         PARALLEL::mpi_data_recv(op.src_rank,
                                 op.tag,
                                 pat.recv_buffer.data() + op.buffer_offset,
-                                op.ncomp,
-                                &recv_requests[i]);
+                                length,
+                                &recv_requests.back());
+
+        first = last;
     }
 
-    for (std::size_t i = 0; i < pat.send_ops.size(); ++i)
+    for (std::size_t first = 0; first < pat.send_ops.size();)
     {
-        const OwnerSyncSendOp &op = pat.send_ops[i];
+        std::size_t last = first + 1;
+        while (last < pat.send_ops.size() &&
+               pat.send_ops[last].dst_rank == pat.send_ops[first].dst_rank)
+        {
+            ++last;
+        }
+
+        int length = 0;
+        for (std::size_t i = first; i < last; ++i)
+            length += pat.send_ops[i].ncomp;
+
+        const OwnerSyncSendOp &op = pat.send_ops[first];
+        send_requests.push_back(MPI_Request{});
         PARALLEL::mpi_data_send(op.dst_rank,
                                 op.tag,
                                 pat.send_buffer.data() + op.buffer_offset,
-                                op.ncomp,
-                                &send_requests[i]);
+                                length,
+                                &send_requests.back());
+
+        first = last;
     }
 
     int nrecv = static_cast<int>(recv_requests.size());
     int nsend = static_cast<int>(send_requests.size());
+    recv_statuses.resize(nrecv);
+    send_statuses.resize(nsend);
+
     if (nrecv > 0)
         PARALLEL::mpi_wait(nrecv, recv_requests.data(), recv_statuses.data());
     if (nsend > 0)

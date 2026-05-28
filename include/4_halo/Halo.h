@@ -172,11 +172,18 @@ private:
     struct OwnerSyncSendOp
     {
         int fid = -1;
+        int class_gid = -1;
 
         int owner_block = -1;
         int owner_i = 0;
         int owner_j = 0;
         int owner_k = 0;
+
+        int alias_rank = -1;
+        int alias_block = -1;
+        int alias_i = 0;
+        int alias_j = 0;
+        int alias_k = 0;
 
         int ncomp = 1;
         int sign_for_alias = +1;
@@ -189,6 +196,7 @@ private:
     struct OwnerSyncRecvOp
     {
         int fid = -1;
+        int class_gid = -1;
 
         int alias_block = -1;
         int alias_i = 0;
@@ -236,7 +244,7 @@ private:
 
     std::unordered_map<std::string, OwnerSyncPattern> owner_sync_patterns_;
 
-    int owner_sync_tag_base_ = 700000;
+    int owner_sync_tag_base_ = 2100;
 
     // Sync registry helpers.
     HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
@@ -307,9 +315,7 @@ private:
 
     OwnerSyncPattern build_owner_sync_pattern_for_request_(const HaloOwnerRequest &req) const;
 
-    int owner_sync_tag_(const HaloOwnerRequest &req,
-                        int class_gid,
-                        int alias_rank) const;
+    int owner_sync_tag_(const HaloOwnerRequest &req) const;
 
     void resize_owner_sync_buffers_(OwnerSyncPattern &pat) const;
 
