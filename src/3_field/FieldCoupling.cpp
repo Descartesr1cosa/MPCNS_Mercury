@@ -4,6 +4,73 @@
 #include "0_basic/LayoutTraits.h"
 #include "1_grid/BlockTraits.h"
 
+namespace
+{
+    Field::PairKey pair_key(const std::string &src, const std::string &dst)
+    {
+        return Field::PairKey{src, dst};
+    }
+
+    bool same_channel_spec(const CouplingChannelSpec &ch,
+                           StaggerLocation location,
+                           FieldValueKind value_kind,
+                           int ncomp,
+                           int nghost,
+                           bool orientation_aware)
+    {
+        return ch.location == location &&
+               ch.value_kind == value_kind &&
+               ch.ncomp == ncomp &&
+               ch.nghost == nghost &&
+               ch.orientation_aware == orientation_aware;
+    }
+
+    CouplingChannelSpec make_channel_spec(const std::string &tag,
+                                          StaggerLocation location,
+                                          FieldValueKind value_kind,
+                                          int ncomp,
+                                          int nghost,
+                                          bool orientation_aware)
+    {
+        CouplingChannelSpec spec;
+        spec.tag = tag;
+        spec.location = location;
+        spec.value_kind = value_kind;
+        spec.ncomp = ncomp;
+        spec.nghost = nghost;
+        spec.orientation_aware = orientation_aware;
+        return spec;
+    }
+
+    void allocate_buffer_block(CouplingBufferBlock &buffer,
+                               TOPO::PatchKind kind,
+                               int this_block,
+                               const CouplingChannelSpec &channel,
+                               const Box3 &box)
+    {
+        const int ni = box.hi.i - box.lo.i;
+        const int nj = box.hi.j - box.lo.j;
+        const int nk = box.hi.k - box.lo.k;
+        if (ni <= 0 || nj <= 0 || nk <= 0)
+            return;
+
+        buffer.allocated = true;
+        buffer.kind = kind;
+        buffer.this_block = this_block;
+
+        buffer.tag = channel.tag;
+        buffer.location = channel.location;
+        buffer.value_kind = channel.value_kind;
+        buffer.ncomp = channel.ncomp;
+        buffer.nghost = channel.nghost;
+        buffer.orientation_aware = channel.orientation_aware;
+
+        buffer.box = box;
+        buffer.shift = Int3{-box.lo.i, -box.lo.j, -box.lo.k};
+        buffer.data.SetSize(ni, nj, nk, 0, channel.ncomp);
+    }
+}
+
 void Field::register_coupling_channel(const std::string &src,
                                       const std::string &dst,
                                       const std::string &tag,
@@ -27,51 +94,29 @@ void Field::register_coupling_channel(const std::string &src,
         }
     }
 
-    auto add_one = [&](const std::string &a, const std::string &b)
+    PairKey key = pair_key(src, dst);
+    CouplingPairDesc &pair_desc = coupling_pairs_[key];
+
+    if (pair_desc.pair.src.empty() && pair_desc.pair.dst.empty())
     {
-        PairKey key{a, b};
-        auto &pd = coupling_pairs_[key]; // 不存在会默认构造
+        pair_desc.pair.src = src;
+        pair_desc.pair.dst = dst;
+    }
 
-        // 第一次创建时补 pair
-        if (pd.pair.src.empty() && pd.pair.dst.empty())
-        {
-            pd.pair.src = a;
-            pd.pair.dst = b;
-        }
+    for (const auto &channel : pair_desc.channels)
+    {
+        if (channel.tag != tag)
+            continue;
 
-        // enforce: 同一 (a->b) 下 tag 唯一；若重复则必须完全一致
-        for (const auto &ch : pd.channels)
-        {
-            if (ch.tag != tag)
-                continue;
+        if (same_channel_spec(channel, location, value_kind, ncomp, nghost, orientation_aware))
+            return;
 
-            const bool same =
-                (ch.location == location) &&
-                (ch.value_kind == value_kind) &&
-                (ch.ncomp == ncomp) &&
-                (ch.nghost == nghost) &&
-                (ch.orientation_aware == orientation_aware);
+        ERROR::Abort("Field::register_coupling_channel: duplicated channel tag with different spec: " +
+                     src + " -> " + dst + " tag=" + tag);
+    }
 
-            if (same)
-                return; // 幂等：重复注册同样的 channel，直接忽略
-
-            std::cout << "Fatal: coupling channel tag duplicated but spec differs: "
-                      << a << " -> " << b << " tag=" << tag << "\n";
-            std::exit(-1);
-        }
-
-        CouplingChannelSpec spec;
-        spec.tag = tag;
-        spec.location = location;
-        spec.value_kind = value_kind;
-        spec.ncomp = ncomp;
-        spec.nghost = nghost;
-        spec.orientation_aware = orientation_aware;
-
-        pd.channels.push_back(spec);
-    };
-
-    add_one(src, dst);
+    pair_desc.channels.push_back(
+        make_channel_spec(tag, location, value_kind, ncomp, nghost, orientation_aware));
 }
 
 void Field::register_coupling_channel(const std::string &src,
@@ -109,25 +154,20 @@ void Field::register_declared_coupling_channels(const std::vector<PairKey> &dire
 
 bool Field::has_coupling_pair(const std::string &src, const std::string &dst) const
 {
-    return coupling_pairs_.count(PairKey{src, dst}) > 0;
+    return coupling_pairs_.count(pair_key(src, dst)) > 0;
 }
 
 const CouplingPairDesc &Field::coupling_pair(const std::string &src, const std::string &dst) const
 {
-    PairKey key{src, dst};
-    auto it = coupling_pairs_.find(key);
+    auto it = coupling_pairs_.find(pair_key(src, dst));
     if (it == coupling_pairs_.end())
-    {
-        std::cout << "Coupling pair not found: (" << src << " -> " << dst << ")\n";
-        exit(-1);
-    }
+        ERROR::Abort("Field::coupling_pair: coupling pair not found: " + src + " -> " + dst);
     return it->second;
 }
 
 CouplingBuffersForPair &Field::coupling_buffers(const std::string &src, const std::string &dst)
 {
-    PairKey k{src, dst};
-    auto it = coupling_buffers_.find(k);
+    auto it = coupling_buffers_.find(pair_key(src, dst));
     if (it == coupling_buffers_.end())
         ERROR::Abort("Field::coupling_buffers: buffers not built for coupling pair");
     return it->second;
@@ -140,7 +180,6 @@ const std::map<Field::PairKey, CouplingPairDesc> &Field::coupling_pairs() const
 
 void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 {
-    // 0) 清空并为每个已注册 (src,dst) 建空壳
     coupling_buffers_.clear();
 
     const std::vector<TOPO_VIEW::FacePatchView> inner_faces = TOPO_VIEW::inner_faces(topo);
@@ -150,7 +189,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
     const auto &inner_vertices = TOPO_VIEW::vertex_patches(topo, TOPO::PatchKind::Inner);
     const auto &parallel_vertices = TOPO_VIEW::vertex_patches(topo, TOPO::PatchKind::Parallel);
 
-    // 1) 根据coupling_pairs_以及topo中patch的数量开辟[cid][ipatch]数组的空间
     for (const auto &kv : coupling_pairs_)
     {
         const PairKey &key = kv.first;
@@ -173,37 +211,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
         coupling_buffers_[key] = std::move(bs);
     }
 
-    // ---------- allocate one buffer block ----------
-    auto alloc_block = [&](CouplingBufferBlock &cb,
-                           TOPO::PatchKind kind,
-                           int this_block,
-                           const CouplingChannelSpec &ch,
-                           const Box3 &box)
-    {
-        int Ni = box.hi.i - box.lo.i;
-        int Nj = box.hi.j - box.lo.j;
-        int Nk = box.hi.k - box.lo.k;
-        if (Ni <= 0 || Nj <= 0 || Nk <= 0)
-            return;
-
-        cb.allocated = true;
-        cb.kind = kind;
-        cb.this_block = this_block;
-
-        cb.tag = ch.tag;
-        cb.location = ch.location;
-        cb.value_kind = ch.value_kind;
-        cb.ncomp = ch.ncomp;
-        cb.nghost = ch.nghost;
-        cb.orientation_aware = ch.orientation_aware;
-
-        cb.box = box;
-        cb.shift = Int3{-box.lo.i, -box.lo.j, -box.lo.k};
-
-        cb.data.SetSize(Ni, Nj, Nk, 0, ch.ncomp);
-    };
-
-    // ---------- build for Interface (face) ----------
     auto build_face_list = [&](const auto &plist, TOPO::PatchKind kind,
                                auto CouplingBuffersForPair::*storage_member)
     {
@@ -213,7 +220,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
             if (!p.is_coupling)
                 continue;
 
-            PairKey key{p.nb_block_name, p.this_block_name};
+            PairKey key = pair_key(p.nb_block_name, p.this_block_name);
             auto it = coupling_buffers_.find(key);
             if (it == coupling_buffers_.end())
                 continue;
@@ -223,7 +230,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 
             const Block &blk = storage_.block(p.this_block);
 
-            // 对于patch上的每一个channel开辟合适的空间
             for (int cid = 0; cid < (int)bs.desc.channels.size(); ++cid)
             {
                 const auto &ch = bs.desc.channels[cid];
@@ -233,7 +239,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                     p.this_box_node,
                     p.direction,
                     ch.nghost);
-                alloc_block(storage[cid][ip], kind, p.this_block, ch, box);
+                allocate_buffer_block(storage[cid][ip], kind, p.this_block, ch, box);
             }
         }
     };
@@ -241,7 +247,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
     build_face_list(inner_faces, TOPO::PatchKind::Inner, &CouplingBuffersForPair::inner_face);
     build_face_list(parallel_faces, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_face);
 
-    // ---------- build for Edge ----------
     if (dimension >= 2)
     {
         auto build_edge_list = [&](const auto &elist, TOPO::PatchKind kind,
@@ -253,7 +258,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 if (!e.is_coupling)
                     continue;
 
-                PairKey key{e.nb_block_name, e.this_block_name};
+                PairKey key = pair_key(e.nb_block_name, e.this_block_name);
                 auto it = coupling_buffers_.find(key);
                 if (it == coupling_buffers_.end())
                     continue;
@@ -273,7 +278,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                         e.dir1,
                         e.dir2,
                         ch.nghost);
-                    alloc_block(storage[cid][ie], kind, e.this_block, ch, box);
+                    allocate_buffer_block(storage[cid][ie], kind, e.this_block, ch, box);
                 }
             }
         };
@@ -282,7 +287,6 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
         build_edge_list(parallel_edges, TOPO::PatchKind::Parallel, &CouplingBuffersForPair::parallel_edge);
     }
 
-    // ---------- build for Vertex ----------
     if (dimension >= 3)
     {
         auto build_vertex_list = [&](const auto &vlist, TOPO::PatchKind kind,
@@ -294,7 +298,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                 if (!v.is_coupling)
                     continue;
 
-                PairKey key{v.nb_block_name, v.this_block_name};
+                PairKey key = pair_key(v.nb_block_name, v.this_block_name);
                 auto it = coupling_buffers_.find(key);
                 if (it == coupling_buffers_.end())
                     continue;
@@ -314,7 +318,7 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
                         v.dir2,
                         v.dir3,
                         ch.nghost);
-                    alloc_block(storage[cid][iv], kind, v.this_block, ch, box);
+                    allocate_buffer_block(storage[cid][iv], kind, v.this_block, ch, box);
                 }
             }
         };
