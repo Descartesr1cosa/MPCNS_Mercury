@@ -1,6 +1,7 @@
 #include "5_boundary/Boundary.h"
 #include "0_basic/Error.h"
 #include "2_topology/Topology.h"
+#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include "4_halo/detail/HaloBuildBoxMakers.h"
@@ -181,15 +182,25 @@ void BoundaryCore::ApplyPhysical(const std::vector<std::string> &field_names)
         ApplyPhysical(fn);
 }
 
-void BoundaryCore::ApplyPhysicalCornerDefault(const std::string &field_name)
+void BoundaryCore::ApplyPhysical(const std::string &field_name, HaloLevel stage)
 {
-    const int fid = fld_->field_id(field_name);
-    const FieldDescriptor &desc = fld_->descriptor(fid);
+    if (stage == HaloLevel::FaceOnly)
+        ApplyPhysical(field_name);
+    else if (stage == HaloLevel::Edge)
+        ApplyPhysicalEdgeDefault(field_name);
+    else if (stage == HaloLevel::Vertex)
+        ApplyPhysicalVertexDefault(field_name);
+}
 
-    const StaggerLocation loc = desc.location;
-    const int nghost = desc.nghost;
+void BoundaryCore::ApplyPhysical(const std::vector<std::string> &field_names, HaloLevel stage)
+{
+    for (const auto &fn : field_names)
+        ApplyPhysical(fn, stage);
+}
 
-    auto dir_from_int = [](int d) -> Direction
+namespace
+{
+    Direction physical_direction_from_int(int d)
     {
         switch (d)
         {
@@ -206,36 +217,46 @@ void BoundaryCore::ApplyPhysicalCornerDefault(const std::string &field_name)
         case 3:
             return Direction::ZPlus;
         default:
-            ERROR::Abort("[BoundaryCore] ApplyPhysicalCornerDefault: invalid direction.");
+            ERROR::Abort("[BoundaryCore] physical corner default: invalid direction.");
             return Direction::XMinus;
         }
-    };
+    }
 
-    auto clamp_index = [](int v, int lo, int hi) -> int
+    int clamp_physical_index(int v, int lo, int hi)
     {
         return std::max(lo, std::min(v, hi - 1));
-    };
+    }
 
-    auto fill_ghost = [&](FieldBlock &U, const Block &blk, const Box3 &g)
+    void fill_physical_corner_ghost(FieldBlock &U,
+                                    const Int3 &hi_in,
+                                    const Box3 &ghost_box)
     {
         if (!U.is_allocated())
             return;
 
-        const Int3 hi_in = LocInnerHi(blk, loc);
         const int ncomp = U.descriptor().ncomp;
 
-        for (int i = g.lo.i; i < g.hi.i; ++i)
-            for (int j = g.lo.j; j < g.hi.j; ++j)
-                for (int k = g.lo.k; k < g.hi.k; ++k)
+        for (int i = ghost_box.lo.i; i < ghost_box.hi.i; ++i)
+            for (int j = ghost_box.lo.j; j < ghost_box.hi.j; ++j)
+                for (int k = ghost_box.lo.k; k < ghost_box.hi.k; ++k)
                 {
-                    const int ii = clamp_index(i, 0, hi_in.i);
-                    const int jj = clamp_index(j, 0, hi_in.j);
-                    const int kk = clamp_index(k, 0, hi_in.k);
+                    const int ii = clamp_physical_index(i, 0, hi_in.i);
+                    const int jj = clamp_physical_index(j, 0, hi_in.j);
+                    const int kk = clamp_physical_index(k, 0, hi_in.k);
 
                     for (int m = 0; m < ncomp; ++m)
                         U(i, j, k, m) = U(ii, jj, kk, m);
                 }
-    };
+    }
+}
+
+void BoundaryCore::ApplyPhysicalEdgeDefault(const std::string &field_name)
+{
+    const int fid = fld_->field_id(field_name);
+    const FieldDescriptor &desc = fld_->descriptor(fid);
+
+    const StaggerLocation loc = desc.location;
+    const int nghost = desc.nghost;
 
     for (const auto &ep : topo_->physical_edge_patches)
     {
@@ -244,11 +265,26 @@ void BoundaryCore::ApplyPhysicalCornerDefault(const std::string &field_name)
         const Box3 g = HALO_BOX::make_2DCorner_ghost_box(
             loc,
             ep.this_box_node,
-            dir_from_int(ep.dir1),
-            dir_from_int(ep.dir2),
+            physical_direction_from_int(ep.dir1),
+            physical_direction_from_int(ep.dir2),
             nghost);
-        fill_ghost(U, blk, g);
+        fill_physical_corner_ghost(U, LocInnerHi(blk, loc), g);
     }
+}
+
+void BoundaryCore::ApplyPhysicalEdgeDefault(const std::vector<std::string> &field_names)
+{
+    for (const auto &fn : field_names)
+        ApplyPhysicalEdgeDefault(fn);
+}
+
+void BoundaryCore::ApplyPhysicalVertexDefault(const std::string &field_name)
+{
+    const int fid = fld_->field_id(field_name);
+    const FieldDescriptor &desc = fld_->descriptor(fid);
+
+    const StaggerLocation loc = desc.location;
+    const int nghost = desc.nghost;
 
     for (const auto &vp : topo_->physical_vertex_patches)
     {
@@ -257,12 +293,24 @@ void BoundaryCore::ApplyPhysicalCornerDefault(const std::string &field_name)
         const Box3 g = HALO_BOX::make_3DCorner_ghost_box(
             loc,
             vp.this_box_node,
-            dir_from_int(vp.dir1),
-            dir_from_int(vp.dir2),
-            dir_from_int(vp.dir3),
+            physical_direction_from_int(vp.dir1),
+            physical_direction_from_int(vp.dir2),
+            physical_direction_from_int(vp.dir3),
             nghost);
-        fill_ghost(U, blk, g);
+        fill_physical_corner_ghost(U, LocInnerHi(blk, loc), g);
     }
+}
+
+void BoundaryCore::ApplyPhysicalVertexDefault(const std::vector<std::string> &field_names)
+{
+    for (const auto &fn : field_names)
+        ApplyPhysicalVertexDefault(fn);
+}
+
+void BoundaryCore::ApplyPhysicalCornerDefault(const std::string &field_name)
+{
+    ApplyPhysicalEdgeDefault(field_name);
+    ApplyPhysicalVertexDefault(field_name);
 }
 
 void BoundaryCore::ApplyPhysicalCornerDefault(const std::vector<std::string> &field_names)

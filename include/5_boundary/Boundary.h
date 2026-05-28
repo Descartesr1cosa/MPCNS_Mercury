@@ -54,9 +54,15 @@ public:
     // 施加边界条件
     void ApplyPhysical(const std::string &field_name);
     void ApplyPhysical(const std::vector<std::string> &field_names);
+    void ApplyPhysical(const std::string &field_name, HaloLevel stage);
+    void ApplyPhysical(const std::vector<std::string> &field_names, HaloLevel stage);
     // 物理角区（edge/vertex）默认拷贝处理
     void ApplyPhysicalCornerDefault(const std::string &field_name);
     void ApplyPhysicalCornerDefault(const std::vector<std::string> &field_names);
+    void ApplyPhysicalEdgeDefault(const std::string &field_name);
+    void ApplyPhysicalEdgeDefault(const std::vector<std::string> &field_names);
+    void ApplyPhysicalVertexDefault(const std::string &field_name);
+    void ApplyPhysicalVertexDefault(const std::vector<std::string> &field_names);
 
     // 提供默认的拷贝边界条件
     static void DefaultPhysicalCopy(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int nghost);
@@ -92,6 +98,8 @@ public:
                           BOUND::CouplingHandler h);
 
     // 对一个 coupling pair 执行：把 buffer 写入 dst ghost
+    void ApplyCouplingPair(const std::string &src, const std::string &dst, HaloLevel stage);
+    void ApplyCouplingPair(const std::string &src, const std::string &dst, HaloLevel stage, const std::vector<int32_t> &cids_fields);
     void ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst);
     void ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields);
     void ApplyCouplingPair_2DCorner(const std::string &src, const std::string &dst);

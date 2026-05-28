@@ -23,27 +23,24 @@ CornerStage ToCornerStage(HaloLevel level)
 
 void MercuryBoundary::Sync_(const BoundGroup &g)
 {
-    auto apply_physical_barrier = [&]()
+    auto apply_physical_stage = [&](HaloLevel stage)
     {
         if (!g.do_physical)
             return;
 
-        bound_.ApplyPhysical(g.fields);
-        bound_.ApplyPhysicalCornerDefault(g.fields);
+        bound_.ApplyPhysical(g.fields, stage);
     };
 
     auto apply_stage = [&](HaloLevel stage)
     {
+        apply_physical_stage(stage);
+
         if (g.do_halo)
             halo_->sync_group(g.name, stage);
 
         if (g.do_coupling)
             ApplyCouplingStage_(g, stage);
-
-        apply_physical_barrier();
     };
-
-    apply_physical_barrier();
 
     apply_stage(HaloLevel::FaceOnly);
 
@@ -114,16 +111,15 @@ void MercuryBoundary::ApplyCouplingStage_(const BoundGroup &g, HaloLevel stage)
         {
         case CornerStage::FaceOnly:
             halo_->coupling_trans_1DCorner(src, dst, tmp_cids);
-            bound_.ApplyCouplingPair_1DCorner(src, dst, tmp_cids);
             break;
         case CornerStage::Edge:
             halo_->coupling_trans_2DCorner(src, dst, tmp_cids);
-            bound_.ApplyCouplingPair_2DCorner(src, dst, tmp_cids);
             break;
         case CornerStage::Vertex:
             halo_->coupling_trans_3DCorner(src, dst, tmp_cids);
-            bound_.ApplyCouplingPair_3DCorner(src, dst, tmp_cids);
             break;
         }
+
+        bound_.ApplyCouplingPair(src, dst, stage, tmp_cids);
     }
 }

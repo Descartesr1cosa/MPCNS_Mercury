@@ -36,6 +36,29 @@ void BoundaryCore::RegisterCoupling(const std::string &src,
 // ------------------------------------------------------------
 // Apply Coupling
 // ------------------------------------------------------------
+void BoundaryCore::ApplyCouplingPair(const std::string &src, const std::string &dst, HaloLevel stage)
+{
+    if (stage == HaloLevel::FaceOnly)
+        ApplyCouplingPair_1DCorner(src, dst);
+    else if (stage == HaloLevel::Edge)
+        ApplyCouplingPair_2DCorner(src, dst);
+    else if (stage == HaloLevel::Vertex)
+        ApplyCouplingPair_3DCorner(src, dst);
+}
+
+void BoundaryCore::ApplyCouplingPair(const std::string &src,
+                                     const std::string &dst,
+                                     HaloLevel stage,
+                                     const std::vector<int32_t> &cids_fields)
+{
+    if (stage == HaloLevel::FaceOnly)
+        ApplyCouplingPair_1DCorner(src, dst, cids_fields);
+    else if (stage == HaloLevel::Edge)
+        ApplyCouplingPair_2DCorner(src, dst, cids_fields);
+    else if (stage == HaloLevel::Vertex)
+        ApplyCouplingPair_3DCorner(src, dst, cids_fields);
+}
+
 void BoundaryCore::ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst)
 {
     auto &bs = fld_->coupling_buffers(src, dst);
