@@ -33,6 +33,7 @@ aux_source_directory(../src/4_halo  DIRSRCS4)
 aux_source_directory(../src/5_boundary  DIRSRCS5)
 aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
+aux_source_directory(../src/8_dec  DIRSRCS8)
 
 # Mercury Solver Files
 aux_source_directory(./src  SRC)
@@ -48,7 +49,7 @@ set(SRC_SETUP ./src/MercurySolver_Setup.cpp)
 # build the executable program
 add_executable(Mercury main.cpp 
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
- ${DIRSRCS4} ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${SRC}
+ ${DIRSRCS4} ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
  ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP} ${SRC_SETUP})
 #  ${SRC0} ${SRC1} ${SRC2} ${SRC3} ${SRC4} ${SRC5} ${SRC6})
 
