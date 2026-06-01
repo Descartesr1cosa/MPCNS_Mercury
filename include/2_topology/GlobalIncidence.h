@@ -28,6 +28,7 @@ namespace TOPO
         {
             build_edge_rows();
             build_face_rows();
+            build_cell_rows();
         }
 
         GlobalIncidence(const Topology &equiv,
@@ -56,17 +57,9 @@ namespace TOPO
         boundary_of_global_cell(EntityId cell_id) const
         {
             require_dim(cell_id, EntityDim::Cell, "boundary_of_global_cell");
-            if (cell_rows_.empty())
-            {
-                throw std::runtime_error(
-                    "GlobalIncidence::boundary_of_global_cell: cell quotient ids "
-                    "are not implemented in Topology in this phase.");
-            }
             return boundary_row(cell_rows_, cell_id, "boundary_of_global_cell");
         }
 
-        // Extension point for the phase that adds cell EntityId support.
-        // At present Topology::id_of(cell) deliberately reports TODO.
         void add_local_cell(const EntityKey &cell)
         {
             if (cell.dim != EntityDim::Cell)
@@ -96,13 +89,6 @@ namespace TOPO
 
         bool check_d2_d1_zero() const
         {
-            if (cell_rows_.empty())
-            {
-                throw std::runtime_error(
-                    "GlobalIncidence::check_d2_d1_zero: global cell incidence "
-                    "is not available until cell quotient ids are implemented.");
-            }
-
             for (const auto &[cell_id, cell_row] : cell_rows_)
             {
                 (void)cell_id;
@@ -209,6 +195,18 @@ namespace TOPO
                 if (!has_local_base_node(local_face))
                     continue;
                 insert_row(face_rows_, local_face, boundary_of_face(local_face), "face");
+            }
+        }
+
+        void build_cell_rows()
+        {
+            for (const auto &[cell, id] : equiv_.cell_to_id)
+            {
+                (void)id;
+                const EntityKey local_cell = cell;
+                if (!has_local_base_node(local_cell))
+                    continue;
+                insert_row(cell_rows_, local_cell, boundary_of_cell(local_cell), "cell");
             }
         }
 

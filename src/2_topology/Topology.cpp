@@ -245,6 +245,30 @@ namespace TOPO
             return faces;
         }
 
+        std::vector<EntityKey> collect_all_local_cells_impl(
+            Grid &grid,
+            int my_rank,
+            int dimension)
+        {
+            std::vector<EntityKey> cells;
+
+            if (dimension < 3)
+                return cells;
+
+            for (int ib = 0; ib < grid.nblock; ++ib)
+            {
+                const auto &blk = grid.grids(ib);
+
+                for (int i = 0; i < blk.mx; ++i)
+                    for (int j = 0; j < blk.my; ++j)
+                        for (int k = 0; k < blk.mz; ++k)
+                        {
+                            cells.push_back(make_cell(my_rank, ib, i, j, k));
+                        }
+            }
+            return cells;
+        }
+
         // ============================================================
         // internal build phases
         // ============================================================
@@ -837,6 +861,36 @@ namespace TOPO
                 equiv.face_key_to_id[global_keys[n]] = static_cast<int>(n);
         }
 
+        void build_cell_entity_ids_impl(
+            const std::vector<EntityKey> &all_local_cells,
+            Topology &equiv)
+        {
+            std::vector<EntityKey> local_keys = all_local_cells;
+            std::sort(local_keys.begin(), local_keys.end());
+            local_keys.erase(std::unique(local_keys.begin(), local_keys.end()), local_keys.end());
+
+            std::vector<int> send_buf;
+            send_buf.reserve(local_keys.size() * 5);
+            for (const EntityKey &cell : local_keys)
+                pack_node(send_buf, make_node(cell.rank, cell.block, cell.i, cell.j, cell.k));
+
+            const std::vector<int> recv_buf =
+                allgather_packed_records(send_buf, 5, "build_topology cell EntityId");
+            std::vector<EntityKey> global_keys;
+            global_keys.reserve(recv_buf.size() / 5);
+            for (std::size_t n = 0; n < recv_buf.size(); n += 5)
+            {
+                const EntityKey node = unpack_node(recv_buf.data() + n);
+                global_keys.push_back(make_cell(node.rank, node.block, node.i, node.j, node.k));
+            }
+
+            std::sort(global_keys.begin(), global_keys.end());
+            global_keys.erase(std::unique(global_keys.begin(), global_keys.end()), global_keys.end());
+            equiv.cell_to_id.clear();
+            for (std::size_t n = 0; n < global_keys.size(); ++n)
+                equiv.cell_to_id[global_keys[n]] = static_cast<int>(n);
+        }
+
         inline void pack_face_owner_candidate(
             std::vector<int> &buf,
             const FaceKey &key,
@@ -1288,8 +1342,12 @@ namespace TOPO
             return EntityId{EntityDim::Face, id_it->second};
         }
         case EntityDim::Cell:
-            throw std::runtime_error(
-                "Topology::id_of: cell quotient ids are not implemented in this phase.");
+        {
+            const auto id_it = cell_to_id.find(key);
+            if (id_it == cell_to_id.end())
+                throw std::runtime_error("Topology::id_of: cell quotient id is not built.");
+            return EntityId{EntityDim::Cell, id_it->second};
+        }
         }
         throw std::runtime_error("Topology::id_of: invalid entity dimension.");
     }
@@ -1325,8 +1383,9 @@ namespace TOPO
             return owner_it == face_owner.end() ? key : owner_it->second;
         }
         case EntityDim::Cell:
-            throw std::runtime_error(
-                "Topology::owner_of: cell owner-alias is not implemented in this phase.");
+            if (cell_to_id.find(key) == cell_to_id.end())
+                throw std::runtime_error("Topology::owner_of: cell quotient id is not built.");
+            return key;
         }
         throw std::runtime_error("Topology::owner_of: invalid entity dimension.");
     }
@@ -1378,8 +1437,8 @@ namespace TOPO
                    static_cast<int>(owner_sign_it->second);
         }
         case EntityDim::Cell:
-            throw std::runtime_error(
-                "Topology::sign_to_owner: cell owner-alias is not implemented in this phase.");
+            (void)owner_of(key);
+            return +1;
         }
         throw std::runtime_error("Topology::sign_to_owner: invalid entity dimension.");
     }
@@ -1549,6 +1608,8 @@ namespace TOPO
             equiv.face_owner_gid_begin = 0;
             equiv.face_owner_gid_end = 0;
 
+            equiv.cell_to_id.clear();
+
             equiv.node_classes.clear();
             equiv.edge_classes.clear();
             equiv.face_classes.clear();
@@ -1684,6 +1745,9 @@ namespace TOPO
             select_face_owner_parallel_impl(equiv, node_eq_counts);
             build_face_owner_gid_impl(my_rank, equiv);
             rebuild_face_classes(equiv);
+
+            auto all_local_cells = collect_all_local_cells_impl(grid, my_rank, dimension);
+            build_cell_entity_ids_impl(all_local_cells, equiv);
         }
     }
 

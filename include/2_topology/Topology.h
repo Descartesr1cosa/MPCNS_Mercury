@@ -204,6 +204,11 @@ namespace TOPO
         int face_owner_gid_end = 0; // half-open: [begin, end)
         std::unordered_map<FaceKey, int, FaceKey::Hash> face_key_to_id;
 
+        // Cells are volume interiors and are not quotiented across block
+        // interfaces, but they still need dimension-local EntityId values so
+        // global d2 incidence can close the DEC complex.
+        std::unordered_map<EntityKey, int, EntityKey::Hash> cell_to_id;
+
         std::vector<EquivClass> node_classes;
         std::vector<EquivClass> edge_classes;
         std::vector<EquivClass> face_classes;
