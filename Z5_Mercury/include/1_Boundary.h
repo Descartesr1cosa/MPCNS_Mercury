@@ -6,21 +6,16 @@
 #include <functional>
 #include <stdexcept>
 #include <utility>
-#include <iosfwd>
-#include <map>
 
-#include "5_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
-#include "4_halo/Halo.h"   // Halo, HaloLevel
-#include "3_field/Field.h" // Field, FieldBlock, StaggerLocation
+#include "6_boundary/Boundary.h"   // BoundaryCore, BOUND::PhysicalRegion, CouplingBufferBlock...
+#include "4_halo/1_MPCNS_Halo.h"   // Halo, HaloLevel
+#include "3_field/2_MPCNS_Field.h" // Field, FieldBlock, StaggerLocation
+#include "0_BackgroundState.h"
 // Grid/Topology/Param forward decl
 class Grid;
 namespace TOPO
 {
-    struct Topology;
-}
-namespace HALO_OWNER
-{
-    struct EdgeOwnerSyncPattern;
+    class Topology;
 }
 class Param;
 
@@ -31,13 +26,10 @@ public:
 
     // ----------------------------- Lifecycle --------------------------------
     // bind pointers + initialize BoundaryCore patterns cache (per location)
-    void Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par,
-               const std::vector<std::string> &boundary_fields,
-               HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
+    void Setup(Grid *grd, Field *fld, TOPO::Topology *topo, Halo *halo, Param *par, const std::vector<std::string> &boundary_fields);
 
     // ----------------------------- Run-time API ------------------------------
     void Sync(const std::string &group_name);
-    void DescribeGroups(std::ostream &os) const;
 
 private:
     // ----------------------------- Internal types ----------------------------
@@ -56,6 +48,20 @@ private:
         double state_coeff_H{0.0};
         double state_coeff_Na{0.0};
         double CFL{0.0};
+
+        void SetBackground(const MercuryBackgroundState &state)
+        {
+            gamma = state.gamma;
+            for (int i = 0; i < 5; ++i)
+            {
+                q_pv_inf[i] = state.q_pv_inf[i];
+                q_pv_infs[i] = state.q_pv_infs[i];
+                qinf[i] = state.qinf[i];
+                qinfs[i] = state.qinfs[i];
+            }
+            for (int i = 0; i < 3; ++i)
+                B_imf[i] = state.B_imf[i];
+        }
     };
 
     struct BoundGroup
@@ -67,8 +73,6 @@ private:
         bool do_coupling = false; // whether to apply coupling before physical BC
         bool do_physical = true;  // whether to apply physical BC
         bool do_halo = true;      // whether to halo-exchange
-        bool do_owner_edge_sync = false;
-        bool owner_edge_is_1form = true;
 
         HaloLevel halo_level = HaloLevel::Vertex;
         int ngh = 0; // reserved: boundary ngh (if BoundaryCore later supports per-call ngh)
@@ -84,7 +88,6 @@ private:
     TOPO::Topology *topo_{nullptr};
     Halo *halo_{nullptr};
     Param *par_{nullptr};
-    HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
     //  boundary core
     BoundaryCore bound_;
 
@@ -104,12 +107,6 @@ private:
 
     // 1) install all physical/coupling handlers (table-driven inside this class)
     void InstallHandlers();
-    void InstallPhysicalHandlers_();
-    void InstallDefaultPhysicalHandlers_();
-    void InstallFarfieldPhysicalHandlers_();
-    void InstallCoupledPhysicalHandlers_();
-    void InstallPolePhysicalHandlers_();
-    void InstallCouplingHandlers_();
 
     // 2) install default groups (Ucell/Bface/Baddface/...); user can extend in cpp later
     void InstallDefaultGroups();
@@ -120,12 +117,6 @@ private:
     // ----------------------------- Group ops (build-time) --------------------
     // Define a sync group (Ucell, Bface, Baddface, Eedge, Jedge, ...).
     void AddGroup(const BoundGroup &g);
-    void AddStandardGroup_(const std::string &name,
-                           const std::vector<std::string> &fields,
-                           bool do_coupling,
-                           bool do_physical = true,
-                           bool do_halo = true,
-                           HaloLevel halo_level = HaloLevel::Vertex);
     // void CheckSetupOrAbort_(const char *where) const;
 
     // handler registration (build-time)
@@ -137,25 +128,27 @@ private:
 
     // ----------------------------- Sync pipeline (run-time) ------------------
     void Sync_(const BoundGroup &g);
-    bool IsEdgeTripletGroup_(const std::vector<std::string> &fields) const;
-    void ConfigureOwnerSync_(BoundGroup &g) const;
-    void ApplyOwnerEdgeSync_(const BoundGroup &g);
-    void ApplySameFieldHaloStage_(const BoundGroup &g, HaloLevel stage);
-    void ApplyCouplingStage_(const BoundGroup &g, HaloLevel stage);
 
     // -------------------------------  handlers -------------------------------
     void BC_UH_Farfield_H_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_UH_Farfield_Na_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_Solid_Surface_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_Solid_Surface_Eface_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Solid_Surface_Eface_ghots_zero(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_Solid_Surface_Eedge_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
-    void BC_Pole_Eedge_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
-    void BC_Pole_Eedge_Zero(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+
     void BC_Pole_Cell_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
-    void BC_Pole_Eedge_RegulateKAndCopyGhost_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+
+    void BC_Pole_Eedge_Average_Axis(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Pole_Eedge_Axis(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Pole_Eedge_Zero_Rotate(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Pole_Eedge_RegulateK_Norm(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Pole_Jedge_RegulateK_Norm(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
 
     void BC_Pole_Bface_Collapse_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_Pole_Bcell_Collapse_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
-    void BC_Pole_Jcell_Collapse_(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
     void BC_Solid_Surface_Jcell(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+
+    void BC_Farfield_Eedge_set_zerocurl(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
+    void BC_Farfield_Bface(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh);
 };

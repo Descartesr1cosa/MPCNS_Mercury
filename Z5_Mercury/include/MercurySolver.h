@@ -1,13 +1,16 @@
 #pragma once
 
-#include "00_Mercury_Const.h"
-#include "6_io/IOModule.h"
+#include "5_io/IOModule.h"
 
 #include "1_Boundary.h"
 #include "0_SolverFields.h"
 #include "2_Initial.h"
 #include "3_Control.h"
+#include "2_topology/2_MPCNS_Topology_Equiv.h"
+#include "4_halo/1_MPCNS_Halo_EdgeOwner.h"
 #include "4_Hall_Implicit_Type.h"
+
+#include <petscksp.h>
 
 #if HALL_IMPLICIT == 1
 #include "4_Hall_Implicit.h"
@@ -34,15 +37,29 @@ struct NumInfo
     double mhd_taper{0.0};
 };
 
+struct ResistiveEdgeEMFControl
+{
+    bool is_Mercury_resistance = false;
+    bool use_implicit_mercury_resistance = false;
+    int n_subcycles = 1;
+
+    double implicit_ksp_rtol = 1.0e-8;
+    double implicit_ksp_atol = 1.0e-12;
+    int implicit_ksp_max_it = 200;
+};
+
+struct ArtificialResistivityControl
+{
+    double eta_max = 0.0;
+    double J_range_start = 0.0;
+    double J_range_on = 0.0;
+};
+
 // ---- forward declarations (avoid heavy includes in header) ----
 class Grid;
 namespace TOPO
 {
-    struct Topology;
-}
-namespace HALO_OWNER
-{
-    struct EdgeOwnerSyncPattern;
+    class Topology;
 }
 class Field;
 class Halo;
@@ -53,12 +70,9 @@ class MercurySolver
 {
 public:
     MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
-                  TOPO::Topology *topo_equiv = nullptr,
-                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
-
-    static void RegisterFields(Field *fld, int ngg);
-    static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
-    static void RegisterHaloFields(Field *fld, Halo *halo);
+                  TOPO::TopologyEquiv *topo_equiv,
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat);
+    ~MercurySolver();
 
     void Advance();
 
@@ -70,7 +84,7 @@ private:
     Halo *halo_{nullptr};
     Param *par_{nullptr};
 
-    TOPO::Topology *topo_equiv_{nullptr};
+    TOPO::TopologyEquiv *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
 #if HALL_IMPLICIT == 1
     ImplicitHallSolver hall_implicit_;
@@ -122,11 +136,33 @@ private:
     double inver_MA2{0.0};
     double inver_Rem{0.0};
 
+    ResistiveEdgeEMFControl resist_control;
+    ArtificialResistivityControl arti_resist_control;
+
+    struct ImplicitResistiveDof
+    {
+        TOPO::EdgeLocalID edge;
+        double eta = 0.0;
+    };
+
+    std::vector<TOPO::EdgeLocalID> resist_owner_edges_sorted_;
+    std::vector<ImplicitResistiveDof> implicit_resistive_dofs_;
+    std::vector<double> implicit_resistive_local_;
+    std::vector<Scalar> resist_Bstar_xi_;
+    std::vector<Scalar> resist_Bstar_eta_;
+    std::vector<Scalar> resist_Bstar_ze_;
+
+    KSP implicit_resistive_ksp_{nullptr};
+    Mat implicit_resistive_A_{nullptr};
+    Vec implicit_resistive_x_{nullptr};
+    Vec implicit_resistive_b_{nullptr};
+    double implicit_resistive_dt_{0.0};
+    bool implicit_resistive_ready_{false};
+
     std::vector<HallFaceScratchBlock_> hall_face_scratch_;
     void SetupHallFaceScratch_();
 
 #if HALL_IMPLICIT == 1
-
     void FillFrozenBflatFromCurrentBcell_()
     {
         const int nb = fld_->num_blocks();
@@ -193,16 +229,22 @@ private:
     void calc_divB();
     void calc_PV();
     void calc_Uplus();
+    void UpdateFluidDerivedFields_();
+    void UpdateMagneticDerivedFields_();
+    void UpdateDerivedFields_();
     void calc_physical_constant(Param *par);
     void PrintMinMaxDiagnostics_();
     // void Hall_Num_Limiter(double rhoH, double rhoNa, double *num);
     NumInfo Hall_Num_Limiter(double rhoH, double rhoNa);
 
-    void calc_Jcell_from_Bcell_metric_();
     //=========================================================================
 
+    //=========================================================================
+    bool StepOnce();
+    //---------------------------------------------------------------
     void Compute_Timestep();
     bool UpdateControlAndOutput();
+    //=========================================================================
 
     //=========================================================================
     void ZeroRHS_();
@@ -214,25 +256,32 @@ private:
     void AddSourceToRHS_Fluid();
     //---------------------------------------------------------------
     // For Magnetic
-    void AddResistiveEdgeEMF_();
-    void AddPoleResistiveEdgeEMF_FromJcell_();
+    void AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget);
+    void AddArtificialResistivityToEdgeEMF_();
     void AddIdealEdgeEMF_();
-    void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
+    void AddHallEdgeEMF_();
     void Calc_J_Edge();
-    void FilterPoleNearAxisEedge_();
 
-    void AddHyperResistiveEdgeEMF_();
-    void AddSecondResistiveEdgeEMF_();
-
-    // 只组装 Hall 的 RHS_b（不动 U 的 RHS）
-    void AssembleRHS_Induction_CT_HallOnly_();
     // 只更新 Bface: Bface += dt_sub * RHS_b
-    void ApplyUpdate_Euler_BfaceOnly_(double dt_sub);
+    void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);
+    void ResistiveDiffusionSubcycles_();
 
-    void BuildHallFaceEMF_Rusanov_();
+    void SetupImplicitResistiveDiffusion_();
+    void DestroyImplicitResistiveDiffusion_();
+    void BuildImplicitResistiveEdgeDofMap_();
+    void SolveImplicitResistiveDiffusion_(double dt_step);
+    void ApplyImplicitResistiveUpdate_(double dt_step);
+    void SnapshotImplicitResistiveBstar_();
+    void RestoreImplicitResistiveBstar_();
+    void UnpackVecToImplicitEres_(Vec X);
+    void PackImplicitJedgeToVec_(Vec v, const IdTriplet &fid_Jedge,
+                                 bool multiply_eta, double x_shift, const PetscScalar *x_extra);
+    void CalcImplicitDeltaJedgeFromDeltaB_();
+    double ImplicitResistiveEtaAtEdge_(const TOPO::EdgeLocalID &e) const;
+    static PetscErrorCode MatMultImplicitResistive_(Mat A, Vec X, Vec Y);
+
     void BuildHallFaceEMF_Rusanov_diff_();
-    void AssembleEdgeEMF_FromFaceE_Hall_();
     //--------------------------------
     //  For Ideal
     void AssembleOneDirectionEMF_(int dir, FieldBlock &E_face,

@@ -1,8 +1,8 @@
 #pragma once
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/TopologyBuilder.h"
-#include "3_field/Field.h"
-#include "4_halo/Halo.h"
+#include "2_topology/2_MPCNS_Topology.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/1_MPCNS_Halo.h"
 
 namespace CTOperators
 {
@@ -14,6 +14,6 @@ namespace CTOperators
     // face F (scalar) -> edge E (scalars per edge) = curl F * multiper
     void CurlAdjFaceToEdge(int iblk,
                            FieldBlock &Face_xi, FieldBlock &Face_eta, FieldBlock &Face_zeta,
-                           FieldBlock &Hodge_star_2form_to_1form_face_xi, FieldBlock &Hodge_star_2form_to_1form_face_eta, FieldBlock &Hodge_star_2form_to_1form_face_zeta,
+                           FieldBlock &beta_xi, FieldBlock &beta_eta, FieldBlock &beta_zeta,
                            FieldBlock &Edge_xi, FieldBlock &Edge_eta, FieldBlock &Edge_zeta, double multiper);
 }

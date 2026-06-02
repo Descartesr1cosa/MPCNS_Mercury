@@ -1,8 +1,9 @@
 #pragma once
 
-#include "3_field/Field.h"
+#include "3_field/2_MPCNS_Field.h"
 
 #include "00_Mercury_Const.h"
+#include "0_BackgroundState.h"
 #include "0_SolverFields.h"
 #include "operators/Dipole.h"
 
@@ -44,84 +45,16 @@ public:
 
     void build_background_state(Param *par)
     {
-        // ---- Constants ----
-        double gamma = par->GetDou_List("constant").data["gamma"];
-        double NA = par->GetDou_List("constant").data["NA"];
-        double R_uni = par->GetDou_List("constant").data["R_uni"];
-        double q_e = par->GetDou_List("constant").data["q_e"];
-        double k_Boltz = R_uni / NA;
-        double mu_mag = par->GetDou_List("constant").data["mu_mag"];
-
-        List<double> ini = par->GetDou_List("INITIAL");
-        List<double> ref = par->GetDou_List("REF");
-
-        // ---- IMF（Tesla）----
-        double Bx_phy = ini.data["Bx"];
-        double By_phy = ini.data["By"];
-        double Bz_phy = ini.data["Bz"];
-
-        double B_ref = ref.data["B_ref"];
-
-        // Nondimensional IMF
-        double Bx = Bx_phy / B_ref;
-        double By = By_phy / B_ref;
-        double Bz = Bz_phy / B_ref;
-
-        // Fluid reference physical quantities
-        double L_ref = ref.data["L_ref"];
-        double U_ref = ref.data["U"];
-        double n_ref = ref.data["n"];
-        double T_ref = ref.data["T"];
-        double Molecular_mass_ref = ref.data["Molecular_mass"];
-        double rho_ref = Molecular_mass_ref / NA * n_ref;
-
-        // ---- nondimensional primitive vars ----
-        double rho0 = (ini.data["n"] / n_ref) * (ini.data["Molecular_mass"] / Molecular_mass_ref);
-
-        double c_y = ini.data["c_y"];
-        double c_z = ini.data["c_z"];
-        double c_x = -std::sqrt(1.0 - c_y * c_y - c_z * c_z);
-        double u0 = c_x * ini.data["U"] / U_ref;
-        double v0 = c_y * ini.data["U"] / U_ref;
-        double w0 = c_z * ini.data["U"] / U_ref;
-
-        double p_ini = ini.data["n"] * k_Boltz * ini.data["T"];
-        double p0 = p_ini / (rho_ref * U_ref * U_ref);
-
-        double T0 = ini.data["T"] / T_ref;
-
-        // Solar Wind state
-        q_pv_inf[0] = u0;
-        q_pv_inf[1] = v0;
-        q_pv_inf[2] = w0;
-        q_pv_inf[3] = p0;
-        q_pv_inf[4] = T0;
-
-        qinf[0] = rho0;
-        qinf[1] = rho0 * u0;
-        qinf[2] = rho0 * v0;
-        qinf[3] = rho0 * w0;
-        qinf[4] = 0.5 * rho0 * (u0 * u0 + v0 * v0 + w0 * w0) // Kinetic energy
-                  + p0 / (gamma - 1.0);                      // Inertial energy
-
-        // IMF
-        B_imf[0] = Bx;
-        B_imf[1] = By;
-        B_imf[2] = Bz;
-
-        // qinfs[5], q_pv_infs[5];// Na+: seed initial state
-
-        q_pv_infs[0] = 0.0;                   // Na seeds are assumed to be static
-        q_pv_infs[1] = 0.0;                   // Na seeds are assumed to be static
-        q_pv_infs[2] = 0.0;                   // Na seeds are assumed to be static
-        q_pv_infs[3] = p0 * rho_small / 23.0; // Very low background pressure
-        q_pv_infs[4] = T0;                    // Temperature is the same as inflow
-
-        qinfs[0] = rho_small * rho0;
-        qinfs[1] = 0.0;
-        qinfs[2] = 0.0;
-        qinfs[3] = 0.0;
-        qinfs[4] = q_pv_infs[3] / (gamma - 1.0) + 0.5 * qinfs[0] * (q_pv_infs[0] * q_pv_infs[0] + q_pv_infs[1] * q_pv_infs[1] + q_pv_infs[2] * q_pv_infs[2]);
+        const MercuryBackgroundState state = BuildMercuryBackgroundState(par);
+        for (int i = 0; i < 5; ++i)
+        {
+            q_pv_inf[i] = state.q_pv_inf[i];
+            q_pv_infs[i] = state.q_pv_infs[i];
+            qinf[i] = state.qinf[i];
+            qinfs[i] = state.qinfs[i];
+        }
+        for (int i = 0; i < 3; ++i)
+            B_imf[i] = state.B_imf[i];
 
         dipB.load_from_param(par);
     }

@@ -1,16 +1,17 @@
 // Core
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/TopologyBuilder.h"
-#include "3_field/Field.h"
-#include "4_halo/Halo.h"
+#include "2_topology/2_MPCNS_Topology.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/1_MPCNS_Halo.h"
+
+#include <algorithm>
 
 // Z4_Mercury
 #include "MercurySolver.h"
-#include "0_MercuryFieldCatalog.h"
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
-                             TOPO::Topology *topo_equiv,
+                             TOPO::TopologyEquiv *topo_equiv,
                              HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat)
     : grd_(grd),
       topo_(topo),
@@ -32,7 +33,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         io_.ClearRestartFields();
         io_.SetRestartFields(bin_name);
 
-        io_.SetTecplotMode(IOModule::TecplotMode::CellAsNode);
+        io_.SetTecplotMode(IOModule::TecplotMode::Mixed);
         std::vector<std::string> tec_block_name = {}; // 全部物理块输出
         io_.SetTecplotBlock(tec_block_name);
 
@@ -73,8 +74,48 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     // ---- Boundary ----
     {
-        std::vector<std::string> bnd_fields = fld_->boundary_field_names();
-        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields, edge_owner_pat_);
+        // 0) 需要添加边界的物理场
+        std::vector<std::string> bnd_fields = {
+            "U_H",
+            "U_Na",
+            "B_xi",
+            "B_eta",
+            "B_zeta",
+            "Badd_xi",
+            "Badd_eta",
+            "Badd_zeta",
+            "B_cell",
+            "J_xi",
+            "J_eta",
+            "J_zeta",
+            "E_xi",
+            "E_eta",
+            "E_zeta",
+            "Eface_xi",
+            "Eface_eta",
+            "Eface_zeta",
+            "Ehall_xi",
+            "Ehall_eta",
+            "Ehall_zeta",
+            "U_plus",
+            "Bind_cell",
+            "J_cell",
+            "dJ_xi",
+            "dJ_eta",
+            "dJ_zeta",
+            "dE_xi",
+            "dE_eta",
+            "dE_zeta",
+            "dB_xi",
+            "dB_eta",
+            "dB_zeta",
+            "dJ_cell",
+            "Eres_xi",
+            "Eres_eta",
+            "Eres_zeta"};
+
+        // 1) 初始化 Mercury Boundary
+        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields);
     }
 
     // ---- Initialization ----
@@ -113,7 +154,19 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     runtime_data_->Begin(*run_data_, par_, count_global_cells());
 
-    SetupHallFaceScratch_();
+    resist_control.is_Mercury_resistance = par_->GetBoo("is_Mercury_resistance");
+    resist_control.use_implicit_mercury_resistance = par_->GetBoo("use_implicit_mercury_resistance");
+    resist_control.n_subcycles = std::max(1, par_->GetInt("n_resistive_subcycles"));
+    resist_control.implicit_ksp_rtol = par_->GetDou("implicit_resistive_ksp_rtol");
+    resist_control.implicit_ksp_atol = par_->GetDou("implicit_resistive_ksp_atol");
+    resist_control.implicit_ksp_max_it = par_->GetInt("implicit_resistive_ksp_max_it");
+
+    arti_resist_control.eta_max = par_->GetDou("arti_eta_max");
+    arti_resist_control.J_range_start = par_->GetDou("J_range_start");
+    arti_resist_control.J_range_on = par_->GetDou("J_range_on");
+
+    if (resist_control.use_implicit_mercury_resistance)
+        SetupImplicitResistiveDiffusion_();
 
 #if HALL_IMPLICIT == 1
     if (!topo_equiv_ || !edge_owner_pat_)
@@ -141,9 +194,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     };
     cb.build_Ehall_from_current_B = [this]()
     {
-        calc_Bcell();
-        Calc_J_Edge();
-        calc_Jcell();
+        UpdateMagneticDerivedFields_();
         AddHallEdgeEMF_();
     };
     cb.calc_Bcell_from_current_Bface = [this]()
@@ -181,7 +232,15 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     hall_implicit_.SetTheta(1.0); // BE //midpoint
     hall_implicit_.InitializePetsc();
 
+    SetupHallFaceScratch_(); // setup temp block data for Rusanov Scheme
+#else
+    SetupHallFaceScratch_(); // setup temp block data for Hall EMF storage
 #endif
+}
+
+MercurySolver::~MercurySolver()
+{
+    DestroyImplicitResistiveDiffusion_();
 }
 
 void MercurySolver::SetupHallFaceScratch_()
@@ -203,7 +262,7 @@ void MercurySolver::SetupHallFaceScratch_()
         if (clo.i != -ghost || clo.j != -ghost || clo.k != -ghost)
         {
             throw std::runtime_error(
-                "SetupHallFaceScratch_: Bcell lo is not compatible with FieldArray ghost indexing.");
+                "SetupHallFaceScratch_: Bcell lo is not compatible with Field_Array ghost indexing.");
         }
 
         const int dim1 = chi.i - clo.i;
@@ -223,34 +282,6 @@ void MercurySolver::SetupHallFaceScratch_()
         buf.Bflat.SetSize(dim1, dim2, dim3, ghost, 3);
         buf.alpha_flat.SetSize(dim1, dim2, dim3, ghost);
         buf.dEhc.SetSize(dim1, dim2, dim3, ghost, 3);
-        // buf.beta_flat.SetSize(dim1, dim2, dim3, ghost);
-        buf.dJcell_w.SetSize(dim1, dim2, dim3, ghost, 36);
-        buf.dBcell_w.SetSize(dim1, dim2, dim3, ghost, 18);
-
-        auto setup_like = [](auto &buf, auto &F, int ncomp)
-        {
-            if (!F.is_allocated())
-                return;
-
-            const Int3 lo = F.get_lo();
-            const Int3 hi = F.get_hi();
-
-            const int ghost = -lo.i;
-            const int dim1 = hi.i - lo.i;
-            const int dim2 = hi.j - lo.j;
-            const int dim3 = hi.k - lo.k;
-
-            buf.SetSize(dim1, dim2, dim3, ghost, ncomp);
-        };
-        // face projectors: 6 comps
-        setup_like(buf.P_xi, fld_->field(fid_.fid_Eface.xi, ib), 6);
-        setup_like(buf.P_eta, fld_->field(fid_.fid_Eface.eta, ib), 6);
-        setup_like(buf.P_zeta, fld_->field(fid_.fid_Eface.zeta, ib), 6);
-
-        // edge dr: 3 comps
-        setup_like(buf.dr_xi, fld_->field(fid_.fid_Ehall.xi, ib), 3);
-        setup_like(buf.dr_eta, fld_->field(fid_.fid_Ehall.eta, ib), 3);
-        setup_like(buf.dr_zeta, fld_->field(fid_.fid_Ehall.zeta, ib), 3);
     }
 
     {
@@ -365,8 +396,7 @@ void MercurySolver::SetupHallFaceScratch_()
             if (!Bc.is_allocated())
                 continue;
 
-            auto &buf = hall_face_scratch_[ib];
-            auto &W = buf.dBcell_w;
+            auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
             auto &JDxi = fld_->field(fid_.fid_metric.xi, ib);
             auto &JDet = fld_->field(fid_.fid_metric.eta, ib);
@@ -697,8 +727,7 @@ void MercurySolver::SetupHallFaceScratch_()
             if (!Jc.is_allocated())
                 continue;
 
-            auto &buf = hall_face_scratch_[ib];
-            auto &W = buf.dJcell_w;
+            auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
             auto &x = grd_->grids(ib).x;
             auto &y = grd_->grids(ib).y;
@@ -1022,7 +1051,7 @@ void MercurySolver::SetupHallFaceScratch_()
     //             continue;
 
     //         auto &buf = hall_face_scratch_[ib];
-    //         auto &W = buf.dBcell_w;
+    //         auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
     //         auto &JDxi = fld_->field(fid_.fid_metric.xi, ib);
     //         auto &JDet = fld_->field(fid_.fid_metric.eta, ib);
@@ -1298,7 +1327,7 @@ void MercurySolver::SetupHallFaceScratch_()
     //             continue;
 
     //         auto &buf = hall_face_scratch_[ib];
-    //         auto &W = buf.dBcell_w;
+    //         auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
     //         auto &JDxi = fld_->field(fid_.fid_metric.xi, ib);
     //         auto &JDet = fld_->field(fid_.fid_metric.eta, ib);
@@ -1621,15 +1650,15 @@ void MercurySolver::SetupHallFaceScratch_()
     // continue;
 
     // auto &buf = hall_face_scratch_[ib];
-    // auto &W = buf.dJcell_w;
+    // auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
     // auto &dl_xi = fld_->field("dl_xi", ib);
     // auto &dl_eta = fld_->field("dl_eta", ib);
     // auto &dl_zeta = fld_->field("dl_zeta", ib);
 
-    // auto &Hodge_star_inverse_2form_to_1form_edge_xi = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.xi, ib);
-    // auto &Hodge_star_inverse_2form_to_1form_edge_eta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.eta, ib);
-    // auto &Hodge_star_inverse_2form_to_1form_edge_zeta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.zeta, ib);
+    // auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, ib);
+    // auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, ib);
+    // auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, ib);
 
     // auto &x = grd_->grids(ib).x;
     // auto &y = grd_->grids(ib).y;
@@ -1640,7 +1669,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_xi(i, j, k, 0);
-    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_xi(i, j, k, 0);
+    // alpha = alpha_xi(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i + 1, j, k) - x(i, j, k)) * Linv;
@@ -1653,7 +1682,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_eta(i, j, k, 0);
-    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_eta(i, j, k, 0);
+    // alpha = alpha_eta(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i, j + 1, k) - x(i, j, k)) * Linv;
@@ -1666,7 +1695,7 @@ void MercurySolver::SetupHallFaceScratch_()
     // double &Lraw, double &alpha)
     // {
     // Lraw = dl_zeta(i, j, k, 0);
-    // Hodge_star_inverse_scale = Hodge_star_inverse_2form_to_1form_edge_zeta(i, j, k, 0);
+    // alpha = alpha_zeta(i, j, k, 0);
 
     // const double Linv = 1.0 / std::max(Lraw, eps);
     // tx = (x(i, j, k + 1) - x(i, j, k)) * Linv;
@@ -1874,7 +1903,7 @@ void MercurySolver::SetupHallFaceScratch_()
     //             continue;
 
     //         auto &buf = hall_face_scratch_[ib];
-    //         auto &W = buf.dJcell_w;
+    //         auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
     //         auto &dl_xi = fld_->field("dl_xi", ib);
     //         auto &dl_eta = fld_->field("dl_eta", ib);
@@ -2018,8 +2047,8 @@ void MercurySolver::SetupHallFaceScratch_()
             if (!Sfield.is_allocated())
                 return;
 
-            Int3 lo = Sfield.get_lo();
-            Int3 hi = Sfield.get_hi();
+            Int3 lo = Pbuf.get_lo();
+            Int3 hi = Pbuf.get_hi();
 
             for (int i = lo.i; i < hi.i; ++i)
                 for (int j = lo.j; j < hi.j; ++j)
@@ -2052,10 +2081,12 @@ void MercurySolver::SetupHallFaceScratch_()
 
         for (int ib = 0; ib < nb; ++ib)
         {
-            auto &buf = hall_face_scratch_[ib];
-            fill_projector(buf.P_xi, fld_->field(fid_.fid_metric.xi, ib));
-            fill_projector(buf.P_eta, fld_->field(fid_.fid_metric.eta, ib));
-            fill_projector(buf.P_zeta, fld_->field(fid_.fid_metric.zeta, ib));
+            fill_projector(fld_->field(fid_.Face_projector.xi, ib),
+                           fld_->field(fid_.fid_metric.xi, ib));
+            fill_projector(fld_->field(fid_.Face_projector.eta, ib),
+                           fld_->field(fid_.fid_metric.eta, ib));
+            fill_projector(fld_->field(fid_.Face_projector.zeta, ib),
+                           fld_->field(fid_.fid_metric.zeta, ib));
         }
     }
 }

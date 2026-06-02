@@ -48,60 +48,302 @@ void MercurySolver::AddIdealEdgeEMF_()
 //=========================================================================
 // Face candidates to the unique shared edge EMF.
 // Eface_* stores candidate components (e_xi,e_eta,e_zeta), not Cartesian E.
+//
+// This version adds a simple UCT transverse upwind correction.
+// It keeps the CT structure because the final B update is still curl(E_edge).
 void MercurySolver::AssembleEdgeEMF_FromFaceE_Ideal_()
 {
+    constexpr double jac_floor = 1.0e-30;
+
+    // UCT correction strength.
+    // Start with 0.5. If still too weak, try 1.0.
+    // If it becomes noisy, reduce to 0.25.
+    constexpr double Cuct = 0.5;
+
+    auto shift_cell = [](int axis, int side, int &i, int &j, int &k)
+    {
+        if (axis == 0)
+            i += side;
+        else if (axis == 1)
+            j += side;
+        else
+            k += side;
+    };
+
     Int3 sub, sup;
+
     for (int iblk = 0; iblk < fld_->num_blocks(); iblk++)
     {
+        auto &Uplus = fld_->field(fid_.fid_U_plus, iblk);
+
+        auto &Bxi = fld_->field(fid_.fid_B.xi, iblk);
+        auto &Beta = fld_->field(fid_.fid_B.eta, iblk);
+        auto &Bzeta = fld_->field(fid_.fid_B.zeta, iblk);
+
+        auto &Jac = fld_->field(fid_.fid_Jac, iblk);
+        auto &JDxi = fld_->field(fid_.fid_metric.xi, iblk);
+        auto &JDet = fld_->field(fid_.fid_metric.eta, iblk);
+        auto &JDze = fld_->field(fid_.fid_metric.zeta, iblk);
+
+        if (!Uplus.is_allocated())
+            continue;
+
+        auto metric_component = [&](int axis, int i, int j, int k, int comp) -> double
+        {
+            if (axis == 0)
+                return JDxi(i, j, k, comp);
+            if (axis == 1)
+                return JDet(i, j, k, comp);
+            return JDze(i, j, k, comp);
+        };
+
+        auto cell_u_contra = [&](int axis, int i, int j, int k) -> double
+        {
+            int ip = i, jp = j, kp = k;
+            shift_cell(axis, 1, ip, jp, kp);
+
+            const double kx = 0.5 * (metric_component(axis, i, j, k, 0) +
+                                     metric_component(axis, ip, jp, kp, 0));
+
+            const double ky = 0.5 * (metric_component(axis, i, j, k, 1) +
+                                     metric_component(axis, ip, jp, kp, 1));
+
+            const double kz = 0.5 * (metric_component(axis, i, j, k, 2) +
+                                     metric_component(axis, ip, jp, kp, 2));
+
+            const double inv_jac = 1.0 / (std::abs(Jac(i, j, k, 0)) + jac_floor);
+
+            return (kx * Uplus(i, j, k, 0) +
+                    ky * Uplus(i, j, k, 1) +
+                    kz * Uplus(i, j, k, 2)) *
+                   inv_jac;
+        };
+
+        auto max_abs_u4 = [&](int axis,
+                              int i0, int j0, int k0,
+                              int i1, int j1, int k1,
+                              int i2, int j2, int k2,
+                              int i3, int j3, int k3) -> double
+        {
+            double a = 0.0;
+            a = std::max(a, std::abs(cell_u_contra(axis, i0, j0, k0)));
+            a = std::max(a, std::abs(cell_u_contra(axis, i1, j1, k1)));
+            a = std::max(a, std::abs(cell_u_contra(axis, i2, j2, k2)));
+            a = std::max(a, std::abs(cell_u_contra(axis, i3, j3, k3)));
+            return a;
+        };
+
+        //=============================================================
+        // E_xi edge
+        //
+        // E_xi = central
+        //      + 0.5 * a_eta  * d_beta_zeta / d_eta
+        //      - 0.5 * a_zeta * d_beta_eta  / d_zeta
+        //
+        // Here beta means the evolved face 2-form B, not Badd.
         {
             auto &Exi = fld_->field(fid_.fid_E.xi, iblk);
             auto &E_face_eta = fld_->field(fid_.fid_Eface.eta, iblk);
             auto &E_face_zeta = fld_->field(fid_.fid_Eface.zeta, iblk);
+
             sub = Exi.inner_lo();
             sup = Exi.inner_hi();
+
             for (int i = sub.i; i < sup.i; i++)
                 for (int j = sub.j; j < sup.j; j++)
                     for (int k = sub.k; k < sup.k; k++)
                     {
-                        Exi(i, j, k, 0) = 0.25 * (
-                            E_face_eta(i, j, k, 0) + E_face_eta(i, j, k - 1, 0) +
-                            E_face_zeta(i, j, k, 0) + E_face_zeta(i, j - 1, k, 0));
+                        const double Ec = 0.25 * (E_face_eta(i, j, k, 0) +
+                                                  E_face_eta(i, j, k - 1, 0) +
+                                                  E_face_zeta(i, j, k, 0) +
+                                                  E_face_zeta(i, j - 1, k, 0));
+
+                        const double a_eta = max_abs_u4(
+                            1,
+                            i, j, k,
+                            i, j - 1, k,
+                            i, j, k - 1,
+                            i, j - 1, k - 1);
+
+                        const double a_zeta = max_abs_u4(
+                            2,
+                            i, j, k,
+                            i, j - 1, k,
+                            i, j, k - 1,
+                            i, j - 1, k - 1);
+
+                        const double dBzeta_eta =
+                            Bzeta(i, j, k, 0) -
+                            Bzeta(i, j - 1, k, 0);
+
+                        const double dBeta_zeta =
+                            Beta(i, j, k, 0) -
+                            Beta(i, j, k - 1, 0);
+
+                        Exi(i, j, k, 0) =
+                            Ec + Cuct * (0.5 * a_eta * dBzeta_eta - 0.5 * a_zeta * dBeta_zeta);
                     }
         }
 
+        //=============================================================
+        // E_eta edge
+        //
+        // E_eta = central
+        //       + 0.5 * a_zeta * d_beta_xi   / d_zeta
+        //       - 0.5 * a_xi   * d_beta_zeta / d_xi
         {
             auto &Eeta = fld_->field(fid_.fid_E.eta, iblk);
             auto &E_face_xi = fld_->field(fid_.fid_Eface.xi, iblk);
             auto &E_face_zeta = fld_->field(fid_.fid_Eface.zeta, iblk);
+
             sub = Eeta.inner_lo();
             sup = Eeta.inner_hi();
+
             for (int i = sub.i; i < sup.i; i++)
                 for (int j = sub.j; j < sup.j; j++)
                     for (int k = sub.k; k < sup.k; k++)
                     {
-                        Eeta(i, j, k, 0) = 0.25 * (
-                            E_face_xi(i, j, k, 1) + E_face_xi(i, j, k - 1, 1) +
-                            E_face_zeta(i, j, k, 1) + E_face_zeta(i - 1, j, k, 1));
+                        const double Ec = 0.25 * (E_face_xi(i, j, k, 1) +
+                                                  E_face_xi(i, j, k - 1, 1) +
+                                                  E_face_zeta(i, j, k, 1) +
+                                                  E_face_zeta(i - 1, j, k, 1));
+
+                        const double a_zeta = max_abs_u4(
+                            2,
+                            i, j, k,
+                            i - 1, j, k,
+                            i, j, k - 1,
+                            i - 1, j, k - 1);
+
+                        const double a_xi = max_abs_u4(
+                            0,
+                            i, j, k,
+                            i - 1, j, k,
+                            i, j, k - 1,
+                            i - 1, j, k - 1);
+
+                        const double dBxi_zeta =
+                            Bxi(i, j, k, 0) -
+                            Bxi(i, j, k - 1, 0);
+
+                        const double dBzeta_xi =
+                            Bzeta(i, j, k, 0) -
+                            Bzeta(i - 1, j, k, 0);
+
+                        Eeta(i, j, k, 0) =
+                            Ec + Cuct * (0.5 * a_zeta * dBxi_zeta - 0.5 * a_xi * dBzeta_xi);
                     }
         }
 
+        //=============================================================
+        // E_zeta edge
+        //
+        // E_zeta = central
+        //        + 0.5 * a_xi  * d_beta_eta / d_xi
+        //        - 0.5 * a_eta * d_beta_xi  / d_eta
         {
             auto &Ezeta = fld_->field(fid_.fid_E.zeta, iblk);
             auto &E_face_xi = fld_->field(fid_.fid_Eface.xi, iblk);
             auto &E_face_eta = fld_->field(fid_.fid_Eface.eta, iblk);
+
             sub = Ezeta.inner_lo();
             sup = Ezeta.inner_hi();
+
             for (int i = sub.i; i < sup.i; i++)
                 for (int j = sub.j; j < sup.j; j++)
                     for (int k = sub.k; k < sup.k; k++)
                     {
-                        Ezeta(i, j, k, 0) = 0.25 * (
-                            E_face_xi(i, j, k, 2) + E_face_xi(i, j - 1, k, 2) +
-                            E_face_eta(i, j, k, 2) + E_face_eta(i - 1, j, k, 2));
+                        const double Ec = 0.25 * (E_face_xi(i, j, k, 2) +
+                                                  E_face_xi(i, j - 1, k, 2) +
+                                                  E_face_eta(i, j, k, 2) +
+                                                  E_face_eta(i - 1, j, k, 2));
+
+                        const double a_xi = max_abs_u4(
+                            0,
+                            i, j, k,
+                            i - 1, j, k,
+                            i, j - 1, k,
+                            i - 1, j - 1, k);
+
+                        const double a_eta = max_abs_u4(
+                            1,
+                            i, j, k,
+                            i - 1, j, k,
+                            i, j - 1, k,
+                            i - 1, j - 1, k);
+
+                        const double dBeta_xi =
+                            Beta(i, j, k, 0) -
+                            Beta(i - 1, j, k, 0);
+
+                        const double dBxi_eta =
+                            Bxi(i, j, k, 0) -
+                            Bxi(i, j - 1, k, 0);
+
+                        Ezeta(i, j, k, 0) =
+                            Ec + Cuct * (0.5 * a_xi * dBeta_xi - 0.5 * a_eta * dBxi_eta);
                     }
         }
     }
 }
+
+//=========================================================================
+// Face candidates to the unique shared edge EMF.
+// Eface_* stores candidate components (e_xi,e_eta,e_zeta), not Cartesian E.
+// void MercurySolver::AssembleEdgeEMF_FromFaceE_Ideal_()
+// {
+//     Int3 sub, sup;
+//     for (int iblk = 0; iblk < fld_->num_blocks(); iblk++)
+//     {
+//         {
+//             auto &Exi = fld_->field(fid_.fid_E.xi, iblk);
+//             auto &E_face_eta = fld_->field(fid_.fid_Eface.eta, iblk);
+//             auto &E_face_zeta = fld_->field(fid_.fid_Eface.zeta, iblk);
+//             sub = Exi.inner_lo();
+//             sup = Exi.inner_hi();
+//             for (int i = sub.i; i < sup.i; i++)
+//                 for (int j = sub.j; j < sup.j; j++)
+//                     for (int k = sub.k; k < sup.k; k++)
+//                     {
+//                         Exi(i, j, k, 0) = 0.25 * (
+//                             E_face_eta(i, j, k, 0) + E_face_eta(i, j, k - 1, 0) +
+//                             E_face_zeta(i, j, k, 0) + E_face_zeta(i, j - 1, k, 0));
+//                     }
+//         }
+
+//         {
+//             auto &Eeta = fld_->field(fid_.fid_E.eta, iblk);
+//             auto &E_face_xi = fld_->field(fid_.fid_Eface.xi, iblk);
+//             auto &E_face_zeta = fld_->field(fid_.fid_Eface.zeta, iblk);
+//             sub = Eeta.inner_lo();
+//             sup = Eeta.inner_hi();
+//             for (int i = sub.i; i < sup.i; i++)
+//                 for (int j = sub.j; j < sup.j; j++)
+//                     for (int k = sub.k; k < sup.k; k++)
+//                     {
+//                         Eeta(i, j, k, 0) = 0.25 * (
+//                             E_face_xi(i, j, k, 1) + E_face_xi(i, j, k - 1, 1) +
+//                             E_face_zeta(i, j, k, 1) + E_face_zeta(i - 1, j, k, 1));
+//                     }
+//         }
+
+//         {
+//             auto &Ezeta = fld_->field(fid_.fid_E.zeta, iblk);
+//             auto &E_face_xi = fld_->field(fid_.fid_Eface.xi, iblk);
+//             auto &E_face_eta = fld_->field(fid_.fid_Eface.eta, iblk);
+//             sub = Ezeta.inner_lo();
+//             sup = Ezeta.inner_hi();
+//             for (int i = sub.i; i < sup.i; i++)
+//                 for (int j = sub.j; j < sup.j; j++)
+//                     for (int k = sub.k; k < sup.k; k++)
+//                     {
+//                         Ezeta(i, j, k, 0) = 0.25 * (
+//                             E_face_xi(i, j, k, 2) + E_face_xi(i, j - 1, k, 2) +
+//                             E_face_eta(i, j, k, 2) + E_face_eta(i - 1, j, k, 2));
+//                     }
+//         }
+//     }
+// }
 
 //=========================================================================
 void MercurySolver::AssembleOneDirectionEMF_(

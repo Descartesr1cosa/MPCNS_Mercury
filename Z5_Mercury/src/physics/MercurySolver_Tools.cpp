@@ -194,16 +194,17 @@ void MercurySolver::calc_PV()
 void MercurySolver::calc_Uplus()
 {
     const double rho_eps = 1e-20;
-    const double inv23 = M_H / M_Na; // 与 Fortran sm2≈23*sm1 对齐
 
     const int nb = fld_->num_blocks();
     for (int ib = 0; ib < nb; ++ib)
     {
         FieldBlock &UH = fld_->field(fid_.fid_U_H, ib);
         FieldBlock &UN = fld_->field(fid_.fid_U_Na, ib);
-        FieldBlock &Up = fld_->field(fid_.fid_U_plus, ib); // 新增
+        FieldBlock &PVH = fld_->field(fid_.fid_PV_H, ib);
+        FieldBlock &PVN = fld_->field(fid_.fid_PV_Na, ib);
+        FieldBlock &Up = fld_->field(fid_.fid_U_plus, ib);
 
-        if (!UH.is_allocated() || !UN.is_allocated() || !Up.is_allocated())
+        if (!Up.is_allocated())
             continue;
 
         const Int3 lo = Up.get_lo();
@@ -213,16 +214,29 @@ void MercurySolver::calc_Uplus()
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
                 {
+                    Up(i, j, k, 0) = 0.0;
+                    Up(i, j, k, 1) = 0.0;
+                    Up(i, j, k, 2) = 0.0;
+                }
+
+        if (!UH.is_allocated() || !UN.is_allocated() ||
+            !PVH.is_allocated() || !PVN.is_allocated())
+            continue;
+
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                {
                     const double rhoH0 = std::max(UH(i, j, k, 0), 0.0);
                     const double rhoNa0 = std::max(UN(i, j, k, 0), 0.0);
 
-                    const double uH = (rhoH0 > rho_eps) ? UH(i, j, k, 1) / rhoH0 : 0.0;
-                    const double vH = (rhoH0 > rho_eps) ? UH(i, j, k, 2) / rhoH0 : 0.0;
-                    const double wH = (rhoH0 > rho_eps) ? UH(i, j, k, 3) / rhoH0 : 0.0;
+                    const double uH = (rhoH0 > rho_eps) ? PVH(i, j, k, 0) : 0.0;
+                    const double vH = (rhoH0 > rho_eps) ? PVH(i, j, k, 1) : 0.0;
+                    const double wH = (rhoH0 > rho_eps) ? PVH(i, j, k, 2) : 0.0;
 
-                    const double uNa = (rhoNa0 > rho_eps) ? UN(i, j, k, 1) / rhoNa0 : 0.0;
-                    const double vNa = (rhoNa0 > rho_eps) ? UN(i, j, k, 2) / rhoNa0 : 0.0;
-                    const double wNa = (rhoNa0 > rho_eps) ? UN(i, j, k, 3) / rhoNa0 : 0.0;
+                    const double uNa = (rhoNa0 > rho_eps) ? PVN(i, j, k, 0) : 0.0;
+                    const double vNa = (rhoNa0 > rho_eps) ? PVN(i, j, k, 1) : 0.0;
+                    const double wNa = (rhoNa0 > rho_eps) ? PVN(i, j, k, 2) : 0.0;
 
                     // double num[3];
                     // Hall_Num_Limiter(rhoH0, rhoNa0, num)
@@ -258,6 +272,28 @@ void MercurySolver::calc_Uplus()
                     // }
                 }
     }
+
+    mercury_bound_.Sync("Uplus");
+}
+
+void MercurySolver::UpdateFluidDerivedFields_()
+{
+    calc_PV();
+    calc_Uplus();
+}
+
+void MercurySolver::UpdateMagneticDerivedFields_()
+{
+    // B_face is the CT state; J_cell is reconstructed from mimetic J_edge.
+    calc_Bcell();
+    Calc_J_Edge();
+    calc_Jcell();
+}
+
+void MercurySolver::UpdateDerivedFields_()
+{
+    UpdateMagneticDerivedFields_();
+    UpdateFluidDerivedFields_();
 }
 
 void MercurySolver::calc_Bcell()
@@ -277,7 +313,7 @@ void MercurySolver::calc_Bcell()
         auto &Baddeta = fld_->field(fid_.fid_Badd.eta, ib);
         auto &Baddzeta = fld_->field(fid_.fid_Badd.zeta, ib);
 
-        auto &W = hall_face_scratch_[ib].dBcell_w;
+        auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
         if (!Bcell.is_allocated() || !Bindcell.is_allocated() ||
             !Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated())
@@ -338,6 +374,73 @@ void MercurySolver::calc_Bcell()
     }
 
     mercury_bound_.Sync("B_cell");
+
+    if (topo_)
+    {
+        for (const auto &p : topo_->physical_patches)
+        {
+            if (p.bc_name != "Pole")
+                continue;
+
+            const int dir = std::abs(p.direction);
+            if (dir != 1 && dir != 2)
+                continue;
+
+            const int ib = p.this_block;
+            if (ib < 0 || ib >= nblock)
+                continue;
+
+            auto &Bindcell = fld_->field(fid_.fid_Bindcell, ib);
+            auto &Bzeta = fld_->field(fid_.fid_B.zeta, ib);
+            // auto &Baddzeta = fld_->field(fid_.fid_Badd.zeta, ib);
+            auto &Aze = fld_->field(fid_.fid_metric.zeta, ib);
+
+            if (!Bzeta.is_allocated() || !Aze.is_allocated())
+                continue;
+
+            const int sgn = (p.direction > 0) ? +1 : -1;
+
+            auto write_zeta_flux = [&](int i, int j, int k)
+            {
+                const int kc = k;
+                const double phi =
+                    Bindcell(i, j, kc, 0) * Aze(i, j, k, 0) +
+                    Bindcell(i, j, kc, 1) * Aze(i, j, k, 1) +
+                    Bindcell(i, j, kc, 2) * Aze(i, j, k, 2);
+
+                Bzeta(i, j, k, 0) = phi; //- Baddzeta(i, j, k, 0);
+            };
+
+            const Box3 &node = p.this_box_node;
+
+            if (dir == 1)
+            {
+                const int icell = (sgn < 0) ? node.lo.i : (node.lo.i - 1);
+
+                const int jface_lo = node.lo.j;
+                const int jface_hi = node.hi.j - 1;
+                const int kface_lo = node.lo.k;
+                const int kface_hi = node.hi.k;
+
+                for (int j = jface_lo; j < jface_hi; ++j)
+                    for (int k = kface_lo; k < kface_hi; ++k)
+                        write_zeta_flux(icell, j, k);
+            }
+            else
+            {
+                const int jcell = (sgn < 0) ? node.lo.j : (node.lo.j - 1);
+
+                const int iface_lo = node.lo.i;
+                const int iface_hi = node.hi.i - 1;
+                const int kface_lo = node.lo.k;
+                const int kface_hi = node.hi.k;
+
+                for (int i = iface_lo; i < iface_hi; ++i)
+                    for (int k = kface_lo; k < kface_hi; ++k)
+                        write_zeta_flux(i, jcell, k);
+            }
+        }
+    }
 
     // const int nblock = fld_->num_blocks();
 
@@ -807,6 +910,66 @@ void MercurySolver::calc_divB()
     }
 }
 
+void MercurySolver::Calc_J_Edge()
+{
+    //  ComputeJ_AtEdges_Inner_();
+    for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
+    {
+        auto &Bxi = fld_->field(fid_.fid_B.xi, iblk);
+        auto &Beta = fld_->field(fid_.fid_B.eta, iblk);
+        auto &Bzeta = fld_->field(fid_.fid_B.zeta, iblk);
+
+        auto &Jxi = fld_->field(fid_.fid_J.xi, iblk);
+        auto &Jeta = fld_->field(fid_.fid_J.eta, iblk);
+        auto &Jzeta = fld_->field(fid_.fid_J.zeta, iblk);
+
+        auto &beta_xi = fld_->field(fid_.Face_beta.xi, iblk); // Hodge *: 2-form face -> 1-form face
+        auto &beta_eta = fld_->field(fid_.Face_beta.eta, iblk);
+        auto &beta_zeta = fld_->field(fid_.Face_beta.zeta, iblk);
+
+        auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, iblk); // Hodge *: 2-form edge -> 1-form edge
+        auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, iblk);
+        auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, iblk);
+
+        // compute J (edge 1-form) from face B (2-form)
+        // multiper 用 +1.0 J =curl B。
+        CTOperators::CurlAdjFaceToEdge(iblk,
+                                       Bxi, Beta, Bzeta,
+                                       beta_xi, beta_eta, beta_zeta,
+                                       Jxi, Jeta, Jzeta,
+                                       /*multiper=*/1.0);
+
+        //  J_edge^(1-form) = (alpha_edge / mu0) * Jcirc_edge
+        //     alpha = |e|/|S*|  (⋆1^{-1})
+        {
+            // Edge_xi
+            Int3 lo = Jxi.inner_lo(), hi = Jxi.inner_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                        Jxi(i, j, k, 0) *= (alpha_xi(i, j, k, 0));
+        }
+        {
+            // Edge_eta
+            Int3 lo = Jeta.inner_lo(), hi = Jeta.inner_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                        Jeta(i, j, k, 0) *= (alpha_eta(i, j, k, 0));
+        }
+        {
+            // Edge_zeta
+            Int3 lo = Jzeta.inner_lo(), hi = Jzeta.inner_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                        Jzeta(i, j, k, 0) *= (alpha_zeta(i, j, k, 0));
+        }
+    }
+
+    mercury_bound_.Sync("Jedge"); // ApplyBC_EdgeJ_();
+}
+
 void MercurySolver::calc_Jcell()
 {
     const int nblock = fld_->num_blocks();
@@ -819,7 +982,7 @@ void MercurySolver::calc_Jcell()
         auto &Jeta = fld_->field(fid_.fid_J.eta, ib);
         auto &Jzeta = fld_->field(fid_.fid_J.zeta, ib);
 
-        auto &W = hall_face_scratch_[ib].dJcell_w;
+        auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
         if (!Jcell.is_allocated() || !Jxi.is_allocated() ||
             !Jeta.is_allocated() || !Jzeta.is_allocated())
@@ -862,6 +1025,210 @@ void MercurySolver::calc_Jcell()
                     Jcell(i, j, k, 1) = Jy;
                     Jcell(i, j, k, 2) = Jz;
                 }
+    }
+
+    if (topo_)
+    {
+        auto solve3x3 = [](double A[3][3], double b[3], double x[3]) -> bool
+        {
+            const double trA = A[0][0] + A[1][1] + A[2][2];
+            const double reg = 1.0e-12 * std::max(1.0, trA);
+
+            A[0][0] += reg;
+            A[1][1] += reg;
+            A[2][2] += reg;
+
+            double M[3][4] = {
+                {A[0][0], A[0][1], A[0][2], b[0]},
+                {A[1][0], A[1][1], A[1][2], b[1]},
+                {A[2][0], A[2][1], A[2][2], b[2]}};
+
+            for (int c = 0; c < 3; ++c)
+            {
+                int piv = c;
+                double amax = std::abs(M[c][c]);
+
+                for (int r0 = c + 1; r0 < 3; ++r0)
+                {
+                    const double av = std::abs(M[r0][c]);
+                    if (av > amax)
+                    {
+                        amax = av;
+                        piv = r0;
+                    }
+                }
+
+                if (amax < 1.0e-300)
+                    return false;
+
+                if (piv != c)
+                {
+                    for (int q = c; q < 4; ++q)
+                        std::swap(M[c][q], M[piv][q]);
+                }
+
+                const double inv = 1.0 / M[c][c];
+                for (int q = c; q < 4; ++q)
+                    M[c][q] *= inv;
+
+                for (int r0 = 0; r0 < 3; ++r0)
+                {
+                    if (r0 == c)
+                        continue;
+
+                    const double fac = M[r0][c];
+                    for (int q = c; q < 4; ++q)
+                        M[r0][q] -= fac * M[c][q];
+                }
+            }
+
+            x[0] = M[0][3];
+            x[1] = M[1][3];
+            x[2] = M[2][3];
+            return true;
+        };
+
+        constexpr double eps_len = 1.0e-14;
+
+        for (const auto &p : topo_->physical_patches)
+        {
+            if (p.bc_name != "Pole")
+                continue;
+
+            const int dir = std::abs(p.direction);
+            if (dir != 1 && dir != 2)
+                continue;
+
+            const int ib = p.this_block;
+            if (ib < 0 || ib >= nblock)
+                continue;
+
+            auto &Jcell = fld_->field(fid_.fid_Jcell, ib);
+            auto &Jxi = fld_->field(fid_.fid_J.xi, ib);
+            auto &Jeta = fld_->field(fid_.fid_J.eta, ib);
+            auto &Jzeta = fld_->field(fid_.fid_J.zeta, ib);
+            auto &dr_xi = fld_->field(fid_.Edge_dr.xi, ib);
+            auto &dr_eta = fld_->field(fid_.Edge_dr.eta, ib);
+            auto &dr_zeta = fld_->field(fid_.Edge_dr.zeta, ib);
+
+            if (!Jcell.is_allocated() || !Jxi.is_allocated() ||
+                !Jeta.is_allocated() || !Jzeta.is_allocated() ||
+                !dr_xi.is_allocated() || !dr_eta.is_allocated() ||
+                !dr_zeta.is_allocated())
+                continue;
+
+            const bool high_side = (p.direction > 0);
+            const Box3 &node = p.this_box_node;
+
+            auto push_edge = [&](FieldBlock &Je, FieldBlock &dr,
+                                 int i, int j, int k,
+                                 double A[3][3], double b[3], int &cnt)
+            {
+                const double dx = dr(i, j, k, 0);
+                const double dy = dr(i, j, k, 1);
+                const double dz = dr(i, j, k, 2);
+                const double L = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                if (L < eps_len)
+                    return;
+
+                const double tau[3] = {dx / L, dy / L, dz / L};
+                const double y = Je(i, j, k, 0) / L;
+
+                for (int a = 0; a < 3; ++a)
+                {
+                    b[a] += y * tau[a];
+                    for (int c = 0; c < 3; ++c)
+                        A[a][c] += tau[a] * tau[c];
+                }
+
+                ++cnt;
+            };
+
+            auto write_ring = [&](int ic, int jc,
+                                  double A[3][3], double b[3], int cnt,
+                                  int klo, int khi)
+            {
+                if (cnt <= 0)
+                    return;
+
+                double Jp[3] = {0.0, 0.0, 0.0};
+                if (!solve3x3(A, b, Jp))
+                    return;
+
+                for (int k = klo; k < khi; ++k)
+                {
+                    Jcell(ic, jc, k, 0) = Jp[0];
+                    Jcell(ic, jc, k, 1) = Jp[1];
+                    Jcell(ic, jc, k, 2) = Jp[2];
+                }
+            };
+
+            if (dir == 1)
+            {
+                const int ic = high_side ? (node.lo.i - 1) : node.lo.i;
+                const int it = high_side ? ic : (ic + 1);
+
+                for (int j = node.lo.j; j < node.hi.j - 1; ++j)
+                {
+                    double A[3][3] = {
+                        {0.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0}};
+                    double b[3] = {0.0, 0.0, 0.0};
+                    int cnt = 0;
+
+                    for (int k = node.lo.k; k < node.hi.k - 1; ++k)
+                    {
+                        // norm edges on the Pole layer
+                        push_edge(Jxi, dr_xi, ic, j, k, A, b, cnt);
+                        push_edge(Jxi, dr_xi, ic, j + 1, k, A, b, cnt);
+                        push_edge(Jxi, dr_xi, ic, j, k + 1, A, b, cnt);
+                        push_edge(Jxi, dr_xi, ic, j + 1, k + 1, A, b, cnt);
+
+                        // axis/rotate edges one layer away from the Pole
+                        push_edge(Jeta, dr_eta, it, j, k, A, b, cnt);
+                        push_edge(Jeta, dr_eta, it, j, k + 1, A, b, cnt);
+                        push_edge(Jzeta, dr_zeta, it, j, k, A, b, cnt);
+                        push_edge(Jzeta, dr_zeta, it, j + 1, k, A, b, cnt);
+                    }
+
+                    write_ring(ic, j, A, b, cnt, node.lo.k, node.hi.k - 1);
+                }
+            }
+            else
+            {
+                const int jc = high_side ? (node.lo.j - 1) : node.lo.j;
+                const int jt = high_side ? jc : (jc + 1);
+
+                for (int i = node.lo.i; i < node.hi.i - 1; ++i)
+                {
+                    double A[3][3] = {
+                        {0.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0}};
+                    double b[3] = {0.0, 0.0, 0.0};
+                    int cnt = 0;
+
+                    for (int k = node.lo.k; k < node.hi.k - 1; ++k)
+                    {
+                        // norm edges on the Pole layer
+                        push_edge(Jeta, dr_eta, i, jc, k, A, b, cnt);
+                        push_edge(Jeta, dr_eta, i + 1, jc, k, A, b, cnt);
+                        push_edge(Jeta, dr_eta, i, jc, k + 1, A, b, cnt);
+                        push_edge(Jeta, dr_eta, i + 1, jc, k + 1, A, b, cnt);
+
+                        // axis/rotate edges one layer away from the Pole
+                        push_edge(Jxi, dr_xi, i, jt, k, A, b, cnt);
+                        push_edge(Jxi, dr_xi, i, jt, k + 1, A, b, cnt);
+                        push_edge(Jzeta, dr_zeta, i, jt, k, A, b, cnt);
+                        push_edge(Jzeta, dr_zeta, i + 1, jt, k, A, b, cnt);
+                    }
+
+                    write_ring(i, jc, A, b, cnt, node.lo.k, node.hi.k - 1);
+                }
+            }
+        }
     }
 
     mercury_bound_.Sync("J_cell");
@@ -1064,633 +1431,4 @@ void MercurySolver::calc_Jcell()
     //             }
     // }
     // mercury_bound_.Sync("J_cell");
-}
-
-void MercurySolver::calc_Jcell_from_Bcell_metric_()
-{
-    const int nb = fld_->num_blocks();
-
-    constexpr double tiny = 1.0e-300;
-
-    auto dd = [](double a, double b, double c,
-                 double fp_i, double fm_i,
-                 double fp_j, double fm_j,
-                 double fp_k, double fm_k) -> double
-    {
-        return 0.5 * (a * (fp_i - fm_i) +
-                      b * (fp_j - fm_j) +
-                      c * (fp_k - fm_k));
-    };
-
-    auto dd_axis = [](int axis,
-                      double a, double b, double c,
-                      double fp_i, double fm_i,
-                      double fp_j, double fm_j,
-                      double fp_k, double fm_k) -> double
-    {
-        if (axis == 0)
-            return 0.5 * a * (fp_i - fm_i);
-        if (axis == 1)
-            return 0.5 * b * (fp_j - fm_j);
-        return 0.5 * c * (fp_k - fm_k);
-    };
-
-    auto get_comp = [](const Int3 &a, int ax) -> int
-    {
-        if (ax == 0)
-            return a.i;
-        if (ax == 1)
-            return a.j;
-        return a.k;
-    };
-
-    auto set_comp = [](Int3 &a, int ax, int v)
-    {
-        if (ax == 0)
-            a.i = v;
-        else if (ax == 1)
-            a.j = v;
-        else
-            a.k = v;
-    };
-
-    auto derv_at = [&](FieldBlock &Jac,
-                       FieldBlock &Axi,
-                       FieldBlock &Aet,
-                       FieldBlock &Aze,
-                       int i, int j, int k,
-                       double &ax, double &ay, double &az,
-                       double &bx, double &by, double &bz,
-                       double &cx, double &cy, double &cz)
-    {
-        const double V = std::abs(Jac(i, j, k, 0));
-
-        if (V <= tiny)
-        {
-            ax = ay = az = 0.0;
-            bx = by = bz = 0.0;
-            cx = cy = cz = 0.0;
-            return;
-        }
-
-        ax = 0.5 * (Axi(i + 1, j, k, 0) + Axi(i, j, k, 0)) / V;
-        ay = 0.5 * (Axi(i + 1, j, k, 1) + Axi(i, j, k, 1)) / V;
-        az = 0.5 * (Axi(i + 1, j, k, 2) + Axi(i, j, k, 2)) / V;
-
-        bx = 0.5 * (Aet(i, j + 1, k, 0) + Aet(i, j, k, 0)) / V;
-        by = 0.5 * (Aet(i, j + 1, k, 1) + Aet(i, j, k, 1)) / V;
-        bz = 0.5 * (Aet(i, j + 1, k, 2) + Aet(i, j, k, 2)) / V;
-
-        cx = 0.5 * (Aze(i, j, k + 1, 0) + Aze(i, j, k, 0)) / V;
-        cy = 0.5 * (Aze(i, j, k + 1, 1) + Aze(i, j, k, 1)) / V;
-        cz = 0.5 * (Aze(i, j, k + 1, 2) + Aze(i, j, k, 2)) / V;
-    };
-
-    for (int ib = 0; ib < nb; ++ib)
-    {
-        FieldBlock &Bcell = fld_->field(fid_.fid_Bindcell, ib);
-        FieldBlock &Jcell = fld_->field(fid_.fid_Jcell, ib);
-
-        FieldBlock &Jac = fld_->field(fid_.fid_Jac, ib);
-        FieldBlock &Axi = fld_->field(fid_.fid_metric.xi, ib);
-        FieldBlock &Aet = fld_->field(fid_.fid_metric.eta, ib);
-        FieldBlock &Aze = fld_->field(fid_.fid_metric.zeta, ib);
-
-        if (!Bcell.is_allocated() || !Jcell.is_allocated())
-            continue;
-
-        if (!Jac.is_allocated() || !Axi.is_allocated() ||
-            !Aet.is_allocated() || !Aze.is_allocated())
-            continue;
-
-        Int3 lo = Jcell.inner_lo();
-        Int3 hi = Jcell.inner_hi();
-
-        // 直接计算整个 inner 区域。
-        // i±1, j±1, k±1 全部依赖已经处理好的 ghost / halo。
-        for (int i = lo.i; i < hi.i; ++i)
-        {
-            for (int j = lo.j; j < hi.j; ++j)
-            {
-                for (int k = lo.k; k < hi.k; ++k)
-                {
-                    double ax, ay, az;
-                    double bx, by, bz;
-                    double cx, cy, cz;
-
-                    derv_at(Jac, Axi, Aet, Aze,
-                            i, j, k,
-                            ax, ay, az,
-                            bx, by, bz,
-                            cx, cy, cz);
-
-                    const double dBx_dx = dd(ax, bx, cx,
-                                             Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                             Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                             Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                    const double dBx_dy = dd(ay, by, cy,
-                                             Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                             Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                             Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                    const double dBx_dz = dd(az, bz, cz,
-                                             Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                             Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                             Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                    const double dBy_dx = dd(ax, bx, cx,
-                                             Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                             Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                             Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                    const double dBy_dy = dd(ay, by, cy,
-                                             Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                             Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                             Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                    const double dBy_dz = dd(az, bz, cz,
-                                             Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                             Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                             Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                    const double dBz_dx = dd(ax, bx, cx,
-                                             Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                             Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                             Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                    const double dBz_dy = dd(ay, by, cy,
-                                             Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                             Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                             Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                    const double dBz_dz = dd(az, bz, cz,
-                                             Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                             Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                             Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                    Jcell(i, j, k, 0) = dBz_dy - dBy_dz;
-                    Jcell(i, j, k, 1) = dBx_dz - dBz_dx;
-                    Jcell(i, j, k, 2) = dBy_dx - dBx_dy;
-                }
-            }
-        }
-
-        // Pole cells are degenerate in the normal direction and collapsed
-        // around zeta/k. Recompute those cells with only the axial
-        // computational derivative: eta for xi-normal Poles, xi for eta-normal Poles.
-        for (const auto &p : topo_->physical_patches)
-        {
-            if (p.this_block != ib)
-                continue;
-            if (p.bc_name != "Pole")
-                continue;
-
-            const int dir = std::abs(p.direction);
-            if (dir != 1 && dir != 2)
-                continue;
-
-            const int norm_axis = dir - 1;
-            const int axial_axis = (dir == 1) ? 1 : 0;
-            const bool high_side = (p.direction > 0);
-
-            Int3 plo = lo;
-            Int3 phi = hi;
-
-            for (int d = 0; d < 3; ++d)
-            {
-                if (d == norm_axis)
-                    continue;
-
-                const int tlo = std::max(get_comp(lo, d), get_comp(p.this_box_node.lo, d));
-                const int thi = std::min(get_comp(hi, d), get_comp(p.this_box_node.hi, d) - 1);
-                set_comp(plo, d, tlo);
-                set_comp(phi, d, thi);
-            }
-
-            if (high_side)
-            {
-                set_comp(plo, norm_axis, get_comp(hi, norm_axis) - 1);
-                set_comp(phi, norm_axis, get_comp(hi, norm_axis));
-            }
-            else
-            {
-                set_comp(plo, norm_axis, get_comp(lo, norm_axis));
-                set_comp(phi, norm_axis, get_comp(lo, norm_axis) + 1);
-            }
-
-            if (!(plo.i < phi.i && plo.j < phi.j && plo.k < phi.k))
-                continue;
-
-            auto calc_curl_at = [&](int i, int j, int k,
-                                    double ax, double ay, double az,
-                                    double bx, double by, double bz,
-                                    double cx, double cy, double cz,
-                                    double &Jx, double &Jy, double &Jz)
-            {
-                const double dBx_dx = dd_axis(axial_axis, ax, bx, cx,
-                                              Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                              Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                              Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                const double dBx_dy = dd_axis(axial_axis, ay, by, cy,
-                                              Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                              Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                              Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                const double dBx_dz = dd_axis(axial_axis, az, bz, cz,
-                                              Bcell(i + 1, j, k, 0), Bcell(i - 1, j, k, 0),
-                                              Bcell(i, j + 1, k, 0), Bcell(i, j - 1, k, 0),
-                                              Bcell(i, j, k + 1, 0), Bcell(i, j, k - 1, 0));
-
-                const double dBy_dx = dd_axis(axial_axis, ax, bx, cx,
-                                              Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                              Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                              Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                const double dBy_dy = dd_axis(axial_axis, ay, by, cy,
-                                              Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                              Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                              Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                const double dBy_dz = dd_axis(axial_axis, az, bz, cz,
-                                              Bcell(i + 1, j, k, 1), Bcell(i - 1, j, k, 1),
-                                              Bcell(i, j + 1, k, 1), Bcell(i, j - 1, k, 1),
-                                              Bcell(i, j, k + 1, 1), Bcell(i, j, k - 1, 1));
-
-                const double dBz_dx = dd_axis(axial_axis, ax, bx, cx,
-                                              Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                              Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                              Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                const double dBz_dy = dd_axis(axial_axis, ay, by, cy,
-                                              Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                              Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                              Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                const double dBz_dz = dd_axis(axial_axis, az, bz, cz,
-                                              Bcell(i + 1, j, k, 2), Bcell(i - 1, j, k, 2),
-                                              Bcell(i, j + 1, k, 2), Bcell(i, j - 1, k, 2),
-                                              Bcell(i, j, k + 1, 2), Bcell(i, j, k - 1, 2));
-
-                Jx = dBz_dy - dBy_dz;
-                Jy = dBx_dz - dBz_dx;
-                Jz = dBy_dx - dBx_dy;
-            };
-
-            const int k_count = phi.k - plo.k;
-            const double inv_k_count = 1.0 / static_cast<double>(k_count);
-
-            for (int i = plo.i; i < phi.i; ++i)
-            {
-                for (int j = plo.j; j < phi.j; ++j)
-                {
-                    double ax_avg = 0.0, ay_avg = 0.0, az_avg = 0.0;
-                    double bx_avg = 0.0, by_avg = 0.0, bz_avg = 0.0;
-                    double cx_avg = 0.0, cy_avg = 0.0, cz_avg = 0.0;
-
-                    for (int k = plo.k; k < phi.k; ++k)
-                    {
-                        double ax, ay, az;
-                        double bx, by, bz;
-                        double cx, cy, cz;
-
-                        derv_at(Jac, Axi, Aet, Aze,
-                                i, j, k,
-                                ax, ay, az,
-                                bx, by, bz,
-                                cx, cy, cz);
-
-                        if (axial_axis == 0)
-                        {
-                            ax_avg += ax;
-                            ay_avg += ay;
-                            az_avg += az;
-                        }
-                        else
-                        {
-                            bx_avg += bx;
-                            by_avg += by;
-                            bz_avg += bz;
-                        }
-                    }
-
-                    if (axial_axis == 0)
-                    {
-                        ax_avg *= inv_k_count;
-                        ay_avg *= inv_k_count;
-                        az_avg *= inv_k_count;
-                    }
-                    else
-                    {
-                        bx_avg *= inv_k_count;
-                        by_avg *= inv_k_count;
-                        bz_avg *= inv_k_count;
-                    }
-
-                    double Jx, Jy, Jz;
-                    calc_curl_at(i, j, plo.k,
-                                 ax_avg, ay_avg, az_avg,
-                                 bx_avg, by_avg, bz_avg,
-                                 cx_avg, cy_avg, cz_avg,
-                                 Jx, Jy, Jz);
-
-                    for (int k = plo.k; k < phi.k; ++k)
-                    {
-                        Jcell(i, j, k, 0) = Jx;
-                        Jcell(i, j, k, 1) = Jy;
-                        Jcell(i, j, k, 2) = Jz;
-                    }
-                }
-            }
-        }
-
-        // Coupled-Solid wall cells are zeroed by the boundary handler below.
-        // For the first fluid layer next to that wall layer, avoid the wall
-        // Bcell in the normal derivative to suppress numerical wall-current
-        // contamination.
-        for (const auto &p : topo_->physical_patches)
-        {
-            if (p.this_block != ib)
-                continue;
-            if (p.bc_name != "Coupled-Solid")
-                continue;
-
-            const int dir = std::abs(p.direction);
-            if (dir < 1 || dir > 3)
-                continue;
-
-            const int norm_axis = dir - 1;
-            const bool high_side = (p.direction > 0);
-            const int inward = high_side ? -1 : +1;
-            const int nlo = get_comp(lo, norm_axis);
-            const int nhi = get_comp(hi, norm_axis);
-
-            if (nhi - nlo < 3)
-                continue;
-
-            Int3 plo = lo;
-            Int3 phi = hi;
-
-            for (int d = 0; d < 3; ++d)
-            {
-                if (d == norm_axis)
-                    continue;
-
-                const int tlo = std::max(get_comp(lo, d), get_comp(p.this_box_node.lo, d));
-                const int thi = std::min(get_comp(hi, d), get_comp(p.this_box_node.hi, d) - 1);
-                set_comp(plo, d, tlo);
-                set_comp(phi, d, thi);
-            }
-
-            if (high_side)
-            {
-                set_comp(plo, norm_axis, nhi - 2);
-                set_comp(phi, norm_axis, nhi - 1);
-            }
-            else
-            {
-                set_comp(plo, norm_axis, nlo + 1);
-                set_comp(phi, norm_axis, nlo + 2);
-            }
-
-            if (!(plo.i < phi.i && plo.j < phi.j && plo.k < phi.k))
-                continue;
-
-            auto B_at_axis_offset = [&](int i, int j, int k, int axis, int offset, int comp) -> double
-            {
-                if (axis == 0)
-                    return Bcell(i + offset, j, k, comp);
-                if (axis == 1)
-                    return Bcell(i, j + offset, k, comp);
-                return Bcell(i, j, k + offset, comp);
-            };
-
-            auto dcomp_axis = [&](int i, int j, int k, int axis, int comp) -> double
-            {
-                if (axis == norm_axis)
-                {
-                    if (inward > 0)
-                        return B_at_axis_offset(i, j, k, axis, +1, comp) -
-                               B_at_axis_offset(i, j, k, axis, 0, comp);
-
-                    return B_at_axis_offset(i, j, k, axis, 0, comp) -
-                           B_at_axis_offset(i, j, k, axis, -1, comp);
-                }
-
-                return 0.5 * (B_at_axis_offset(i, j, k, axis, +1, comp) -
-                              B_at_axis_offset(i, j, k, axis, -1, comp));
-            };
-
-            auto dphys = [&](int i, int j, int k, int comp,
-                             double qxi, double qet, double qze) -> double
-            {
-                return qxi * dcomp_axis(i, j, k, 0, comp) +
-                       qet * dcomp_axis(i, j, k, 1, comp) +
-                       qze * dcomp_axis(i, j, k, 2, comp);
-            };
-
-            for (int i = plo.i; i < phi.i; ++i)
-            {
-                for (int j = plo.j; j < phi.j; ++j)
-                {
-                    for (int k = plo.k; k < phi.k; ++k)
-                    {
-                        double ax, ay, az;
-                        double bx, by, bz;
-                        double cx, cy, cz;
-
-                        derv_at(Jac, Axi, Aet, Aze,
-                                i, j, k,
-                                ax, ay, az,
-                                bx, by, bz,
-                                cx, cy, cz);
-
-                        const double dBx_dx = dphys(i, j, k, 0, ax, bx, cx);
-                        const double dBx_dy = dphys(i, j, k, 0, ay, by, cy);
-                        const double dBx_dz = dphys(i, j, k, 0, az, bz, cz);
-
-                        const double dBy_dx = dphys(i, j, k, 1, ax, bx, cx);
-                        const double dBy_dy = dphys(i, j, k, 1, ay, by, cy);
-                        const double dBy_dz = dphys(i, j, k, 1, az, bz, cz);
-
-                        const double dBz_dx = dphys(i, j, k, 2, ax, bx, cx);
-                        const double dBz_dy = dphys(i, j, k, 2, ay, by, cy);
-                        const double dBz_dz = dphys(i, j, k, 2, az, bz, cz);
-
-                        Jcell(i, j, k, 0) = dBz_dy - dBy_dz;
-                        Jcell(i, j, k, 1) = dBx_dz - dBz_dx;
-                        Jcell(i, j, k, 2) = dBy_dx - dBx_dy;
-                    }
-                }
-            }
-        }
-
-        // Intersection of a Pole collapse and the first fluid layer next to a
-        // Coupled-Solid wall. This must run after both treatments above: keep
-        // the Pole k-collapse, but use a one-sided axial derivative away from
-        // the wall so the wall-layer Bcell is not sampled.
-        for (const auto &ppole : topo_->physical_patches)
-        {
-            if (ppole.this_block != ib)
-                continue;
-            if (ppole.bc_name != "Pole")
-                continue;
-
-            const int pole_dir = std::abs(ppole.direction);
-            if (pole_dir != 1 && pole_dir != 2)
-                continue;
-
-            const int pole_norm_axis = pole_dir - 1;
-            const int axial_axis = (pole_dir == 1) ? 1 : 0;
-            const bool pole_high_side = (ppole.direction > 0);
-
-            for (const auto &pwall : topo_->physical_patches)
-            {
-                if (pwall.this_block != ib)
-                    continue;
-                if (pwall.bc_name != "Coupled-Solid")
-                    continue;
-
-                const int wall_dir = std::abs(pwall.direction);
-                if (wall_dir - 1 != axial_axis)
-                    continue;
-
-                const bool wall_high_side = (pwall.direction > 0);
-                const int wall_inward = wall_high_side ? -1 : +1;
-                const int axial_lo = get_comp(lo, axial_axis);
-                const int axial_hi = get_comp(hi, axial_axis);
-
-                if (axial_hi - axial_lo < 3)
-                    continue;
-
-                Int3 plo = lo;
-                Int3 phi = hi;
-
-                if (pole_high_side)
-                {
-                    set_comp(plo, pole_norm_axis, get_comp(hi, pole_norm_axis) - 1);
-                    set_comp(phi, pole_norm_axis, get_comp(hi, pole_norm_axis));
-                }
-                else
-                {
-                    set_comp(plo, pole_norm_axis, get_comp(lo, pole_norm_axis));
-                    set_comp(phi, pole_norm_axis, get_comp(lo, pole_norm_axis) + 1);
-                }
-
-                if (wall_high_side)
-                {
-                    set_comp(plo, axial_axis, axial_hi - 2);
-                    set_comp(phi, axial_axis, axial_hi - 1);
-                }
-                else
-                {
-                    set_comp(plo, axial_axis, axial_lo + 1);
-                    set_comp(phi, axial_axis, axial_lo + 2);
-                }
-
-                const int klo = std::max({lo.k, ppole.this_box_node.lo.k, pwall.this_box_node.lo.k});
-                const int khi = std::min({hi.k, ppole.this_box_node.hi.k - 1, pwall.this_box_node.hi.k - 1});
-                plo.k = klo;
-                phi.k = khi;
-
-                if (!(plo.i < phi.i && plo.j < phi.j && plo.k < phi.k))
-                    continue;
-
-                auto B_axis = [&](int i, int j, int k, int offset, int comp) -> double
-                {
-                    if (axial_axis == 0)
-                        return Bcell(i + offset, j, k, comp);
-                    return Bcell(i, j + offset, k, comp);
-                };
-
-                const int k_count = phi.k - plo.k;
-                const double inv_k_count = 1.0 / static_cast<double>(k_count);
-
-                for (int i = plo.i; i < phi.i; ++i)
-                {
-                    for (int j = plo.j; j < phi.j; ++j)
-                    {
-                        double ax_avg = 0.0, ay_avg = 0.0, az_avg = 0.0;
-                        double bx_avg = 0.0, by_avg = 0.0, bz_avg = 0.0;
-
-                        for (int k = plo.k; k < phi.k; ++k)
-                        {
-                            double ax, ay, az;
-                            double bx, by, bz;
-                            double cx, cy, cz;
-
-                            derv_at(Jac, Axi, Aet, Aze,
-                                    i, j, k,
-                                    ax, ay, az,
-                                    bx, by, bz,
-                                    cx, cy, cz);
-
-                            if (axial_axis == 0)
-                            {
-                                ax_avg += ax;
-                                ay_avg += ay;
-                                az_avg += az;
-                            }
-                            else
-                            {
-                                bx_avg += bx;
-                                by_avg += by;
-                                bz_avg += bz;
-                            }
-                        }
-
-                        ax_avg *= inv_k_count;
-                        ay_avg *= inv_k_count;
-                        az_avg *= inv_k_count;
-                        bx_avg *= inv_k_count;
-                        by_avg *= inv_k_count;
-                        bz_avg *= inv_k_count;
-
-                        const int k0 = plo.k;
-                        double dB_daxis[3] = {0.0, 0.0, 0.0};
-                        for (int comp = 0; comp < 3; ++comp)
-                        {
-                            if (wall_inward > 0)
-                                dB_daxis[comp] = B_axis(i, j, k0, +1, comp) -
-                                                 B_axis(i, j, k0, 0, comp);
-                            else
-                                dB_daxis[comp] = B_axis(i, j, k0, 0, comp) -
-                                                 B_axis(i, j, k0, -1, comp);
-                        }
-
-                        const double qx = (axial_axis == 0) ? ax_avg : bx_avg;
-                        const double qy = (axial_axis == 0) ? ay_avg : by_avg;
-                        const double qz = (axial_axis == 0) ? az_avg : bz_avg;
-
-                        const double dBx_dx = qx * dB_daxis[0];
-                        const double dBx_dy = qy * dB_daxis[0];
-                        const double dBx_dz = qz * dB_daxis[0];
-
-                        const double dBy_dx = qx * dB_daxis[1];
-                        const double dBy_dy = qy * dB_daxis[1];
-                        const double dBy_dz = qz * dB_daxis[1];
-
-                        const double dBz_dx = qx * dB_daxis[2];
-                        const double dBz_dy = qy * dB_daxis[2];
-                        const double dBz_dz = qz * dB_daxis[2];
-
-                        const double Jx = dBz_dy - dBy_dz;
-                        const double Jy = dBx_dz - dBz_dx;
-                        const double Jz = dBy_dx - dBx_dy;
-
-                        for (int k = plo.k; k < phi.k; ++k)
-                        {
-                            Jcell(i, j, k, 0) = Jx;
-                            Jcell(i, j, k, 1) = Jy;
-                            Jcell(i, j, k, 2) = Jz;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 后续所有 Pole / wall / coupling / halo 处理都交给边界系统。
-    mercury_bound_.Sync("J_cell");
 }

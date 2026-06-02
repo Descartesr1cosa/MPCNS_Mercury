@@ -1,32 +1,31 @@
-double 	CFL		0.02
-double 	yee		0.125
-double 	max_Time		20.0
-int	output_step	2000
-int	output_residual	100
-double  Archive_Output_Time    0.5 //(hours), <=0 means closing the archive function
-int	dimension	3
+// time stepping and stop criteria
+double  CFL                     0.8
+double  max_Time                12.0
+int     max_Nstep               8000000
 
-int	ngg		4
-bool	continue_calc	0
-bool	continue_calc_index	0	//是否重新以当下步作为残差的参考值，续算时有效
-int	Read_Method	2	//0表示ASCII格式的plot3D 1表示二进制网格
-int	max_Nstep	50000
-int	corner_treat	2
+// output and restart
+int     output_step             1000
+int     output_residual         100
+double  Archive_Output_Time     1.0     //(hours), <=0 means closing the archive function
+bool    continue_calc           1
 
+// grid and topology
+int     dimension               3
+int     ngg                     4
+int     Read_Method             2       //0表示ASCII格式的plot3D 1表示二进制unformatted网格 2 binary
+int     corner_treat            2
+double  scale                   1.0
 
-double	eta_max_mercury	1.25E7	//水星最大电阻
-
-int	ns		2	//离子种类
-double  mole_mass1   0.001 //H
-double  mole_mass2   0.023 //Na
+// species and physical constants
+double  mole_mass1              0.001
+double  mole_mass2              0.023
+double  eta_max_mercury         1.25E7
 
 LIST==================================================================
-constant		5
+constant        5
 (double)
-gamma		NA		R_uni	mu_mag              	q_e
-1.6667		6.02E23     	8.314	1.256637061e-6      1.602E-19
+gamma           NA              R_uni       mu_mag             q_e
+1.6667          6.02E23         8.314       1.256637061e-6     1.602E-19
 LIST==================================================================
-
-double 	scale	1.0
 
 END_OF_FILE

@@ -8,11 +8,32 @@
 #include <iomanip>
 
 #include "1_grid/1_MPCNS_Grid.h"
-#include "2_topology/TopologyBuilder.h"
-#include "3_field/Field.h"
-#include "4_halo/Halo.h"
+#include "2_topology/2_MPCNS_Topology.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/1_MPCNS_Halo.h"
 #include "1_Boundary.h"
 #include "operators/Vector.h"
+
+namespace
+{
+    void setup_like_face_field(Scalar &buf, FieldBlock &F)
+    {
+        if (!F.is_allocated())
+            return;
+
+        const Int3 lo = F.get_lo();
+        const Int3 hi = F.get_hi();
+
+        const int ghost = -lo.i;
+        if (lo.i != -ghost || lo.j != -ghost || lo.k != -ghost)
+        {
+            throw std::runtime_error(
+                "ImplicitHallSolver: face field is not in standard ghost form.");
+        }
+
+        buf.SetSize(hi.i - lo.i, hi.j - lo.j, hi.k - lo.k, ghost);
+    }
+} // namespace
 
 ImplicitHallSolver::~ImplicitHallSolver()
 {
@@ -26,7 +47,7 @@ void ImplicitHallSolver::Setup(Grid *grd,
                                Param *par,
                                MercuryBoundary *bound,
                                const SolverFields &fid,
-                               const TOPO::Topology &equiv,
+                               const TOPO::TopologyEquiv &equiv,
                                const HALO_OWNER::EdgeOwnerSyncPattern &owner_pat,
                                std::vector<HallFaceScratchBlock_> *hall_face_scratch)
 {
@@ -54,58 +75,16 @@ void ImplicitHallSolver::Setup(Grid *grd,
             "ImplicitHallSolver::Setup: owner_edges_sorted_ size mismatch.");
     }
 
-    // Setup B* snapshot
-    {
-        const int nb = fld_->num_blocks();
-        Bstar_xi_.resize(nb);
-        Bstar_eta_.resize(nb);
-        Bstar_ze_.resize(nb);
-
-        auto setup_like_face = [](Scalar &buf, auto &F)
-        {
-            if (!F.is_allocated())
-                return false;
-
-            const Int3 lo = F.get_lo();
-            const Int3 hi = F.get_hi();
-
-            const int ghost = -lo.i;
-            if (lo.i != -ghost || lo.j != -ghost || lo.k != -ghost)
-            {
-                throw std::runtime_error(
-                    "SetupBfaceSnapshotScratch_: face field not in standard ghost form.");
-            }
-
-            const int dim1 = hi.i - lo.i;
-            const int dim2 = hi.j - lo.j;
-            const int dim3 = hi.k - lo.k;
-
-            buf.SetSize(dim1, dim2, dim3, ghost);
-            return true;
-        };
-
-        for (int ib = 0; ib < nb; ++ib)
-        {
-            auto &bxi = fld_->field(fid_.fid_B.xi, ib);
-            auto &bet = fld_->field(fid_.fid_B.eta, ib);
-            auto &bze = fld_->field(fid_.fid_B.zeta, ib);
-
-            auto &xi = Bstar_xi_[ib];
-            auto &eta = Bstar_eta_[ib];
-            auto &zeta = Bstar_ze_[ib];
-            setup_like_face(xi, bxi);
-            setup_like_face(eta, bet);
-            setup_like_face(zeta, bze);
-        }
-    }
-
     hall_face_scratch_ = hall_face_scratch;
+    SetupBfaceSnapshotStorage_();
 }
 
 void ImplicitHallSolver::CheckReady_() const
 {
     if (!fld_ || !bound_)
         throw std::runtime_error("ImplicitHallSolver not setup.");
+    if (!hall_face_scratch_)
+        throw std::runtime_error("ImplicitHallSolver hall scratch is not setup.");
     if (!cb_.sync_Bface || !cb_.sync_Ehalledge || !cb_.calc_PV ||
         !cb_.calc_Uplus || !cb_.build_Ehall_from_current_B)
         throw std::runtime_error("ImplicitHallSolver callbacks are not fully bound.");
@@ -119,6 +98,21 @@ void ImplicitHallSolver::CheckReady_() const
         {
             throw std::runtime_error("Shell PC callbacks are not fully bound.");
         }
+    }
+}
+
+void ImplicitHallSolver::SetupBfaceSnapshotStorage_()
+{
+    const int nb = fld_->num_blocks();
+    Bstar_xi_.resize(nb);
+    Bstar_eta_.resize(nb);
+    Bstar_ze_.resize(nb);
+
+    for (int ib = 0; ib < nb; ++ib)
+    {
+        setup_like_face_field(Bstar_xi_[ib], fld_->field(fid_.fid_B.xi, ib));
+        setup_like_face_field(Bstar_eta_[ib], fld_->field(fid_.fid_B.eta, ib));
+        setup_like_face_field(Bstar_ze_[ib], fld_->field(fid_.fid_B.zeta, ib));
     }
 }
 
@@ -162,11 +156,6 @@ void ImplicitHallSolver::CreatePetscObjects_()
     SNESCreate(PETSC_COMM_WORLD, &snes_);
     SNESSetFunction(snes_, F_, &ImplicitHallSolver::FormFunction_, this);
 
-    // MatCreateSNESMF(snes_, &Jmf_);
-    // SNESSetJacobian(snes_, Jmf_, Jmf_, MatMFFDComputeJacobian, nullptr);
-
-    // const PetscInt nloc = static_cast<PetscInt>(equiv_.n_local_edge_owner);
-    // const PetscInt nglb = static_cast<PetscInt>(equiv_.n_global_edge_owner);
     MatCreateShell(PETSC_COMM_WORLD, nloc, nloc, nglb, nglb, this, &Jshell_);
     MatShellSetOperation(Jshell_, MATOP_MULT,
                          (void (*)(void))&ImplicitHallSolver::MatMult_WhistlerShell_);
@@ -191,32 +180,6 @@ void ImplicitHallSolver::CreatePetscObjects_()
     }
 
     SNESSetFromOptions(snes_);
-
-    // const PetscInt nloc = static_cast<PetscInt>(equiv_.n_local_edge_owner);
-    // const PetscInt nglb = static_cast<PetscInt>(equiv_.n_global_edge_owner);
-
-    // VecCreateMPI(PETSC_COMM_WORLD, nloc, nglb, &X_);
-    // VecDuplicate(X_, &F_);
-
-    // SNESCreate(PETSC_COMM_WORLD, &snes_);
-    // SNESSetFunction(snes_, F_, &ImplicitHallSolver::FormFunction_, this);
-
-    // // matrix-free Jacobian
-    // MatCreateSNESMF(snes_, &Jmf_);
-    // SNESSetJacobian(snes_, Jmf_, Jmf_, MatMFFDComputeJacobian, nullptr);
-
-    // SNESSetType(snes_, SNESNEWTONLS);
-
-    // KSP ksp = nullptr;
-    // SNESGetKSP(snes_, &ksp);
-    // KSPSetType(ksp, KSPGMRES);
-
-    // PC pc = nullptr;
-    // KSPGetPC(ksp, &pc);
-    // // PCSetType(pc, PCJACOBI);
-    // PCSetType(pc, PCNONE);
-
-    // SNESSetFromOptions(snes_);
 }
 
 void ImplicitHallSolver::DestroyPetscObjects_()
@@ -275,15 +238,29 @@ void ImplicitHallSolver::SolveOneStep(double dt, bool if_outres)
 
     // 1) snapshot B*
     SnapshotCurrentBface_();
+    ClearEdgeTriplet_(fid_.fid_Ehall);
 
-    // 这一句非常关键：每个时间步都要重新冻结
     p0_frozen_ready_ = false;
-
-    // 可选：提前准备，而不是等第一次 PCApply 时才做
     if (use_shell_pc_)
         PrepareWhistlerP0FrozenState_();
 
-    // 2) 初值：拿当前显式/上一步的 Ehall 当 guess
+    // 2) Initial guess: current explicit/previous Ehall.
+    LoadCurrentEhallIntoSolution_();
+
+    // 3) solve
+    SNESSolve(snes_, nullptr, X_);
+
+    // 4) Write solved Ehall and apply the full-step CT update.
+    ApplySolvedEhallToBface_();
+
+    if (if_outres)
+        PrintSolveDiagnostics_();
+
+    cb_.sync_Bface();
+}
+
+void ImplicitHallSolver::LoadCurrentEhallIntoSolution_()
+{
     HALO_OWNER::pack_owner_edge_1form_local(
         *fld_, fid_.fid_Ehall, equiv_, owner_edges_sorted_, x_local_);
 
@@ -292,19 +269,11 @@ void ImplicitHallSolver::SolveOneStep(double dt, bool if_outres)
     for (PetscInt i = 0; i < static_cast<PetscInt>(x_local_.size()); ++i)
         xarr[i] = x_local_[static_cast<size_t>(i)];
     VecRestoreArray(X_, &xarr);
+}
 
-    // 3) solve
-    SNESSolve(snes_, nullptr, X_);
-
-    // 4) 把最终解写回 Ehall
-    UnpackVecToEhallField_(X_);
-
-    // 5) 用最终 Ehall 做整步 CT 更新：
-    //    B^{n+1} = B* + dt * RHS(Ehall), RHS=-curl(Ehall)
-    RestoreCurrentBfaceFromSnapshot_();
-
+void ImplicitHallSolver::CurlEhallToRhsB_()
+{
     cb_.sync_Ehalledge();
-
     ClearFaceTriplet_(fid_.fid_RHS_b);
 
     const int nb = fld_->num_blocks();
@@ -319,75 +288,45 @@ void ImplicitHallSolver::SolveOneStep(double dt, bool if_outres)
 
         if (!Exi.is_allocated())
             continue;
+
         CTOperators::CurlEdgeToFace(ib, Exi, Eet, Eze, Rxi, Ret, Rze, -1.0);
     }
+}
 
-    if (if_outres)
-    {
-        SNESConvergedReason reason;
-        PetscInt its;
-        PetscReal fnorm = 0.0;
-
-        SNESGetConvergedReason(snes_, &reason);
-        SNESGetIterationNumber(snes_, &its);
-        SNESGetFunctionNorm(snes_, &fnorm);
-
-        auto max_abs_face_delta = [&](int fid,
-                                      std::vector<Scalar> &snap) -> double
-        {
-            double local_max = 0.0;
-
-            for (int ib = 0; ib < fld_->num_blocks(); ++ib)
-            {
-                auto &F = fld_->field(fid, ib);
-                if (!F.is_allocated())
-                    continue;
-
-                Int3 lo = F.inner_lo(), hi = F.inner_hi();
-                auto &buf = snap[static_cast<size_t>(ib)];
-
-                size_t t = 0;
-                for (int i = lo.i; i < hi.i; ++i)
-                    for (int j = lo.j; j < hi.j; ++j)
-                        for (int k = lo.k; k < hi.k; ++k, ++t)
-                            local_max = std::max(local_max, std::abs(F(i, j, k, 0) - buf(i, j, k)));
-            }
-
-            double global_max = 0.0;
-            MPI_Allreduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-            return global_max;
-        };
-
-        auto max_dB_hall = [&]() -> double
-        {
-            const double dxi = max_abs_face_delta(fid_.fid_B.xi, Bstar_xi_);
-            const double det = max_abs_face_delta(fid_.fid_B.eta, Bstar_eta_);
-            const double dze = max_abs_face_delta(fid_.fid_B.zeta, Bstar_ze_);
-            return std::max(dxi, std::max(det, dze));
-        };
-
-        const double maxEhall = MaxAbsTriplet_(fid_.fid_Ehall);
-        const double maxB = MaxAbsTriplet_(fid_.fid_B);
-        const double maxRHSB = MaxAbsTriplet_(fid_.fid_RHS_b);
-        const double maxdBhall_est = dt_ * maxRHSB;
-        int rank = par_->GetInt("myid");
-        if (rank == 0)
-        {
-            std::cout << std::scientific << std::setprecision(6)
-                      << "[HallImplicit] reason=" << reason
-                      << "  its=" << its
-                      << "  |F|_2=" << fnorm
-                      << "  max|Ehall|=" << maxEhall
-                      << "  dt*max|RHS_B|=" << maxdBhall_est
-                      << std::endl;
-        }
-    }
-
+void ImplicitHallSolver::ApplySolvedEhallToBface_()
+{
+    UnpackVecToEhallField_(X_);
+    RestoreCurrentBfaceFromSnapshot_();
+    CurlEhallToRhsB_();
     AddFaceInnerFromRHS_(fid_.fid_B.xi, fid_.fid_RHS_b.xi, dt_);
     AddFaceInnerFromRHS_(fid_.fid_B.eta, fid_.fid_RHS_b.eta, dt_);
     AddFaceInnerFromRHS_(fid_.fid_B.zeta, fid_.fid_RHS_b.zeta, dt_);
+}
 
-    cb_.sync_Bface();
+void ImplicitHallSolver::PrintSolveDiagnostics_()
+{
+    SNESConvergedReason reason;
+    PetscInt its;
+    PetscReal fnorm = 0.0;
+
+    SNESGetConvergedReason(snes_, &reason);
+    SNESGetIterationNumber(snes_, &its);
+    SNESGetFunctionNorm(snes_, &fnorm);
+
+    const double maxEhall = MaxAbsTriplet_(fid_.fid_Ehall);
+    const double maxRHSB = MaxAbsTriplet_(fid_.fid_RHS_b);
+    const double maxdBhall_est = dt_ * maxRHSB;
+
+    if (par_->GetInt("myid") == 0)
+    {
+        std::cout << std::scientific << std::setprecision(6)
+                  << "[HallImplicit] reason=" << reason
+                  << "  its=" << its
+                  << "  |F|_2=" << fnorm
+                  << "  max|Ehall|=" << maxEhall
+                  << "  dt*max|RHS_B|=" << maxdBhall_est
+                  << std::endl;
+    }
 }
 
 double ImplicitHallSolver::MaxAbsTriplet_(const IdTriplet &fid_triplet)
@@ -464,6 +403,18 @@ PetscErrorCode ImplicitHallSolver::PCApplyWhistlerP0_Shell_(PC pc, Vec in, Vec o
 
     PetscCall(S->ApplyWhistlerP0ApproxInverse_(in, out));
     return 0;
+}
+
+void ImplicitHallSolver::PrepareWhistlerP0FrozenState_()
+{
+    RestoreCurrentBfaceFromSnapshot_();
+    cb_.sync_Bface();
+
+    cb_.calc_Bcell_from_current_Bface();
+    cb_.FillFrozenBflatFromCurrentBcell_();
+    cb_.FillFrozenAlphaFlatCell_();
+
+    p0_frozen_ready_ = true;
 }
 
 PetscErrorCode ImplicitHallSolver::ApplyWhistlerP0ApproxInverse_(Vec in, Vec out)
@@ -610,19 +561,19 @@ void ImplicitHallSolver::Calc_DeltaJ_Edge_FromDeltaB_()
         auto &Jeta = fld_->field(fid_.fid_dJ.eta, iblk);
         auto &Jzeta = fld_->field(fid_.fid_dJ.zeta, iblk);
 
-        auto &Hodge_star_2form_to_1form_face_xi = fld_->field(fid_.Hodge_star_2form_to_1form_face.xi, iblk);
-        auto &Hodge_star_2form_to_1form_face_eta = fld_->field(fid_.Hodge_star_2form_to_1form_face.eta, iblk);
-        auto &Hodge_star_2form_to_1form_face_zeta = fld_->field(fid_.Hodge_star_2form_to_1form_face.zeta, iblk);
+        auto &beta_xi = fld_->field(fid_.Face_beta.xi, iblk); // Hodge *: 2-form face -> 1-form face
+        auto &beta_eta = fld_->field(fid_.Face_beta.eta, iblk);
+        auto &beta_zeta = fld_->field(fid_.Face_beta.zeta, iblk);
 
-        auto &Hodge_star_inverse_2form_to_1form_edge_xi = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.xi, iblk);
-        auto &Hodge_star_inverse_2form_to_1form_edge_eta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.eta, iblk);
-        auto &Hodge_star_inverse_2form_to_1form_edge_zeta = fld_->field(fid_.Hodge_star_inverse_2form_to_1form_edge.zeta, iblk);
+        auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, iblk); // Hodge *: 2-form edge -> 1-form edge
+        auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, iblk);
+        auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, iblk);
 
         // compute J (edge 1-form) from face B (2-form)
         // multiper 用 +1.0 J =curl B。
         CTOperators::CurlAdjFaceToEdge(iblk,
                                        Bxi, Beta, Bzeta,
-                                       Hodge_star_2form_to_1form_face_xi, Hodge_star_2form_to_1form_face_eta, Hodge_star_2form_to_1form_face_zeta,
+                                       beta_xi, beta_eta, beta_zeta,
                                        Jxi, Jeta, Jzeta,
                                        /*multiper=*/1.0);
 
@@ -634,7 +585,7 @@ void ImplicitHallSolver::Calc_DeltaJ_Edge_FromDeltaB_()
             for (int i = lo.i; i < hi.i; ++i)
                 for (int j = lo.j; j < hi.j; ++j)
                     for (int k = lo.k; k < hi.k; ++k)
-                        Jxi(i, j, k, 0) *= (Hodge_star_inverse_2form_to_1form_edge_xi(i, j, k, 0));
+                        Jxi(i, j, k, 0) *= (alpha_xi(i, j, k, 0));
         }
         {
             // Edge_eta
@@ -642,7 +593,7 @@ void ImplicitHallSolver::Calc_DeltaJ_Edge_FromDeltaB_()
             for (int i = lo.i; i < hi.i; ++i)
                 for (int j = lo.j; j < hi.j; ++j)
                     for (int k = lo.k; k < hi.k; ++k)
-                        Jeta(i, j, k, 0) *= (Hodge_star_inverse_2form_to_1form_edge_eta(i, j, k, 0));
+                        Jeta(i, j, k, 0) *= (alpha_eta(i, j, k, 0));
         }
         {
             // Edge_zeta
@@ -650,7 +601,7 @@ void ImplicitHallSolver::Calc_DeltaJ_Edge_FromDeltaB_()
             for (int i = lo.i; i < hi.i; ++i)
                 for (int j = lo.j; j < hi.j; ++j)
                     for (int k = lo.k; k < hi.k; ++k)
-                        Jzeta(i, j, k, 0) *= (Hodge_star_inverse_2form_to_1form_edge_zeta(i, j, k, 0));
+                        Jzeta(i, j, k, 0) *= (alpha_zeta(i, j, k, 0));
         }
     }
 
@@ -669,7 +620,7 @@ void ImplicitHallSolver::Calc_DeltaJcell_FromDeltaJedge_Frozen_()
         auto &Jeta = fld_->field(fid_.fid_dJ.eta, ib);
         auto &Jzeta = fld_->field(fid_.fid_dJ.zeta, ib);
 
-        auto &W = (*hall_face_scratch_)[ib].dJcell_w;
+        auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
         if (!Jcell.is_allocated() || !Jxi.is_allocated() ||
             !Jeta.is_allocated() || !Jzeta.is_allocated())
@@ -717,208 +668,6 @@ void ImplicitHallSolver::Calc_DeltaJcell_FromDeltaJedge_Frozen_()
     cb_.sync_dJcell();
 }
 
-// void ImplicitHallSolver::Calc_DeltaJcell_FromDeltaJedge_Frozen_()
-// {
-//     const int nblock = fld_->num_blocks();
-
-//     constexpr double eps = 1e-25;
-
-//     for (int ib = 0; ib < nblock; ++ib)
-//     {
-//         auto &Jcell = fld_->field(fid_.fid_dJcell, ib);
-
-//         auto &Jxi = fld_->field(fid_.fid_dJ.xi, ib);
-//         auto &Jeta = fld_->field(fid_.fid_dJ.eta, ib);
-//         auto &Jzeta = fld_->field(fid_.fid_dJ.zeta, ib);
-
-//         auto &dl_xi = fld_->field("dl_xi", ib);
-//         auto &dl_eta = fld_->field("dl_eta", ib);
-//         auto &dl_zeta = fld_->field("dl_zeta", ib);
-
-//         auto &x = grd_->grids(ib).x;
-//         auto &y = grd_->grids(ib).y;
-//         auto &z = grd_->grids(ib).z;
-
-//         if (!Jcell.is_allocated() || !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated())
-//             continue;
-
-//         auto dot3 = [&](double ax, double ay, double az,
-//                         double bx, double by, double bz) -> double
-//         {
-//             return ax * bx + ay * by + az * bz;
-//         };
-
-//         auto unit_t_xi = [&](int i, int j, int k,
-//                              double &tx, double &ty, double &tz)
-//         {
-//             const double L = std::max(dl_xi(i, j, k, 0), eps);
-//             tx = (x(i + 1, j, k) - x(i, j, k)) / L;
-//             ty = (y(i + 1, j, k) - y(i, j, k)) / L;
-//             tz = (z(i + 1, j, k) - z(i, j, k)) / L;
-//         };
-
-//         auto unit_t_eta = [&](int i, int j, int k,
-//                               double &tx, double &ty, double &tz)
-//         {
-//             const double L = std::max(dl_eta(i, j, k, 0), eps);
-//             tx = (x(i, j + 1, k) - x(i, j, k)) / L;
-//             ty = (y(i, j + 1, k) - y(i, j, k)) / L;
-//             tz = (z(i, j + 1, k) - z(i, j, k)) / L;
-//         };
-
-//         auto unit_t_zeta = [&](int i, int j, int k,
-//                                double &tx, double &ty, double &tz)
-//         {
-//             const double L = std::max(dl_zeta(i, j, k, 0), eps);
-//             tx = (x(i, j, k + 1) - x(i, j, k)) / L;
-//             ty = (y(i, j, k + 1) - y(i, j, k)) / L;
-//             tz = (z(i, j, k + 1) - z(i, j, k)) / L;
-//         };
-
-//         struct Eq
-//         {
-//             double tx, ty, tz; // unit tangent
-//             double rhs;        // J_edge / |dl|
-//             double w;          // weight
-//         };
-
-//         Int3 lo = Jcell.inner_lo();
-//         Int3 hi = Jcell.inner_hi();
-
-//         for (int i = lo.i; i < hi.i; ++i)
-//             for (int j = lo.j; j < hi.j; ++j)
-//                 for (int k = lo.k; k < hi.k; ++k)
-//                 {
-//                     Eq eqs[12];
-//                     int K = 0;
-
-//                     auto push = [&](double tx, double ty, double tz,
-//                                     double Jint, double L, double w = 1.0)
-//                     {
-//                         L = std::max(L, eps);
-//                         eqs[K++] = {tx, ty, tz, Jint / L, w};
-//                     };
-
-//                     double tx, ty, tz;
-
-//                     // =====================================================
-//                     // 4 xi-edges around cell(i,j,k)
-//                     // =====================================================
-//                     unit_t_xi(i, j, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jxi(i, j, k, 0), dl_xi(i, j, k, 0));
-
-//                     unit_t_xi(i, j + 1, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jxi(i, j + 1, k, 0), dl_xi(i, j + 1, k, 0));
-
-//                     unit_t_xi(i, j, k + 1, tx, ty, tz);
-//                     push(tx, ty, tz, Jxi(i, j, k + 1, 0), dl_xi(i, j, k + 1, 0));
-
-//                     unit_t_xi(i, j + 1, k + 1, tx, ty, tz);
-//                     push(tx, ty, tz, Jxi(i, j + 1, k + 1, 0), dl_xi(i, j + 1, k + 1, 0));
-
-//                     // =====================================================
-//                     // 4 eta-edges
-//                     // =====================================================
-//                     unit_t_eta(i, j, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jeta(i, j, k, 0), dl_eta(i, j, k, 0));
-
-//                     unit_t_eta(i + 1, j, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jeta(i + 1, j, k, 0), dl_eta(i + 1, j, k, 0));
-
-//                     unit_t_eta(i, j, k + 1, tx, ty, tz);
-//                     push(tx, ty, tz, Jeta(i, j, k + 1, 0), dl_eta(i, j, k + 1, 0));
-
-//                     unit_t_eta(i + 1, j, k + 1, tx, ty, tz);
-//                     push(tx, ty, tz, Jeta(i + 1, j, k + 1, 0), dl_eta(i + 1, j, k + 1, 0));
-
-//                     // =====================================================
-//                     // 4 zeta-edges
-//                     // =====================================================
-//                     unit_t_zeta(i, j, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jzeta(i, j, k, 0), dl_zeta(i, j, k, 0));
-
-//                     unit_t_zeta(i + 1, j, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jzeta(i + 1, j, k, 0), dl_zeta(i + 1, j, k, 0));
-
-//                     unit_t_zeta(i, j + 1, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jzeta(i, j + 1, k, 0), dl_zeta(i, j + 1, k, 0));
-
-//                     unit_t_zeta(i + 1, j + 1, k, tx, ty, tz);
-//                     push(tx, ty, tz, Jzeta(i + 1, j + 1, k, 0), dl_zeta(i + 1, j + 1, k, 0));
-
-//                     // =====================================================
-//                     // Weighted least squares:
-//                     //   minimize sum w | t·Jcell - J_edge/|dl| |^2
-//                     // =====================================================
-//                     double N00 = 0.0, N01 = 0.0, N02 = 0.0;
-//                     double N11 = 0.0, N12 = 0.0, N22 = 0.0;
-//                     double r0 = 0.0, r1 = 0.0, r2 = 0.0;
-
-//                     for (int n = 0; n < K; ++n)
-//                     {
-//                         const double w = eqs[n].w;
-//                         const double tx = eqs[n].tx;
-//                         const double ty = eqs[n].ty;
-//                         const double tz = eqs[n].tz;
-//                         const double b = eqs[n].rhs;
-
-//                         N00 += w * tx * tx;
-//                         N01 += w * tx * ty;
-//                         N02 += w * tx * tz;
-//                         N11 += w * ty * ty;
-//                         N12 += w * ty * tz;
-//                         N22 += w * tz * tz;
-
-//                         r0 += w * tx * b;
-//                         r1 += w * ty * b;
-//                         r2 += w * tz * b;
-//                     }
-
-//                     auto det3 = [&](double a, double b, double c,
-//                                     double d, double e, double f) -> double
-//                     {
-//                         // | a b c |
-//                         // | b d e |
-//                         // | c e f |
-//                         return a * (d * f - e * e) - b * (b * f - c * e) + c * (b * e - c * d);
-//                     };
-
-//                     double det = det3(N00, N01, N02, N11, N12, N22);
-//                     const double reg = 1e-14 * (N00 + N11 + N22 + 1.0);
-
-//                     if (std::abs(det) < reg)
-//                     {
-//                         N00 += reg;
-//                         N11 += reg;
-//                         N22 += reg;
-//                         det = det3(N00, N01, N02, N11, N12, N22);
-//                     }
-
-//                     // inverse of symmetric 3x3 normal matrix
-//                     const double C00 = (N11 * N22 - N12 * N12);
-//                     const double C01 = (N02 * N12 - N01 * N22);
-//                     const double C02 = (N01 * N12 - N02 * N11);
-//                     const double C11 = (N00 * N22 - N02 * N02);
-//                     const double C12 = (N01 * N02 - N00 * N12);
-//                     const double C22 = (N00 * N11 - N01 * N01);
-
-//                     const double invdet = 1.0 / det;
-
-//                     const double Jx =
-//                         invdet * (C00 * r0 + C01 * r1 + C02 * r2);
-//                     const double Jy =
-//                         invdet * (C01 * r0 + C11 * r1 + C12 * r2);
-//                     const double Jz =
-//                         invdet * (C02 * r0 + C12 * r1 + C22 * r2);
-
-//                     Jcell(i, j, k, 0) = Jx;
-//                     Jcell(i, j, k, 1) = Jy;
-//                     Jcell(i, j, k, 2) = Jz;
-//                 }
-//     }
-//     cb_.sync_dJcell();
-// }
-
 void ImplicitHallSolver::BuildLinearHallCellEMF_()
 {
     const int nb = fld_->num_blocks();
@@ -927,12 +676,9 @@ void ImplicitHallSolver::BuildLinearHallCellEMF_()
     {
         auto &dJc = fld_->field(fid_.fid_dJcell, ib);
 
-        // 下面这两个 field id 请替换成你实际 frozen scratch 的名字
         auto &Bflat = (*hall_face_scratch_)[ib].Bflat;      // 3-comp cell
         auto &alpha = (*hall_face_scratch_)[ib].alpha_flat; // scalar cell
-
-        // 下面这个也是你的线性 Hall cell EMF scratch
-        auto &dEhc = (*hall_face_scratch_)[ib].dEhc; // 3-comp cell
+        auto &dEhc = (*hall_face_scratch_)[ib].dEhc;        // 3-comp cell
 
         if (!dJc.is_allocated())
             continue;
@@ -970,10 +716,10 @@ void ImplicitHallSolver::BuildLinearHallFaceEMF_()
     {
         auto &scratch = (*hall_face_scratch_)[ib];
 
-        auto &dEhc = scratch.dEhc;  // 3-comp cell
-        auto &Pxi = scratch.P_xi;   // 6-comp xi-face projector
-        auto &Pet = scratch.P_eta;  // 6-comp eta-face projector
-        auto &Pze = scratch.P_zeta; // 6-comp zeta-face projector
+        auto &dEhc = scratch.dEhc; // 3-comp cell
+        auto &Pxi = fld_->field(fid_.Face_projector.xi, ib);
+        auto &Pet = fld_->field(fid_.Face_projector.eta, ib);
+        auto &Pze = fld_->field(fid_.Face_projector.zeta, ib);
 
         auto &Efxi = fld_->field(fid_.fid_Eface.xi, ib); // 3-comp face
         auto &Efet = fld_->field(fid_.fid_Eface.eta, ib);
@@ -1078,151 +824,6 @@ void ImplicitHallSolver::BuildLinearHallFaceEMF_()
 
     cb_.sync_dEface();
 }
-
-// void ImplicitHallSolver::BuildLinearHallFaceEMF_()
-// {
-//     constexpr double eps = 1e-14;
-
-//     auto norm3 = [](double x, double y, double z) -> double
-//     {
-//         return std::sqrt(x * x + y * y + z * z);
-//     };
-
-//     ClearFaceTriplet_(fid_.fid_Eface);
-
-//     const int nb = fld_->num_blocks();
-//     for (int ib = 0; ib < nb; ++ib)
-//     {
-//         auto &dEhc = (*hall_face_scratch_)[ib].dEhc; // 3-comp cell
-
-//         auto &Efxi = fld_->field(fid_.fid_Eface.xi, ib); // 3-comp face
-//         auto &Efet = fld_->field(fid_.fid_Eface.eta, ib);
-//         auto &Efze = fld_->field(fid_.fid_Eface.zeta, ib);
-
-//         auto &JDxi = fld_->field(fid_.fid_metric.xi, ib); // face normal vectors
-//         auto &JDet = fld_->field(fid_.fid_metric.eta, ib);
-//         auto &JDze = fld_->field(fid_.fid_metric.zeta, ib);
-
-//         if (!Efxi.is_allocated() || !Efet.is_allocated() || !Efze.is_allocated())
-//             continue;
-
-//         // ============================================================
-//         // xi-face : average adjacent cells, then remove normal component
-//         // ============================================================
-//         {
-//             Int3 lo = Efxi.inner_lo();
-//             Int3 hi = Efxi.inner_hi();
-
-//             for (int i = lo.i; i < hi.i; ++i)
-//                 for (int j = lo.j; j < hi.j; ++j)
-//                     for (int k = lo.k; k < hi.k; ++k)
-//                     {
-//                         const int iL = i - 1;
-//                         const int iR = i;
-
-//                         double Ex = 0.5 * (dEhc(iL, j, k, 0) + dEhc(iR, j, k, 0));
-//                         double Ey = 0.5 * (dEhc(iL, j, k, 1) + dEhc(iR, j, k, 1));
-//                         double Ez = 0.5 * (dEhc(iL, j, k, 2) + dEhc(iR, j, k, 2));
-
-//                         const double Sx = JDxi(i, j, k, 0);
-//                         const double Sy = JDxi(i, j, k, 1);
-//                         const double Sz = JDxi(i, j, k, 2);
-
-//                         const double Smag = norm3(Sx, Sy, Sz) + eps;
-//                         const double nx = Sx / Smag;
-//                         const double ny = Sy / Smag;
-//                         const double nz = Sz / Smag;
-
-//                         const double En = Ex * nx + Ey * ny + Ez * nz;
-//                         Ex -= En * nx;
-//                         Ey -= En * ny;
-//                         Ez -= En * nz;
-
-//                         Efxi(i, j, k, 0) = Ex;
-//                         Efxi(i, j, k, 1) = Ey;
-//                         Efxi(i, j, k, 2) = Ez;
-//                     }
-//         }
-
-//         // ============================================================
-//         // eta-face
-//         // ============================================================
-//         {
-//             Int3 lo = Efet.inner_lo();
-//             Int3 hi = Efet.inner_hi();
-
-//             for (int i = lo.i; i < hi.i; ++i)
-//                 for (int j = lo.j; j < hi.j; ++j)
-//                     for (int k = lo.k; k < hi.k; ++k)
-//                     {
-//                         const int jL = j - 1;
-//                         const int jR = j;
-
-//                         double Ex = 0.5 * (dEhc(i, jL, k, 0) + dEhc(i, jR, k, 0));
-//                         double Ey = 0.5 * (dEhc(i, jL, k, 1) + dEhc(i, jR, k, 1));
-//                         double Ez = 0.5 * (dEhc(i, jL, k, 2) + dEhc(i, jR, k, 2));
-
-//                         const double Sx = JDet(i, j, k, 0);
-//                         const double Sy = JDet(i, j, k, 1);
-//                         const double Sz = JDet(i, j, k, 2);
-
-//                         const double Smag = norm3(Sx, Sy, Sz) + eps;
-//                         const double nx = Sx / Smag;
-//                         const double ny = Sy / Smag;
-//                         const double nz = Sz / Smag;
-
-//                         const double En = Ex * nx + Ey * ny + Ez * nz;
-//                         Ex -= En * nx;
-//                         Ey -= En * ny;
-//                         Ez -= En * nz;
-
-//                         Efet(i, j, k, 0) = Ex;
-//                         Efet(i, j, k, 1) = Ey;
-//                         Efet(i, j, k, 2) = Ez;
-//                     }
-//         }
-
-//         // ============================================================
-//         // zeta-face
-//         // ============================================================
-//         {
-//             Int3 lo = Efze.inner_lo();
-//             Int3 hi = Efze.inner_hi();
-
-//             for (int i = lo.i; i < hi.i; ++i)
-//                 for (int j = lo.j; j < hi.j; ++j)
-//                     for (int k = lo.k; k < hi.k; ++k)
-//                     {
-//                         const int kL = k - 1;
-//                         const int kR = k;
-
-//                         double Ex = 0.5 * (dEhc(i, j, kL, 0) + dEhc(i, j, kR, 0));
-//                         double Ey = 0.5 * (dEhc(i, j, kL, 1) + dEhc(i, j, kR, 1));
-//                         double Ez = 0.5 * (dEhc(i, j, kL, 2) + dEhc(i, j, kR, 2));
-
-//                         const double Sx = JDze(i, j, k, 0);
-//                         const double Sy = JDze(i, j, k, 1);
-//                         const double Sz = JDze(i, j, k, 2);
-
-//                         const double Smag = norm3(Sx, Sy, Sz) + eps;
-//                         const double nx = Sx / Smag;
-//                         const double ny = Sy / Smag;
-//                         const double nz = Sz / Smag;
-
-//                         const double En = Ex * nx + Ey * ny + Ez * nz;
-//                         Ex -= En * nx;
-//                         Ey -= En * ny;
-//                         Ez -= En * nz;
-
-//                         Efze(i, j, k, 0) = Ex;
-//                         Efze(i, j, k, 1) = Ey;
-//                         Efze(i, j, k, 2) = Ez;
-//                     }
-//         }
-//     }
-
-//     cb_.sync_dEface();
-// }
 
 void ImplicitHallSolver::AssembleLinearHallEdgeEMF_()
 {
@@ -1337,28 +938,16 @@ void ImplicitHallSolver::SubtractPackedTempDEpreFromVec_(Vec out)
     VecRestoreArray(out, &outarr);
 }
 
-// Jacobi
-
 PetscErrorCode ImplicitHallSolver::FormJacobian_(SNES, Vec X, Mat, Mat, void *ctx)
 {
     auto *S = static_cast<ImplicitHallSolver *>(ctx);
-    // 最简单版本：直接沿用当前 time-step 冻结状态
-    // 如果还没准备，就准备一次
+
+    // Current first pass: keep one frozen whistler state per time step.
     if (!S->p0_frozen_ready_)
         S->PrepareWhistlerP0FrozenState_();
     return 0;
-
-    // auto *S = static_cast<ImplicitHallSolver *>(ctx);
-    // // 用当前 X 形成 trial E / trial B
-    // S->UnpackVecToEhallField_(X);
-    // S->BuildTrialBfaceFromUnknownE_();
-    // // 基于当前 trial B 冻结线性化状态
-    // S->cb_.calc_Bcell_from_current_Bface();
-    // S->cb_.FillFrozenBflatFromCurrentBcell_();
-    // S->cb_.FillFrozenAlphaFlatCell_();
-    // S->p0_frozen_ready_ = true;
-    // return 0;
 }
+
 PetscErrorCode ImplicitHallSolver::MatMult_WhistlerShell_(Mat A, Vec in, Vec out)
 {
     void *ctx = nullptr;
@@ -1374,7 +963,7 @@ PetscErrorCode ImplicitHallSolver::MatMult_WhistlerShell_(Mat A, Vec in, Vec out
 
 PetscErrorCode ImplicitHallSolver::ApplyWhistlerJv_(Vec in, Vec out)
 {
-    // 先直接把你现有的 P0 operator 拿来当 Jacobian-vector
+    // First-pass Jacobian action: reuse the current P0 operator.
     return ApplyWhistlerP0Operator_(in, out);
 }
 #endif

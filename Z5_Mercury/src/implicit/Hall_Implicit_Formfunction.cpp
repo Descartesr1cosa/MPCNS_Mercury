@@ -2,7 +2,7 @@
 
 #if HALL_IMPLICIT == 1
 
-#include "3_field/Field.h"
+#include "3_field/2_MPCNS_Field.h"
 
 PetscErrorCode ImplicitHallSolver::FormFunction_(SNES, Vec X, Vec F, void *ctx)
 {
@@ -45,7 +45,7 @@ void ImplicitHallSolver::BuildTrialBfaceFromUnknownE_()
     cb_.sync_Ehalledge();
 
     // RHS_B = -curl(E)
-    // ClearFaceTriplet_(fid_.fid_RHS_b);
+    ClearFaceTriplet_(fid_.fid_RHS_b);
 
     const int nb = fld_->num_blocks();
     for (int ib = 0; ib < nb; ++ib)

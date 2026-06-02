@@ -4,9 +4,8 @@
 #include <array>
 
 // Core
-#include "00_Mercury_Const.h"
-#include "3_field/Field.h"
-#include "4_halo/HaloEdgeOwnerTypes.h"
+#include "3_field/2_MPCNS_Field.h"
+#include "4_halo/Halo_EdgeOwner_Type.h"
 
 struct SolverFields
 {
@@ -18,16 +17,19 @@ struct SolverFields
     IdTriplet fid_metric;     // (xi,eta,zeta) <- (JDxi,JDet,JDze)
     IdTriplet fid_pinvGT;     // (pinvGT_xi, pinvGT_eta, pinvGT_zeta)  ncomp=9
     IdTriplet fid_pinvAT;     // (pinvAT_xi, pinvAT_eta, pinvAT_zeta)  ncomp=9
+    int fid_Bcell_from_Bface_w = -1; // Cell ncomp=18
+    int fid_Jcell_from_Jedge_w = -1; // Cell ncomp=36
 
     // Face metrics:
     IdTriplet Face_Area;   // Face: |S_xi|  |S_eta| |S_ze| ncomp = 1
     IdTriplet Face_dlstar; // Face: |l*_xi|  |l*_eta| |l*_ze| ncomp = 1
-    IdTriplet Hodge_star_2form_to_1form_face;   // Face lumped Hodge: 2-form -> 1-form, |l*|/|S|
+    IdTriplet Face_beta;   // Face: beta=  |l*_|/|S_| ncomp = 1
+    IdTriplet Face_projector; // Face tangent projectors, ncomp = 6
     // Edge metrics:
     IdTriplet Edge_metric; // Edge: S*_xi  S*_eta S*_ze ncomp = 3
     IdTriplet Edge_Astar;  // Edge: |S*_xi|  |S*_eta| |S*_ze| ncomp = 1
     IdTriplet Edge_dl;     // Edge: |e_xi|  |e_eta| |e_ze| ncomp = 1
-    IdTriplet Hodge_star_inverse_2form_to_1form_edge; // Edge lumped inverse Hodge scale, |e|/|S*|
+    IdTriplet Edge_alpha;  // Edge: beta=  |l*_|/|S_| ncomp = 1
     IdTriplet Edge_dr;     // Edge: dr_xi  dr_eta dr_zeta  ncomp = 3
 
     // ---- field ids ----
@@ -37,6 +39,7 @@ struct SolverFields
     IdTriplet fid_E;     // (xi,eta,zeta) <- (E_xi,E_eta,E_zeta)
     IdTriplet fid_Eface; // (xi,eta,zeta) <- (E_xi,E_eta,E_zeta)
     IdTriplet fid_Ehall; // (xi,eta,zeta) <- (E_xi,E_eta,E_zeta)
+    IdTriplet fid_Eres;  // (xi,eta,zeta) <- (Eres_xi,Eres_eta,Eres_zeta)
     IdTriplet fid_J;     // (xi,eta,zeta) <- (J_xi,J_eta,J_zeta)
 
     // ---- auxiliary ----
@@ -56,6 +59,7 @@ struct SolverFields
     int fid_RHS_H = -1;
     int fid_RHS_Na = -1;
     IdTriplet fid_RHS_b;
+    IdTriplet fid_RHS_b_res;
     int fid_U_plus = -1;
     // int fid_old_U = -1;
     int fid_divB = -1;
@@ -94,6 +98,8 @@ struct SolverFields
         fid_pinvAT.zeta = fld->field_id("pinvAT_zeta");
 
         fid_pinvGT_Cell = fld->field_id("pinvGT_cell");
+        fid_Bcell_from_Bface_w = fld->field_id("Bcell_from_Bface_w");
+        fid_Jcell_from_Jedge_w = fld->field_id("Jcell_from_Jedge_w");
 
         Face_Area.xi = fld->field_id("Area_xi");
         Face_Area.eta = fld->field_id("Area_eta");
@@ -101,9 +107,12 @@ struct SolverFields
         Face_dlstar.xi = fld->field_id("dlstar_xi");
         Face_dlstar.eta = fld->field_id("dlstar_eta");
         Face_dlstar.zeta = fld->field_id("dlstar_zeta");
-        Hodge_star_2form_to_1form_face.xi = fld->field_id("Hodge_star_2form_to_1form_face_xi_lumped");
-        Hodge_star_2form_to_1form_face.eta = fld->field_id("Hodge_star_2form_to_1form_face_eta_lumped");
-        Hodge_star_2form_to_1form_face.zeta = fld->field_id("Hodge_star_2form_to_1form_face_zeta_lumped");
+        Face_beta.xi = fld->field_id("beta_xi");
+        Face_beta.eta = fld->field_id("beta_eta");
+        Face_beta.zeta = fld->field_id("beta_zeta");
+        Face_projector.xi = fld->field_id("Pface_xi");
+        Face_projector.eta = fld->field_id("Pface_eta");
+        Face_projector.zeta = fld->field_id("Pface_zeta");
         Edge_metric.xi = fld->field_id("Sstar_xi");
         Edge_metric.eta = fld->field_id("Sstar_eta");
         Edge_metric.zeta = fld->field_id("Sstar_zeta");
@@ -113,9 +122,9 @@ struct SolverFields
         Edge_dl.xi = fld->field_id("dl_xi");
         Edge_dl.eta = fld->field_id("dl_eta");
         Edge_dl.zeta = fld->field_id("dl_zeta");
-        Hodge_star_inverse_2form_to_1form_edge.xi = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_xi_lumped");
-        Hodge_star_inverse_2form_to_1form_edge.eta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_eta_lumped");
-        Hodge_star_inverse_2form_to_1form_edge.zeta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
+        Edge_alpha.xi = fld->field_id("alpha_xi");
+        Edge_alpha.eta = fld->field_id("alpha_eta");
+        Edge_alpha.zeta = fld->field_id("alpha_zeta");
 
         Edge_dr.xi = fld->field_id("dr_xi");
         Edge_dr.eta = fld->field_id("dr_eta");
@@ -135,6 +144,10 @@ struct SolverFields
         fid_Ehall.xi = fld->field_id("Ehall_xi");
         fid_Ehall.eta = fld->field_id("Ehall_eta");
         fid_Ehall.zeta = fld->field_id("Ehall_zeta");
+
+        fid_Eres.xi = fld->field_id("Eres_xi");
+        fid_Eres.eta = fld->field_id("Eres_eta");
+        fid_Eres.zeta = fld->field_id("Eres_zeta");
 
         fid_Eface.xi = fld->field_id("Eface_xi");
         fid_Eface.eta = fld->field_id("Eface_eta");
@@ -166,6 +179,9 @@ struct SolverFields
         fid_RHS_b.xi = fld->field_id("RHS_B_xi");
         fid_RHS_b.eta = fld->field_id("RHS_B_eta");
         fid_RHS_b.zeta = fld->field_id("RHS_B_zeta");
+        fid_RHS_b_res.xi = fld->field_id("RHS_Bres_xi");
+        fid_RHS_b_res.eta = fld->field_id("RHS_Bres_eta");
+        fid_RHS_b_res.zeta = fld->field_id("RHS_Bres_zeta");
         fid_U_plus = fld->field_id("U_plus");
         // fid_old_U = fld->field_id("old_U_");
         fid_divB = fld->field_id("divB");
@@ -216,18 +232,21 @@ struct SolverFields
         // ---- geometry ----
         require_id(fid_Jac, "Jac");
         require_id(fid_pinvGT_Cell, "pinvGT_Cell");
+        require_id(fid_Bcell_from_Bface_w, "Bcell_from_Bface_w");
+        require_id(fid_Jcell_from_Jedge_w, "Jcell_from_Jedge_w");
         fid_metric.require_all("metric(JDxi/JDet/JDze)");
         fid_pinvGT.require_all("pinvGT(edge)");
         fid_pinvAT.require_all("pinvAT(edge)");
 
         Face_Area.require_all("Face_Area");
         Face_dlstar.require_all("Face_dlstar");
-        Hodge_star_2form_to_1form_face.require_all("Hodge_star_2form_to_1form_face");
+        Face_beta.require_all("Face_beta");
+        Face_projector.require_all("Face_projector");
 
         Edge_metric.require_all("Edge_metric");
         Edge_Astar.require_all("Edge_Astar");
         Edge_dl.require_all("Edge_dl");
-        Hodge_star_inverse_2form_to_1form_edge.require_all("Hodge_star_inverse_2form_to_1form_edge");
+        Edge_alpha.require_all("Edge_alpha");
 
         Edge_dr.require_all("Edge_dr");
 
@@ -237,6 +256,7 @@ struct SolverFields
         fid_B.require_all("B_xi/B_eta/B_zeta");
         fid_E.require_all("E_xi/E_eta/E_zeta");
         fid_Ehall.require_all("Ehall_xi/Ehall_eta/Ehall_zeta");
+        fid_Eres.require_all("Eres_xi/Eres_eta/Eres_zeta");
         fid_Eface.require_all("Eface_xi/Eface_eta/Eface_zeta");
         fid_J.require_all("J_xi/J_eta/J_zeta");
 
@@ -255,6 +275,7 @@ struct SolverFields
         require_id(fid_RHS_H, "RHS_H");
         require_id(fid_RHS_Na, "RHS_Na");
         fid_RHS_b.require_all("Flux(RHS_B_xi/RHS_B_eta/RHS_B_zeta)");
+        fid_RHS_b_res.require_all("Flux(RHS_Bres_xi/RHS_Bres_eta/RHS_Bres_zeta)");
         require_id(fid_U_plus, "U_plus");
         // require_id(fid_old_U, "old_U_");
         require_id(fid_divB, "divB");
@@ -262,10 +283,5 @@ struct SolverFields
 
         // require_id(fid_RHS_U, "RHS");
         // fid_RHS_Bface.require_all("RHS_B_face(RHS_xi/eta/zeta)");
-        fid_dJ.require_all("dJ_xi/dJ_eta/dJ_zeta");
-        fid_dB.require_all("dB_xi/dB_eta/dB_zeta");
-        fid_dE.require_all("dE_xi/dE_eta/dE_zeta");
-        fid_dEpre.require_all("dEpre_xi/dEpre_eta/dEpre_zeta");
-        require_id(fid_dJcell, "dJ_cell");
     }
 };

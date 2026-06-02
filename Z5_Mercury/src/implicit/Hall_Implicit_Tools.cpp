@@ -39,6 +39,12 @@ void ImplicitHallSolver::ClearFaceTriplet_(const IdTriplet &fid_triplet)
     }
 }
 
+bool ImplicitHallSolver::IsFluidBlock_(int ib) const
+{
+    const auto &B = fld_->field(fid_.fid_B.xi, ib);
+    return B.is_allocated() && B.get_block().block_name == "Fluid";
+}
+
 void ImplicitHallSolver::CopyEhallToE_()
 {
     const int nb = fld_->num_blocks();
@@ -127,6 +133,9 @@ void ImplicitHallSolver::AddFaceInnerFromRHS_(int fid_B, int fid_RHS, double fac
 {
     for (int ib = 0; ib < fld_->num_blocks(); ++ib)
     {
+        if (!IsFluidBlock_(ib))
+            continue;
+
         auto &B = fld_->field(fid_B, ib);
         auto &R = fld_->field(fid_RHS, ib);
         if (!B.is_allocated())
