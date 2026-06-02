@@ -190,8 +190,10 @@ namespace HALO_OWNER
                 auto it_owner = equiv.edge_owner.find(key);
                 if (it_owner == equiv.edge_owner.end())
                 {
-                    throw std::runtime_error(
-                        "build_edge_owner_sync_pattern: local key missing in equiv.edge_owner.");
+                    // edge2key also contains private local edges.  Those
+                    // edges do not participate in owner-alias sync and have
+                    // no entry in edge_owner by construction.
+                    continue;
                 }
 
                 const TOPO::EntityKey &owner = it_owner->second;

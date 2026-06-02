@@ -159,7 +159,7 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"Na", StaggerLocation::Cell, 1, UseRuntimeGhost, "Fluid"},
         {"Photo_rate", StaggerLocation::Cell, 1, UseRuntimeGhost, "Fluid"},
         {"U_plus", StaggerLocation::Cell, 3, UseRuntimeGhost, "Fluid",
-         FieldSyncContract{}, FieldValueKind::CartesianVector},
+         SyncContract("Uplus", false, false, true), FieldValueKind::CartesianVector},
         {"PV_H", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid"},
         {"PV_Na", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid"},
         {"Bcell_from_Bface_w", StaggerLocation::Cell, 18, UseRuntimeGhost, ""},

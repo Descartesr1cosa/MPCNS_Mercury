@@ -665,11 +665,10 @@ void MercuryBoundary::InstallDefaultGroups()
     BoundGroup gUplus;
     gUplus.name = "Uplus";
     gUplus.fields = {"U_plus"};
-    gUplus.do_coupling = true;
+    gUplus.do_coupling = false;
     gUplus.do_physical = false;
     gUplus.do_halo = true;
     gUplus.halo_level = HaloLevel::Vertex;
-    gUplus.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gUplus);
 
     BoundGroup gdE;

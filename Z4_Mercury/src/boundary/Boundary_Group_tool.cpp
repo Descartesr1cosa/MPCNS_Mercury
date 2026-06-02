@@ -22,7 +22,7 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
         for (auto field_name : g.fields)
         {
             int temp_num = -1;
-            for (int cid = 0; ch.size(); cid++)
+            for (int cid = 0; cid < static_cast<int>(ch.size()); cid++)
             {
                 if (ch[cid].tag == field_name)
                 {
