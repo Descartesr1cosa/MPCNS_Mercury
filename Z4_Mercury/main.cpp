@@ -11,6 +11,7 @@
 #include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
+#include "4_halo/HaloEdgeOwner.h"
 
 #include "MercurySolver.h"
 
@@ -30,9 +31,7 @@ int main(int arg, char **argv)
     int myid;
     PARALLEL::mpi_initial(arg, argv);
     PARALLEL::mpi_rank(&myid);
-#if HALL_IMPLICIT == 1
     PetscInitialize(&arg, &argv, NULL, NULL); // 再 PETSc 初始化
-#endif
     //=============================================================================================
     {
         //=============================================================================================
@@ -59,14 +58,14 @@ int main(int arg, char **argv)
         hal->set_topology_equiv(&topology);
         MercurySolver::RegisterHaloFields(fld, hal);
         //--------------------------------------------------------------------------
-        // Z4 uses Halo synchronization framework owner-sync patterns.
-        // The legacy HALO_OWNER::EdgeOwnerSyncPattern is intentionally not built here.
+        HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pat;
+        HALO_OWNER::build_edge_owner_sync_pattern(topology, edge_owner_pat);
         //=============================================================================================
 
         //=============================================================================================
         MercurySolver solver(grd, &topology, fld, hal, par,
                              &topology,
-                             nullptr);
+                             &edge_owner_pat);
         solver.Advance();
         if (myid == 0)
             std::cout << "Program is finished normally ! !  ^_^\n"
@@ -85,9 +84,7 @@ int main(int arg, char **argv)
     //--------------------------------------------------------------------------
     // MPI finalization
 
-#if HALL_IMPLICIT == 1
     PetscFinalize(); // 先 PETSc finalize
-#endif
     PARALLEL::mpi_finalize();
     return 0;
 }

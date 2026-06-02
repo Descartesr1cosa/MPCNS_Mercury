@@ -45,6 +45,17 @@ namespace
         throw std::runtime_error("edge_fid_from_dir: invalid edge direction.");
     }
 
+    int edge_dir(const TOPO::EntityKey &edge)
+    {
+        if (edge.axis == TOPO::EntityAxis::Xi)
+            return 1;
+        if (edge.axis == TOPO::EntityAxis::Eta)
+            return 2;
+        if (edge.axis == TOPO::EntityAxis::Zeta)
+            return 3;
+        throw std::runtime_error("edge_dir: invalid edge axis.");
+    }
+
     void setup_like_face_snapshot(Scalar &buf, FieldBlock &F)
     {
         if (!F.is_allocated())
@@ -171,15 +182,16 @@ void MercurySolver::BuildImplicitResistiveEdgeDofMap_()
     implicit_resistive_local_.assign(implicit_resistive_dofs_.size(), 0.0);
 }
 
-double MercurySolver::ImplicitResistiveEtaAtEdge_(const TOPO::EdgeLocalID &e) const
+double MercurySolver::ImplicitResistiveEtaAtEdge_(const TOPO::EntityKey &e) const
 {
-    const int fid_edge = edge_fid_from_dir(fid_.fid_Eres, e.dir);
-    auto &E = fld_->field(fid_edge, e.gblock);
+    const int dir = edge_dir(e);
+    const int fid_edge = edge_fid_from_dir(fid_.fid_Eres, dir);
+    auto &E = fld_->field(fid_edge, e.block);
     if (!E.is_allocated())
         return 0.0;
 
-    const int fid_dl = edge_fid_from_dir(fid_.Edge_dl, e.dir);
-    auto &dl = fld_->field(fid_dl, e.gblock);
+    const int fid_dl = edge_fid_from_dir(fid_.Edge_dl, dir);
+    auto &dl = fld_->field(fid_dl, e.block);
     if (!dl.is_allocated())
         return 0.0;
 
@@ -187,13 +199,13 @@ double MercurySolver::ImplicitResistiveEtaAtEdge_(const TOPO::EdgeLocalID &e) co
     if (std::abs(dl(e.i, e.j, e.k, 0)) <= collapsed_edge_len)
         return 0.0;
 
-    const int di = (e.dir == 1) ? 1 : 0;
-    const int dj = (e.dir == 2) ? 1 : 0;
-    const int dk = (e.dir == 3) ? 1 : 0;
+    const int di = (dir == 1) ? 1 : 0;
+    const int dj = (dir == 2) ? 1 : 0;
+    const int dk = (dir == 3) ? 1 : 0;
 
-    auto &x = grd_->grids(e.gblock).x;
-    auto &y = grd_->grids(e.gblock).y;
-    auto &z = grd_->grids(e.gblock).z;
+    auto &x = grd_->grids(e.block).x;
+    auto &y = grd_->grids(e.block).y;
+    auto &z = grd_->grids(e.block).z;
 
     const double xm = 0.5 * (x(e.i, e.j, e.k) + x(e.i + di, e.j + dj, e.k + dk));
     const double ym = 0.5 * (y(e.i, e.j, e.k) + y(e.i + di, e.j + dj, e.k + dk));
@@ -271,8 +283,8 @@ void MercurySolver::UnpackVecToImplicitEres_(Vec X)
     for (PetscInt lid = 0; lid < static_cast<PetscInt>(implicit_resistive_dofs_.size()); ++lid)
     {
         const auto &dof = implicit_resistive_dofs_[static_cast<size_t>(lid)];
-        const int fid_edge = edge_fid_from_dir(fid_.fid_Eres, dof.edge.dir);
-        auto &E = fld_->field(fid_edge, dof.edge.gblock);
+        const int fid_edge = edge_fid_from_dir(fid_.fid_Eres, edge_dir(dof.edge));
+        auto &E = fld_->field(fid_edge, dof.edge.block);
         E(dof.edge.i, dof.edge.j, dof.edge.k, 0) = static_cast<double>(xarr[lid]);
     }
 
@@ -353,7 +365,7 @@ void MercurySolver::PackImplicitJedgeToVec_(Vec v, const IdTriplet &fid_Jedge,
     for (PetscInt lid = 0; lid < static_cast<PetscInt>(implicit_resistive_dofs_.size()); ++lid)
     {
         const auto &dof = implicit_resistive_dofs_[static_cast<size_t>(lid)];
-        auto &Jedge = fld_->field(edge_fid_from_dir(fid_Jedge, dof.edge.dir), dof.edge.gblock);
+        auto &Jedge = fld_->field(edge_fid_from_dir(fid_Jedge, edge_dir(dof.edge)), dof.edge.block);
         const double J1form = Jedge.is_allocated()
                                   ? Jedge(dof.edge.i, dof.edge.j, dof.edge.k, 0)
                                   : 0.0;
@@ -404,8 +416,8 @@ PetscErrorCode MercurySolver::MatMultImplicitResistive_(Mat A, Vec X, Vec Y)
         for (PetscInt lid = 0; lid < static_cast<PetscInt>(S->implicit_resistive_dofs_.size()); ++lid)
         {
             const auto &dof = S->implicit_resistive_dofs_[static_cast<size_t>(lid)];
-            auto &Eres = S->fld_->field(edge_fid_from_dir(S->fid_.fid_Eres, dof.edge.dir), dof.edge.gblock);
-            auto &dJ = S->fld_->field(edge_fid_from_dir(S->fid_.fid_dJ, dof.edge.dir), dof.edge.gblock);
+            auto &Eres = S->fld_->field(edge_fid_from_dir(S->fid_.fid_Eres, edge_dir(dof.edge)), dof.edge.block);
+            auto &dJ = S->fld_->field(edge_fid_from_dir(S->fid_.fid_dJ, edge_dir(dof.edge)), dof.edge.block);
 
             const double E1form = Eres.is_allocated()
                                       ? Eres(dof.edge.i, dof.edge.j, dof.edge.k, 0)

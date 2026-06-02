@@ -1,8 +1,0 @@
-LIST==================================================================
-Boundary_Priority      5
-(int)
-Pole                   Outflow     Absorbing   Solid_Surface   Farfield
-0                      4           2           3               1
-LIST==================================================================
-
-END_OF_FILE

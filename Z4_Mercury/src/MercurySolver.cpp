@@ -103,7 +103,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     // ---- Boundary ----
     {
         std::vector<std::string> bnd_fields = fld_->boundary_field_names();
-        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields, edge_owner_pat_);
+        mercury_bound_.Setup(grd_, fld_, topo_, halo_, par_, bnd_fields);
     }
 
     // ---- Initialization ----
@@ -142,7 +142,21 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     runtime_data_->Begin(*run_data_, par_, count_global_cells());
 
+    resist_control.is_Mercury_resistance = par_->GetBoo("is_Mercury_resistance");
+    resist_control.use_implicit_mercury_resistance = par_->GetBoo("use_implicit_mercury_resistance");
+    resist_control.n_subcycles = std::max(1, par_->GetInt("n_resistive_subcycles"));
+    resist_control.implicit_ksp_rtol = par_->GetDou("implicit_resistive_ksp_rtol");
+    resist_control.implicit_ksp_atol = par_->GetDou("implicit_resistive_ksp_atol");
+    resist_control.implicit_ksp_max_it = par_->GetInt("implicit_resistive_ksp_max_it");
+
+    arti_resist_control.eta_max = par_->GetDou("arti_eta_max");
+    arti_resist_control.J_range_start = par_->GetDou("J_range_start");
+    arti_resist_control.J_range_on = par_->GetDou("J_range_on");
+
     SetupHallFaceScratch_();
+
+    if (resist_control.use_implicit_mercury_resistance)
+        SetupImplicitResistiveDiffusion_();
 
 #if HALL_IMPLICIT == 1
     if (!topo_equiv_ || !edge_owner_pat_)
@@ -211,6 +225,11 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     hall_implicit_.InitializePetsc();
 
 #endif
+}
+
+MercurySolver::~MercurySolver()
+{
+    DestroyImplicitResistiveDiffusion_();
 }
 
 void MercurySolver::SetupHallFaceScratch_()
@@ -394,8 +413,7 @@ void MercurySolver::SetupHallFaceScratch_()
             if (!Bc.is_allocated())
                 continue;
 
-            auto &buf = hall_face_scratch_[ib];
-            auto &W = buf.dBcell_w;
+            auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
             auto &JDxi = fld_->field(fid_.fid_metric.xi, ib);
             auto &JDet = fld_->field(fid_.fid_metric.eta, ib);
@@ -726,8 +744,7 @@ void MercurySolver::SetupHallFaceScratch_()
             if (!Jc.is_allocated())
                 continue;
 
-            auto &buf = hall_face_scratch_[ib];
-            auto &W = buf.dJcell_w;
+            auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
             auto &x = grd_->grids(ib).x;
             auto &y = grd_->grids(ib).y;

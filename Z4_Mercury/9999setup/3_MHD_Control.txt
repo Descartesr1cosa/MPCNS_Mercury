@@ -1,16 +1,24 @@
-
-int	num_of_dipole		1
+// intrinsic magnetic field
+int     num_of_dipole                   1
 
 LIST==================================================================
-Dipole1		7
+Dipole1         7
 (double)
-x0			y0			z0		mx		my		mz		a
-0.0			0.0			4.79e5	0.0		0.0		-2.83E19	5.0e2
+x0              y0              z0          mx          my          mz          a
+0.0             0.0             4.88e5      0.0         0.0         -2.83E19    5.0e2
 LIST==================================================================
 
-LIST==================================================================
-Dipole2		7
-(double)
-x0			y0			z0		mx		my		mz		a
-0.0			0.0			1720e3	0.0		0.0		1.0e12	5.0e3
-LIST==================================================================
+// Mercury interior resistivity
+bool    is_Mercury_resistance           1
+bool    use_implicit_mercury_resistance 1
+int     n_resistive_subcycles           1
+double  implicit_resistive_ksp_rtol     5.0e-4
+double  implicit_resistive_ksp_atol     5.0e-1
+int     implicit_resistive_ksp_max_it   20
+
+// artificial resistivity limiter
+double  arti_eta_max                    0.00
+double  J_range_start                   800.0
+double  J_range_on                      3000.0
+
+END_OF_FILE

@@ -202,7 +202,7 @@ void MercurySolver::Scheme_U_()
 }
 
 // 添加 Fortran source_species 中对流体 dq 的“生效项”
-// 依赖字段：U_H/U_Na, PV_H/PV_Na, U_plus, B_cell, U_b(用于curl), Na(neutral), Photo_rate, Jac, metric(Axi/Aet/Aze)
+// 依赖字段：U_H/U_Na, PV_H/PV_Na, U_plus, B_cell, J_cell, Na(neutral), Photo_rate, Jac, metric(Axi/Aet/Aze)
 void MercurySolver::AddSourceToRHS_Fluid()
 {
     // ---------- constants  ----------
@@ -337,8 +337,8 @@ void MercurySolver::AddSourceToRHS_Fluid()
                     NumInfo num = Hall_Num_Limiter(UH(i, j, k, 0), UNa(i, j, k, 0));
                     const double nH = num.nH_true;
                     const double nNa = num.nNa_true;
-                    const double chi_H = num.chiH;
-                    const double chi_Na = num.chiNa;
+                    const double chi_H = num.wH_mhd;   // chiH;
+                    const double chi_Na = num.wNa_mhd; // chi_Na;
 
                     // // ---------- Hall coefficient (same convention as induction) ----------
                     // const double nH_hall = UH(i, j, k, 0) / M_H;

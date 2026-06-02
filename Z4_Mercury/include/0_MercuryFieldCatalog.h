@@ -109,6 +109,15 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"Ehall_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
          SyncContract("Ehall", true, true, true, HaloLevel::Vertex, OwnerSyncPolicy::EdgeOwner, true),
          FieldValueKind::EdgeCovariant1Form},
+        {"Eres_xi", StaggerLocation::EdgeXi, 1, UseRuntimeGhost, "",
+         SyncContract("Eres", true, true, true, HaloLevel::Vertex, OwnerSyncPolicy::EdgeOwner, true),
+         FieldValueKind::EdgeCovariant1Form},
+        {"Eres_eta", StaggerLocation::EdgeEt, 1, UseRuntimeGhost, "",
+         SyncContract("Eres", true, true, true, HaloLevel::Vertex, OwnerSyncPolicy::EdgeOwner, true),
+         FieldValueKind::EdgeCovariant1Form},
+        {"Eres_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
+         SyncContract("Eres", true, true, true, HaloLevel::Vertex, OwnerSyncPolicy::EdgeOwner, true),
+         FieldValueKind::EdgeCovariant1Form},
         {"Eface_xi", StaggerLocation::FaceXi, 3, UseRuntimeGhost, "",
          SyncContract("Eface", true, true, true),
          FieldValueKind::CartesianVector},
@@ -153,6 +162,8 @@ inline std::vector<FieldSpec> FieldSpecs()
          FieldSyncContract{}, FieldValueKind::CartesianVector},
         {"PV_H", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid"},
         {"PV_Na", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid"},
+        {"Bcell_from_Bface_w", StaggerLocation::Cell, 18, UseRuntimeGhost, ""},
+        {"Jcell_from_Jedge_w", StaggerLocation::Cell, 36, UseRuntimeGhost, ""},
 
         // Work fields with no halo contract.
         {"F_xi", StaggerLocation::FaceXi, 5, 0, "Fluid"},
@@ -163,6 +174,9 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"RHS_B_xi", StaggerLocation::FaceXi, 1, 0, ""},
         {"RHS_B_eta", StaggerLocation::FaceEt, 1, 0, ""},
         {"RHS_B_zeta", StaggerLocation::FaceZe, 1, 0, ""},
+        {"RHS_Bres_xi", StaggerLocation::FaceXi, 1, 0, ""},
+        {"RHS_Bres_eta", StaggerLocation::FaceEt, 1, 0, ""},
+        {"RHS_Bres_zeta", StaggerLocation::FaceZe, 1, 0, ""},
         {"divB", StaggerLocation::Cell, 1, 1, ""},
 
         // Hall implicit increment and predictor fields.

@@ -58,7 +58,7 @@ namespace CTOperators
     // face F (scalar) -> edge E (scalars per edge) = curl F * multiper, in fact circulation , and Hodge *:2form -> 1form is required
     void CurlAdjFaceToEdge(int iblk,
                            FieldBlock &Face_xi, FieldBlock &Face_eta, FieldBlock &Face_zeta,
-                           FieldBlock &Hodge_star_2form_to_1form_face_xi, FieldBlock &Hodge_star_2form_to_1form_face_eta, FieldBlock &Hodge_star_2form_to_1form_face_zeta,
+                           FieldBlock &beta_xi, FieldBlock &beta_eta, FieldBlock &beta_zeta,
                            FieldBlock &Edge_xi, FieldBlock &Edge_eta, FieldBlock &Edge_zeta, double multiper)
     {
         // (void)iblk;
@@ -72,8 +72,8 @@ namespace CTOperators
                     for (int k = sub.k; k < sup.k; ++k)
                     {
                         const double val =
-                            (Hodge_star_2form_to_1form_face_eta(i, j, k - 1, 0) * Face_eta(i, j, k - 1, 0) - Hodge_star_2form_to_1form_face_eta(i, j, k, 0) * Face_eta(i, j, k, 0)) +
-                            (Hodge_star_2form_to_1form_face_zeta(i, j, k, 0) * Face_zeta(i, j, k, 0) - Hodge_star_2form_to_1form_face_zeta(i, j - 1, k, 0) * Face_zeta(i, j - 1, k, 0));
+                            (beta_eta(i, j, k - 1, 0) * Face_eta(i, j, k - 1, 0) - beta_eta(i, j, k, 0) * Face_eta(i, j, k, 0)) +
+                            (beta_zeta(i, j, k, 0) * Face_zeta(i, j, k, 0) - beta_zeta(i, j - 1, k, 0) * Face_zeta(i, j - 1, k, 0));
                         Edge_xi(i, j, k, 0) = multiper * val;
                     }
         }
@@ -87,8 +87,8 @@ namespace CTOperators
                     for (int k = sub.k; k < sup.k; ++k)
                     {
                         const double val =
-                            (Hodge_star_2form_to_1form_face_xi(i, j, k, 0) * Face_xi(i, j, k, 0) - Hodge_star_2form_to_1form_face_xi(i, j, k - 1, 0) * Face_xi(i, j, k - 1, 0)) +
-                            (Hodge_star_2form_to_1form_face_zeta(i - 1, j, k, 0) * Face_zeta(i - 1, j, k, 0) - Hodge_star_2form_to_1form_face_zeta(i, j, k, 0) * Face_zeta(i, j, k, 0));
+                            (beta_xi(i, j, k, 0) * Face_xi(i, j, k, 0) - beta_xi(i, j, k - 1, 0) * Face_xi(i, j, k - 1, 0)) +
+                            (beta_zeta(i - 1, j, k, 0) * Face_zeta(i - 1, j, k, 0) - beta_zeta(i, j, k, 0) * Face_zeta(i, j, k, 0));
                         Edge_eta(i, j, k, 0) = multiper * val;
                     }
         }
@@ -102,8 +102,8 @@ namespace CTOperators
                     for (int k = sub.k; k < sup.k; ++k)
                     {
                         const double val =
-                            (Hodge_star_2form_to_1form_face_xi(i, j - 1, k, 0) * Face_xi(i, j - 1, k, 0) - Hodge_star_2form_to_1form_face_xi(i, j, k, 0) * Face_xi(i, j, k, 0)) +
-                            (Hodge_star_2form_to_1form_face_eta(i, j, k, 0) * Face_eta(i, j, k, 0) - Hodge_star_2form_to_1form_face_eta(i - 1, j, k, 0) * Face_eta(i - 1, j, k, 0));
+                            (beta_xi(i, j - 1, k, 0) * Face_xi(i, j - 1, k, 0) - beta_xi(i, j, k, 0) * Face_xi(i, j, k, 0)) +
+                            (beta_eta(i, j, k, 0) * Face_eta(i, j, k, 0) - beta_eta(i - 1, j, k, 0) * Face_eta(i - 1, j, k, 0));
                         Edge_zeta(i, j, k, 0) = multiper * val;
                     }
         }
