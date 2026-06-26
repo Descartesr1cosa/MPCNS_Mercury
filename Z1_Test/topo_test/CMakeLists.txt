@@ -1,12 +1,11 @@
 cmake_minimum_required(VERSION 3.5)
-project(Z1_Topo_Test)
+project(Z1_Topo_Test CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(MPI REQUIRED)
+find_package(MPI REQUIRED COMPONENTS CXX)
 
-include_directories(${MPI_INCLUDE_PATH})
 include_directories(../../include)
 include_directories(.)
 
@@ -20,4 +19,4 @@ add_executable(topo_test
     ${DIRSRCS1}
     ${DIRSRCS2})
 
-target_link_libraries(topo_test PRIVATE ${MPI_LIBRARIES} stdc++fs)
+target_link_libraries(topo_test PRIVATE MPI::MPI_CXX stdc++fs)
