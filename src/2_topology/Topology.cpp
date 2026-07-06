@@ -891,16 +891,169 @@ namespace TOPO
                 equiv.cell_to_id[global_keys[n]] = static_cast<int>(n);
         }
 
+        using FaceEdgeStencil = std::map<EdgeKey, int>;
+        constexpr int kFaceStencilMaxEntries = 4;
+        constexpr int kPackedFaceStencilEntrySize = 11; // EdgeKey(10) + coefficient(1)
+        constexpr int kPackedFaceOwnerCandidateSize =
+            20 + 6 + 1 + kFaceStencilMaxEntries * kPackedFaceStencilEntrySize;
+
+        inline void add_stencil_term(FaceEdgeStencil &stencil, const EdgeKey &edge, int sign)
+        {
+            const int coefficient = (stencil[edge] += sign);
+            if (coefficient == 0)
+                stencil.erase(edge);
+        }
+
+        FaceEdgeStencil face_boundary_stencil_to_canonical_edges(
+            const Topology &equiv,
+            const EntityKey &face,
+            const char *context)
+        {
+            FaceEdgeStencil stencil;
+            for (const IncidenceEntry &entry : boundary_of_face(face))
+            {
+                int8_t edge_sign = 0;
+                EdgeKey edge_key{};
+                try
+                {
+                    edge_key = make_edge_key(entry.entity, equiv.node2eq, edge_sign);
+                }
+                catch (const std::exception &error)
+                {
+                    std::ostringstream oss;
+                    oss << context << ": cannot build boundary edge key"
+                        << " face=(" << face.rank << "," << face.block << ","
+                        << face.i << "," << face.j << "," << face.k
+                        << ",axis=" << axis_number(face.axis) << ")"
+                        << " edge=(" << entry.entity.rank << "," << entry.entity.block << ","
+                        << entry.entity.i << "," << entry.entity.j << "," << entry.entity.k
+                        << ",axis=" << axis_number(entry.entity.axis) << ")"
+                        << " reason=" << error.what();
+                    throw std::runtime_error(oss.str());
+                }
+
+                add_stencil_term(
+                    stencil,
+                    edge_key,
+                    entry.sign * static_cast<int>(edge_sign));
+            }
+            return stencil;
+        }
+
+        void pack_face_stencil(std::vector<int> &buf, const FaceEdgeStencil &stencil)
+        {
+            if (stencil.size() > kFaceStencilMaxEntries)
+                throw std::runtime_error("build_topology: face stencil has more than four edge entries.");
+
+            buf.push_back(static_cast<int>(stencil.size()));
+
+            int packed_entries = 0;
+            for (const auto &[edge_key, coefficient] : stencil)
+            {
+                pack_edge_key(buf, edge_key);
+                buf.push_back(coefficient);
+                ++packed_entries;
+            }
+
+            for (; packed_entries < kFaceStencilMaxEntries; ++packed_entries)
+            {
+                for (int n = 0; n < kPackedFaceStencilEntrySize; ++n)
+                    buf.push_back(0);
+            }
+        }
+
+        FaceEdgeStencil unpack_face_stencil(const int *p)
+        {
+            const int count = p[0];
+            if (count < 0 || count > kFaceStencilMaxEntries)
+                throw std::runtime_error("build_topology: packed face stencil entry count is invalid.");
+
+            FaceEdgeStencil stencil;
+            const int *entry = p + 1;
+            for (int n = 0; n < count; ++n)
+            {
+                const EdgeKey edge_key = unpack_edge_key(entry);
+                const int coefficient = entry[10];
+                add_stencil_term(stencil, edge_key, coefficient);
+                entry += kPackedFaceStencilEntrySize;
+            }
+            return stencil;
+        }
+
         inline void pack_face_owner_candidate(
             std::vector<int> &buf,
             const FaceKey &key,
             const EntityKey &f,
-            int8_t sign)
+            const FaceEdgeStencil &stencil)
         {
-            // 20 ints for FaceKey + 6 ints for EntityKey + 1 sign = 27 ints
+            // FaceKey(20) + EntityKey(6) + stencil_count(1)
+            // + up to four {EdgeKey(10), coefficient(1)} entries = 71 ints.
             pack_face_key(buf, key);
             pack_face_local(buf, f);
-            buf.push_back(static_cast<int>(sign));
+            pack_face_stencil(buf, stencil);
+        }
+
+        bool opposite_stencil(const FaceEdgeStencil &lhs, const FaceEdgeStencil &rhs)
+        {
+            if (lhs.size() != rhs.size())
+                return false;
+
+            for (const auto &[edge, coefficient] : lhs)
+            {
+                const auto it = rhs.find(edge);
+                if (it == rhs.end() || it->second != -coefficient)
+                    return false;
+            }
+            return true;
+        }
+
+        void orient_face_members_to_owner(
+            Topology &equiv,
+            const FaceKey &key,
+            const EntityKey &owner,
+            const std::vector<EntityKey> &members,
+            const std::unordered_map<EntityKey, FaceEdgeStencil, EntityKey::Hash> &stencils)
+        {
+            const auto owner_stencil_it = stencils.find(owner);
+            if (owner_stencil_it == stencils.end())
+                throw std::runtime_error("build_topology: owner face stencil is missing.");
+            const FaceEdgeStencil &owner_stencil = owner_stencil_it->second;
+
+            equiv.face2sign[owner] = +1;
+
+            for (const EntityKey &member : members)
+            {
+                if (member == owner)
+                    continue;
+
+                const auto member_stencil_it = stencils.find(member);
+                if (member_stencil_it == stencils.end())
+                    throw std::runtime_error("build_topology: member face stencil is missing.");
+                const FaceEdgeStencil &member_stencil = member_stencil_it->second;
+
+                if (member_stencil == owner_stencil)
+                {
+                    equiv.face2sign[member] = +1;
+                }
+                else if (opposite_stencil(member_stencil, owner_stencil))
+                {
+                    equiv.face2sign[member] = -1;
+                }
+                else
+                {
+                    std::ostringstream oss;
+                    oss << "build_topology: face member boundary does not match owner"
+                        << " key_first_corner=(" << key.a.rank << "," << key.a.block << ","
+                        << key.a.i << "," << key.a.j << "," << key.a.k << ")"
+                        << " owner=(" << owner.rank << "," << owner.block << ","
+                        << owner.i << "," << owner.j << "," << owner.k
+                        << ",axis=" << axis_number(owner.axis) << ")"
+                        << " member=(" << member.rank << "," << member.block << ","
+                        << member.i << "," << member.j << "," << member.k
+                        << ",axis=" << axis_number(member.axis) << ")";
+                    throw std::runtime_error(oss.str());
+                }
+            }
         }
 
         inline void select_face_owner_parallel_impl(
@@ -917,9 +1070,12 @@ namespace TOPO
 
                 for (const auto &f : members)
                 {
-                    auto sign_it = equiv.face2sign.find(f);
-                    const int8_t sign = (sign_it != equiv.face2sign.end()) ? sign_it->second : int8_t{+1};
-                    pack_face_owner_candidate(send_buf, key, f, sign);
+                    const FaceEdgeStencil stencil =
+                        face_boundary_stencil_to_canonical_edges(
+                            equiv,
+                            f,
+                            "build_topology: pack face owner candidate");
+                    pack_face_owner_candidate(send_buf, key, f, stencil);
                 }
             }
 
@@ -950,27 +1106,28 @@ namespace TOPO
                 recv_counts.data(),
                 displs.data());
 
-            if (total_recv % 27 != 0)
+            if (total_recv % kPackedFaceOwnerCandidateSize != 0)
             {
                 throw std::runtime_error(
-                    "build_topology: gathered face-candidate int count is not multiple of 27.");
+                    "build_topology: gathered face-candidate int count has invalid record size.");
             }
 
             std::unordered_map<FaceKey, EntityKey, FaceKey::Hash> global_owner;
             std::unordered_map<FaceKey, std::vector<EntityKey>, FaceKey::Hash> global_members;
+            std::unordered_map<EntityKey, FaceEdgeStencil, EntityKey::Hash> global_stencils;
 
-            const int ncand = total_recv / 27;
+            const int ncand = total_recv / kPackedFaceOwnerCandidateSize;
             for (int c = 0; c < ncand; ++c)
             {
-                const int *base = recv_buf.data() + 27 * c;
+                const int *base = recv_buf.data() + kPackedFaceOwnerCandidateSize * c;
 
                 FaceKey key = unpack_face_key(base + 0);
                 EntityKey f = unpack_face_local(base + 20);
-                int8_t sign = static_cast<int8_t>(base[26]);
+                FaceEdgeStencil stencil = unpack_face_stencil(base + 26);
 
-                equiv.face2sign[f] = sign;
                 equiv.face2key[f] = key;
                 global_members[key].push_back(f);
+                global_stencils[f] = std::move(stencil);
 
                 auto it = global_owner.find(key);
                 if (it == global_owner.end() || f < it->second)
@@ -995,6 +1152,8 @@ namespace TOPO
                 }
 
                 const EntityKey &owner = it->second;
+                orient_face_members_to_owner(equiv, key, owner, members, global_stencils);
+
                 equiv.face_owner[key] = owner;
                 equiv.face_members[key] = members;
 

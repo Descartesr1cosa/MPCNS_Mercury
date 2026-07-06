@@ -54,11 +54,9 @@ namespace TOPO
         };
     };
 
-    // Canonical physical face key built from sorted corner EntityKeys.
-    // face2sign below records local orientation relative to the canonical
-    // orientation currently inferred from this sorted-corner construction.
-    // Strict DEC use must validate this convention through global incidence,
-    // in particular D2 * D1 == 0, before changing the construction.
+    // Canonical physical face key built from sorted corner EntityKeys.  The key
+    // identifies the geometric face; orientation is assigned later by comparing
+    // each member's edge-boundary stencil with the selected owner face.
     struct FaceKey
     {
         EntityKey a;
@@ -188,9 +186,9 @@ namespace TOPO
         std::unordered_map<EdgeKey, int, EdgeKey::Hash> edge_key_to_id;
 
         std::unordered_map<EntityKey, FaceKey, EntityKey::Hash> face2key;
-        // Sign of a local face relative to the canonical FaceKey orientation.
-        // It is intentionally retained as the existing sorted-corner parity
-        // result; validate_face_orientation_stencils() is the DEC check hook.
+        // Sign of a local face relative to the selected owner face orientation.
+        // +1 means the member boundary stencil matches the owner; -1 means the
+        // same stencil with all coefficients reversed.
         std::unordered_map<EntityKey, int8_t, EntityKey::Hash> face2sign;
         std::unordered_map<FaceKey, std::vector<EntityKey>, FaceKey::Hash> face_members;
         std::unordered_map<FaceKey, EntityKey, FaceKey::Hash> face_owner;
