@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <ostream>
+#include <sstream>
 #include <vector>
 
 namespace
@@ -603,12 +604,13 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
 int Halo::owner_sync_tag_(const HaloOwnerRequest &req) const
 {
+    const int fid = fld_ ? fld_->field_id(req.field_name) : 0;
     if (req.policy == OwnerSyncPolicy::FaceOwner)
-        return owner_sync_tag_base_ + 1;
+        return owner_sync_tag_base_ + 100 + fid;
     if (req.policy == OwnerSyncPolicy::EdgeOwner)
-        return owner_sync_tag_base_ + 2;
+        return owner_sync_tag_base_ + 200 + fid;
     if (req.policy == OwnerSyncPolicy::NodeOwner)
-        return owner_sync_tag_base_ + 3;
+        return owner_sync_tag_base_ + 300 + fid;
 
     ERROR::Abort("[Halo] owner_sync_tag_: invalid OwnerSyncPolicy for field: " + req.field_name);
     return owner_sync_tag_base_;
@@ -694,6 +696,34 @@ void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
         return;
 
     pack_owner_sync_send_buffer_(pat);
+
+    int nrank = 1;
+    PARALLEL::mpi_size(&nrank);
+    std::vector<int> send_lengths_by_rank(nrank, 0);
+    std::vector<int> recv_lengths_by_rank(nrank, 0);
+    std::vector<int> expected_recv_lengths_by_rank(nrank, 0);
+
+    for (const auto &op : pat.send_ops)
+        send_lengths_by_rank[op.dst_rank] += op.ncomp;
+    for (const auto &op : pat.recv_ops)
+        recv_lengths_by_rank[op.src_rank] += op.ncomp;
+
+    PARALLEL::mpi_alltoall(send_lengths_by_rank.data(), 1,
+                           expected_recv_lengths_by_rank.data(), 1);
+
+    for (int r = 0; r < nrank; ++r)
+    {
+        if (recv_lengths_by_rank[r] != expected_recv_lengths_by_rank[r])
+        {
+            std::ostringstream oss;
+            oss << "[Halo] owner sync length mismatch field=" << pat.field_name
+                << " policy=" << owner_sync_policy_name(pat.policy)
+                << " peer_rank=" << r
+                << " posted_recv_len=" << recv_lengths_by_rank[r]
+                << " expected_from_peer_send_len=" << expected_recv_lengths_by_rank[r];
+            ERROR::Abort(oss.str());
+        }
+    }
 
     std::vector<MPI_Request> recv_requests;
     std::vector<MPI_Request> send_requests;
@@ -783,6 +813,11 @@ void Halo::sync_registered(HaloLevel stage)
 
     sync_face_2form_triplets_registered_stage_(stage);
 
+    sync_owner_alias_registered_stage_(stage);
+}
+
+void Halo::sync_owner_alias_stage(HaloLevel stage)
+{
     sync_owner_alias_registered_stage_(stage);
 }
 

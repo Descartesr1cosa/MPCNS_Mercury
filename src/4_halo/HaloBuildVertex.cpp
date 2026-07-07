@@ -4,6 +4,27 @@
 #include "4_halo/detail/HaloBuildBoxMakers.h"
 #include "4_halo/detail/HaloBuildTools.h"
 
+namespace
+{
+    int boundary_dir_count(const Box3 &node_box, const Int3 &blk_mxyz)
+    {
+        int count = 0;
+        if (node_box.lo.i == 0 && node_box.hi.i == 1)
+            ++count;
+        if (node_box.lo.i == blk_mxyz.i && node_box.hi.i == blk_mxyz.i + 1)
+            ++count;
+        if (node_box.lo.j == 0 && node_box.hi.j == 1)
+            ++count;
+        if (node_box.lo.j == blk_mxyz.j && node_box.hi.j == blk_mxyz.j + 1)
+            ++count;
+        if (node_box.lo.k == 0 && node_box.hi.k == 1)
+            ++count;
+        if (node_box.lo.k == blk_mxyz.k && node_box.hi.k == blk_mxyz.k + 1)
+            ++count;
+        return count;
+    }
+}
+
 void Halo::build_parallel_3DCorner_pattern(StaggerLocation loc, int nghost)
 {
     int myid;
@@ -28,6 +49,11 @@ void Halo::build_parallel_3DCorner_pattern(StaggerLocation loc, int nghost)
     {
         if (vp.is_coupling)
             continue;
+        const Block &blk_this_for_count = fld_->grd->grids(vp.this_block);
+        const Int3 this_blk_for_count = HALO_TOOLS::block_node_size(blk_this_for_count);
+        if (boundary_dir_count(vp.this_box_node, this_blk_for_count) != 3)
+            continue;
+
         //=========================
         // 1. 先搞清发送侧的方向
         //=========================
@@ -176,6 +202,14 @@ void Halo::build_inner_3DCorner_pattern(StaggerLocation loc, int nghost)
     {
         if (vp.is_coupling)
             continue;
+        const Block &blk_this_for_count = fld_->grd->grids(vp.this_block);
+        const Block &blk_nb_for_count = fld_->grd->grids(vp.nb_block);
+        const Int3 this_blk_for_count = HALO_TOOLS::block_node_size(blk_this_for_count);
+        const Int3 nb_blk_for_count = HALO_TOOLS::block_node_size(blk_nb_for_count);
+        if (boundary_dir_count(vp.this_box_node, this_blk_for_count) != 3 ||
+            boundary_dir_count(vp.nb_box_node, nb_blk_for_count) != 3)
+            continue;
+
         //=====================================================================
         // 获取邻居block中edge的dir1 dir2
         const int nb_b = vp.nb_block;

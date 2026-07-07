@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace TOPO::detail
 {
@@ -63,6 +64,15 @@ namespace TOPO::detail
 
     namespace
     {
+        EquivMember make_node_member(const EntityKey &n, bool is_owner)
+        {
+            EquivMember m;
+            m.entity = n;
+            m.orient_sign = +1;
+            m.is_owner = is_owner;
+            return m;
+        }
+
         EquivMember make_edge_member(const EntityKey &e, int orient_sign, bool is_owner)
         {
             EquivMember m;
@@ -120,6 +130,58 @@ namespace TOPO::detail
         equiv.nodes.classes.clear();
         equiv.edges.classes.clear();
         equiv.faces.classes.clear();
+    }
+
+    void rebuild_node_classes(Topology &equiv)
+    {
+        std::vector<int> send_buf;
+        send_buf.reserve(equiv.nodes.local_to_rep.size() * 10);
+
+        for (const auto &[node, rep] : equiv.nodes.local_to_rep)
+        {
+            auto count_it = equiv.nodes.rep_count.find(rep);
+            if (count_it == equiv.nodes.rep_count.end() || count_it->second <= 1)
+                continue;
+            pack_node(send_buf, node);
+            pack_node(send_buf, rep);
+        }
+
+        const std::vector<int> recv_buf =
+            allgather_packed_records(send_buf, 10, "build_topology node classes");
+
+        std::unordered_map<EntityKey, std::vector<EntityKey>, EntityKey::Hash> rep_to_members;
+        rep_to_members.reserve(recv_buf.size() / 10);
+
+        for (std::size_t n = 0; n < recv_buf.size(); n += 10)
+        {
+            const EntityKey node = unpack_node(recv_buf.data() + n);
+            const EntityKey rep = unpack_node(recv_buf.data() + n + 5);
+            rep_to_members[rep].push_back(node);
+        }
+
+        equiv.nodes.classes.clear();
+        equiv.nodes.classes.reserve(rep_to_members.size());
+
+        for (auto &[rep, members] : rep_to_members)
+        {
+            std::sort(members.begin(), members.end());
+            members.erase(std::unique(members.begin(), members.end()), members.end());
+            if (members.size() <= 1)
+                continue;
+
+            EquivClass cls;
+            cls.dim = EntityDim::Node;
+            auto gid_it = equiv.nodes.rep_to_qid.find(rep);
+            if (gid_it != equiv.nodes.rep_to_qid.end())
+                cls.global_id = gid_it->second;
+            cls.owner = make_node_member(rep, true);
+
+            cls.members.reserve(members.size());
+            for (const EntityKey &member : members)
+                cls.members.push_back(make_node_member(member, member == rep));
+
+            equiv.nodes.classes.push_back(cls);
+        }
     }
 
     void rebuild_edge_classes(Topology &equiv)
@@ -236,6 +298,7 @@ namespace TOPO::detail
         auto all_local_nodes = collect_all_local_nodes(grid, my_rank);
         reconcile_node_equivalence_parallel(equiv, my_rank, all_local_nodes, equiv, equiv.nodes.rep_count);
         build_node_entity_ids(equiv);
+        rebuild_node_classes(equiv);
 
         EdgeBuildScratch edge_scratch;
         auto all_local_edges = collect_all_local_edges(grid, my_rank, dimension);

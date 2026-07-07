@@ -4,8 +4,20 @@
 #include "0_basic/LayoutTraits.h"
 #include "3_field/Field.h"
 
+#include <cstdlib>
+#include <string>
+
 namespace
 {
+    bool owner_only_enabled()
+    {
+        const char *value = std::getenv("Z0_OWNER_ONLY");
+        if (!value)
+            return false;
+        const std::string s(value);
+        return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
+    }
+
     bool in_box(const Box3 &b, int i, int j, int k)
     {
         return i >= b.lo.i && i < b.hi.i &&
@@ -52,6 +64,7 @@ namespace Z0
         }
 
         boundary.ApplyAllPhysicalBoundaries();
-        boundary.SyncAllRegistered();
+        if (!owner_only_enabled())
+            boundary.SyncAllRegistered();
     }
 }

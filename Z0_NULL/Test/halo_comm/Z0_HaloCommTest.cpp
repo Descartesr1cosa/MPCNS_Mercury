@@ -2,8 +2,10 @@
 
 #include "Z0_Boundary.h"
 #include "Z0_TestCommon.h"
+#include "2_topology/Topology.h"
 #include "4_halo/Halo.h"
 
+#include <cstdlib>
 #include <cmath>
 #include <sstream>
 
@@ -16,6 +18,110 @@ namespace
         if (level == HaloLevel::Edge)
             return "Edge";
         return "Vertex";
+    }
+
+    bool owner_sync_enabled()
+    {
+        const char *value = std::getenv("Z0_OWNER_SYNC");
+        if (!value)
+            return false;
+        const std::string s(value);
+        return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
+    }
+
+    bool owner_only_enabled()
+    {
+        const char *value = std::getenv("Z0_OWNER_ONLY");
+        if (!value)
+            return false;
+        const std::string s(value);
+        return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
+    }
+
+    bool member_matches_location(const TOPO::EquivMember &member, StaggerLocation loc)
+    {
+        if (loc == StaggerLocation::FaceXi)
+            return member.entity.axis == TOPO::EntityAxis::Xi;
+        if (loc == StaggerLocation::FaceEt)
+            return member.entity.axis == TOPO::EntityAxis::Eta;
+        if (loc == StaggerLocation::FaceZe)
+            return member.entity.axis == TOPO::EntityAxis::Zeta;
+        return TOPO::stagger_location(member.entity) == loc;
+    }
+
+    int owner_alias_sign(const FieldDescriptor &desc,
+                         const TOPO::EquivMember &owner,
+                         const TOPO::EquivMember &alias)
+    {
+        if (!desc.sync.orientation_aware)
+            return +1;
+        if (desc.value_kind == FieldValueKind::EdgeCovariant1Form ||
+            desc.value_kind == FieldValueKind::FaceContravariant2Form)
+            return owner.orient_sign * alias.orient_sign;
+        return +1;
+    }
+
+    bool check_owner_alias(Field &field,
+                           Halo &halo,
+                           const std::string &name,
+                           TOPO::EntityDim dim,
+                           long long &checked,
+                           double &max_err)
+    {
+        checked = 0;
+        max_err = 0.0;
+
+        const TOPO::Topology *topology = halo.topology_equiv();
+        if (!topology || !field.has_field(name))
+            return true;
+
+        int myid = 0;
+        PARALLEL::mpi_rank(&myid);
+
+        const int fid = field.field_id(name);
+        const FieldDescriptor &desc = field.descriptor(fid);
+        if (desc.sync.owner_sync == OwnerSyncPolicy::None)
+            return true;
+        const auto &classes = topology->classes(dim);
+
+        for (const auto &cls : classes)
+        {
+            const TOPO::EquivMember &owner = cls.owner;
+            if (!member_matches_location(owner, desc.location))
+                continue;
+
+            for (const auto &alias : cls.members)
+            {
+                if (alias.is_owner || alias.entity.rank != myid)
+                    continue;
+                if (!member_matches_location(alias, desc.location))
+                    continue;
+
+                FieldBlock &fb_alias = field.field(fid, alias.entity.block);
+                const int sign = owner_alias_sign(desc, owner, alias);
+                for (int m = 0; m < desc.ncomp; ++m)
+                {
+                    const double expected =
+                        static_cast<double>(sign) *
+                        Z0_TEST::unique_code(owner.entity.rank,
+                                             owner.entity.block,
+                                             owner.entity.i,
+                                             owner.entity.j,
+                                             owner.entity.k,
+                                             m);
+                    const double got = fb_alias(alias.entity.i, alias.entity.j, alias.entity.k, m);
+                    if (!std::isfinite(got))
+                        max_err = std::numeric_limits<double>::infinity();
+                    else if (std::isfinite(max_err))
+                        max_err = std::max(max_err, std::abs(got - expected));
+                    ++checked;
+                }
+            }
+        }
+
+        max_err = Z0_TEST::global_max(max_err);
+        checked = Z0_TEST::global_sum(checked);
+        return checked == 0 || max_err == 0.0;
     }
 
     long long count_nonfinite_recv_boxes(Field &field,
@@ -153,35 +259,89 @@ namespace
         for (const std::string &name : Z0_TEST::registered_test_fields())
             Z0_TEST::fill_owned_unique(field, name);
 
-        boundary.SyncAllRegistered(stage);
-
-        bool passed = true;
-        for (const std::string &name : Z0_TEST::registered_test_fields())
+        if (owner_only_enabled())
         {
-            long long local_regions = 0;
-            const long long local_bad = count_nonfinite_recv_boxes(field, halo, name, stage, local_regions);
-            const long long bad = Z0_TEST::global_sum(local_bad);
-            const long long regions = Z0_TEST::global_sum(local_regions);
-            std::ostringstream os;
-            os << "stage=" << level_name(stage) << " regions=" << regions << " nonfinite_halo=" << bad;
-            if (regions == 0)
-                os << " skipped_no_registered_regions";
-            passed &= Z0_TEST::print_result("NaN overwrite " + name, bad == 0, os.str());
+            halo.sync_owner_alias_stage(HaloLevel::FaceOnly);
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
+                halo.sync_owner_alias_stage(HaloLevel::Edge);
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
+                halo.sync_owner_alias_stage(HaloLevel::Vertex);
+        }
+        else
+        {
+            boundary.SyncAllRegistered(HaloLevel::FaceOnly);
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
+                boundary.SyncAllRegistered(HaloLevel::Edge);
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
+                boundary.SyncAllRegistered(HaloLevel::Vertex);
         }
 
-        for (const std::string &name : {"U", "Bcell"})
+        bool passed = true;
+        if (!owner_only_enabled())
         {
-            long long local_checked_regions = 0;
-            const double err = component_copy_error(field, halo, name, stage, local_checked_regions);
-            const long long checked_regions = Z0_TEST::global_sum(local_checked_regions);
-            std::ostringstream os;
-            os << "stage=" << level_name(stage) << " checked_regions=" << checked_regions
-               << " diagnostic_exact_max=" << err;
-            if (checked_regions == 0)
-                os << " skipped_no_checked_regions";
-            passed &= Z0_TEST::print_result("unique component-copy diagnostic " + name,
-                                            checked_regions >= 0 && std::isfinite(err),
-                                            os.str());
+            for (const std::string &name : Z0_TEST::registered_test_fields())
+            {
+                long long local_regions = 0;
+                const long long local_bad = count_nonfinite_recv_boxes(field, halo, name, stage, local_regions);
+                const long long bad = Z0_TEST::global_sum(local_bad);
+                const long long regions = Z0_TEST::global_sum(local_regions);
+                std::ostringstream os;
+                os << "stage=" << level_name(stage) << " regions=" << regions << " nonfinite_halo=" << bad;
+                if (regions == 0)
+                    os << " skipped_no_registered_regions";
+                passed &= Z0_TEST::print_result("NaN overwrite " + name, bad == 0, os.str());
+            }
+
+            for (const std::string &name : {"U", "Bcell"})
+            {
+                long long local_checked_regions = 0;
+                const double err = component_copy_error(field, halo, name, stage, local_checked_regions);
+                const long long checked_regions = Z0_TEST::global_sum(local_checked_regions);
+                std::ostringstream os;
+                os << "stage=" << level_name(stage) << " checked_regions=" << checked_regions
+                   << " diagnostic_exact_max=" << err;
+                if (checked_regions == 0)
+                    os << " skipped_no_checked_regions";
+                passed &= Z0_TEST::print_result("unique component-copy diagnostic " + name,
+                                                checked_regions >= 0 && std::isfinite(err),
+                                                os.str());
+            }
+        }
+
+        if (owner_sync_enabled())
+        {
+            struct OwnerCheck
+            {
+                const char *name;
+                TOPO::EntityDim dim;
+                HaloLevel stage;
+            };
+
+            const OwnerCheck checks[] = {
+                {"B_xi", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
+                {"B_eta", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
+                {"B_zeta", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
+                {"E_xi", TOPO::EntityDim::Edge, HaloLevel::Edge},
+                {"E_eta", TOPO::EntityDim::Edge, HaloLevel::Edge},
+                {"E_zeta", TOPO::EntityDim::Edge, HaloLevel::Edge},
+                {"phi", TOPO::EntityDim::Node, HaloLevel::Vertex},
+            };
+
+            for (const auto &c : checks)
+            {
+                if (static_cast<int>(stage) < static_cast<int>(c.stage))
+                    continue;
+                long long checked = 0;
+                double err = 0.0;
+                const bool ok = check_owner_alias(field, halo, c.name, c.dim, checked, err);
+                std::ostringstream os;
+                os << "stage=" << level_name(stage)
+                   << " checked_alias_values=" << checked
+                   << " owner_alias_max=" << err;
+                if (checked == 0)
+                    os << " skipped_no_local_alias";
+                passed &= Z0_TEST::print_result(std::string("OwnerSync ") + c.name, ok, os.str());
+            }
         }
 
         return passed;

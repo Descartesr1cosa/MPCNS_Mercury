@@ -180,6 +180,13 @@ void Halo::rebuild_sync_registry_()
     for (const auto &kv : halo_registry_)
         classify_registered_request_(kv.second);
 
+    std::sort(owner_sync_requests_.begin(), owner_sync_requests_.end(),
+              [](const HaloOwnerRequest &a, const HaloOwnerRequest &b)
+              {
+                  return a.field_name < b.field_name;
+              });
+    std::sort(component_copy_fields_.begin(), component_copy_fields_.end());
+
     validate_triplet_registry_();
     validate_sync_registry_consistency_();
 }

@@ -157,6 +157,15 @@ namespace HALO_TOOLS
         {
             std::string oss;
             oss += ("detect_edge_dirs: expected 2 boundary directions, got " + std::to_string(count));
+            oss += " edge_node=[(" + std::to_string(edge_node.lo.i) + "," +
+                   std::to_string(edge_node.lo.j) + "," +
+                   std::to_string(edge_node.lo.k) + ")->(" +
+                   std::to_string(edge_node.hi.i) + "," +
+                   std::to_string(edge_node.hi.j) + "," +
+                   std::to_string(edge_node.hi.k) + ")]";
+            oss += " block_nodes=(" + std::to_string(blk_mxyz.i) + "," +
+                   std::to_string(blk_mxyz.j) + "," +
+                   std::to_string(blk_mxyz.k) + ")";
             if (where)
                 oss = oss + " in " + where;
 

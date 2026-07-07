@@ -30,6 +30,7 @@ public:
     void sync_field(const std::string &field_name, HaloLevel stage);
     void sync_group(const std::string &group_name);
     void sync_group(const std::string &group_name, HaloLevel stage);
+    void sync_owner_alias_stage(HaloLevel stage);
     void dump_sync_registry(std::ostream &os) const;
 
     // Test/debug helper: expose the recv/send boxes used by the registered

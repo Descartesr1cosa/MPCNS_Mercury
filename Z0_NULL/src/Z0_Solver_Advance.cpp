@@ -4,7 +4,21 @@
 #include "Z0_Diagnostics.h"
 
 #include "0_basic/MPI_WRAPPER.h"
+#include <cstdlib>
 #include <iostream>
+#include <string>
+
+namespace
+{
+    bool owner_only_enabled()
+    {
+        const char *value = std::getenv("Z0_OWNER_ONLY");
+        if (!value)
+            return false;
+        const std::string s(value);
+        return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
+    }
+}
 
 void Z0_Solver::PrepareStep_()
 {
@@ -20,7 +34,8 @@ void Z0_Solver::UpdateFields_()
 void Z0_Solver::ApplyBoundaryAndSync_()
 {
     boundary_->ApplyAllPhysicalBoundaries();
-    boundary_->SyncAllRegistered();
+    if (!owner_only_enabled())
+        boundary_->SyncAllRegistered();
 }
 
 void Z0_Solver::Diagnostics_()
