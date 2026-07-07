@@ -76,8 +76,37 @@ namespace Z0
     void RegisterFields(Field &field, Param &param, int nghost)
     {
         (void)param;
-        field.register_field(descriptor("null_phi", StaggerLocation::Cell, FieldValueKind::Scalar,
-                                        1, nghost, sync_contract("null_phi", true, false, false)));
+        const HaloLevel default_level = HaloLevel::FaceOnly;
+        field.register_field(descriptor("phi", StaggerLocation::Node, FieldValueKind::Scalar,
+                                        1, nghost, sync_contract("phi", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("E_xi", StaggerLocation::EdgeXi, FieldValueKind::EdgeCovariant1Form,
+                                        1, nghost, sync_contract("Eedge", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("E_eta", StaggerLocation::EdgeEt, FieldValueKind::EdgeCovariant1Form,
+                                        1, nghost, sync_contract("Eedge", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("E_zeta", StaggerLocation::EdgeZe, FieldValueKind::EdgeCovariant1Form,
+                                        1, nghost, sync_contract("Eedge", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("B_xi", StaggerLocation::FaceXi, FieldValueKind::FaceContravariant2Form,
+                                        1, nghost, sync_contract("Bface", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("B_eta", StaggerLocation::FaceEt, FieldValueKind::FaceContravariant2Form,
+                                        1, nghost, sync_contract("Bface", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("B_zeta", StaggerLocation::FaceZe, FieldValueKind::FaceContravariant2Form,
+                                        1, nghost, sync_contract("Bface", false, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("divB", StaggerLocation::Cell, FieldValueKind::Scalar,
+                                        1, nghost, sync_contract("divB", true, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("U", StaggerLocation::Cell, FieldValueKind::ConservedVector,
+                                        5, nghost, sync_contract("U", true, false, false,
+                                                                 default_level)));
+        field.register_field(descriptor("Bcell", StaggerLocation::Cell, FieldValueKind::CartesianVector,
+                                        3, nghost, sync_contract("Bcell", true, false, false,
+                                                                 default_level)));
     }
 
     void RegisterCouplingChannels(Field &field,

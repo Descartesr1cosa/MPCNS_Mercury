@@ -9,5 +9,10 @@ void Z0_Boundary::ApplyPhysicalBoundary(const std::string &group)
 
 void Z0_Boundary::ApplyAllPhysicalBoundaries()
 {
-    ApplyPhysicalBoundary("null_phi");
+    ApplyPhysicalBoundary("phi");
+    ApplyPhysicalBoundary("Eedge");
+    ApplyPhysicalBoundary("Bface");
+    ApplyPhysicalBoundary("divB");
+    ApplyPhysicalBoundary("U");
+    ApplyPhysicalBoundary("Bcell");
 }

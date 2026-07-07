@@ -2,6 +2,7 @@
 #include "Z0_Boundary.h"
 #include "Z0_FieldCatalog.h"
 #include "Z0_Solver.h"
+#include "Z0_Tests.h"
 
 #include "0_basic/1_MPCNS_Parameter.h"
 #include "0_basic/MPI_WRAPPER.h"
@@ -16,6 +17,7 @@ int main(int argc, char **argv)
 {
     PARALLEL::mpi_initial(argc, argv);
 
+    int exit_code = 0;
     {
         int myid = 0;
         PARALLEL::mpi_rank(&myid);
@@ -43,10 +45,18 @@ int main(int argc, char **argv)
         Z0_Solver solver(&grid, &field, &halo, &topology, &topology, &boundary, &param);
         solver.Advance();
 
+        bool tests_passed = true;
+        tests_passed &= Z0_TEST::RunPhysicalIoTests(field, param);
+        tests_passed &= Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param);
+        tests_passed &= Z0_TEST::RunDecChainTests(field, halo, boundary, param);
+
         if (myid == 0)
-            std::cout << "Z0_NULL finished normally.\n" << std::flush;
+            std::cout << "Z0_NULL finished " << (tests_passed ? "normally" : "with test failures") << ".\n" << std::flush;
+
+        if (!tests_passed)
+            exit_code = 1;
     }
 
     PARALLEL::mpi_finalize();
-    return 0;
+    return exit_code;
 }

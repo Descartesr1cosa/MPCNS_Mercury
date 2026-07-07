@@ -1,5 +1,7 @@
 #pragma once
 
+#include "0_basic/StaggerLocation.h"
+
 #include <string>
 
 class Field;
@@ -28,7 +30,9 @@ public:
     void ApplyCoupling();
 
     void SyncGroup(const std::string &group);
+    void SyncGroup(const std::string &group, HaloLevel stage);
     void SyncAllRegistered();
+    void SyncAllRegistered(HaloLevel stage);
 
     void PrepareStepBoundary();
     void FinishStepBoundary();

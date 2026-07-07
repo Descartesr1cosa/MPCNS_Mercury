@@ -20,7 +20,7 @@ void Z0_Solver::UpdateFields_()
 void Z0_Solver::ApplyBoundaryAndSync_()
 {
     boundary_->ApplyAllPhysicalBoundaries();
-    boundary_->SyncGroup("null_phi");
+    boundary_->SyncAllRegistered();
 }
 
 void Z0_Solver::Diagnostics_()

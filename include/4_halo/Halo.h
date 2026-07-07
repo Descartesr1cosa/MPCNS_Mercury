@@ -32,6 +32,12 @@ public:
     void sync_group(const std::string &group_name, HaloLevel stage);
     void dump_sync_registry(std::ostream &os) const;
 
+    // Test/debug helper: expose the recv/send boxes used by the registered
+    // halo patterns without changing the production sync path.
+    std::vector<HaloRegion> debug_halo_regions(StaggerLocation location,
+                                               int nghost,
+                                               HaloLevel stage) const;
+
     // Topology equivalence is required by owner-alias synchronization.
     void set_topology_equiv(const TOPO::Topology *equiv);
     const TOPO::Topology *topology_equiv() const;

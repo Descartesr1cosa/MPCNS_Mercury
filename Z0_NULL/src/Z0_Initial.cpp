@@ -52,6 +52,6 @@ namespace Z0
         }
 
         boundary.ApplyAllPhysicalBoundaries();
-        boundary.SyncGroup("null_phi");
+        boundary.SyncAllRegistered();
     }
 }

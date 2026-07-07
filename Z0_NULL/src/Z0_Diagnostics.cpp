@@ -61,7 +61,9 @@ namespace Z0
                               std::ostream &os)
     {
         os << "[Z0_NULL] step=" << step << " time=" << time << " dt=" << dt << "\n";
-        for (const std::string &name : {"null_phi"})
+        for (const std::string &name : {"phi", "E_xi", "E_eta", "E_zeta",
+                                        "B_xi", "B_eta", "B_zeta",
+                                        "divB", "U", "Bcell"})
         {
             if (!field.has_field(name))
                 continue;
