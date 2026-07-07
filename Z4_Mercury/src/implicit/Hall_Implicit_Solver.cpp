@@ -44,11 +44,11 @@ void ImplicitHallSolver::Setup(Grid *grd,
     if (!fld_ || !bound_)
         throw std::runtime_error("ImplicitHallSolver::Setup: null core pointer.");
 
-    x_local_.resize(static_cast<size_t>(equiv_.n_local_edge_owner), 0.0);
-    eh_pred_local_.resize(static_cast<size_t>(equiv_.n_local_edge_owner), 0.0);
+    x_local_.resize(static_cast<size_t>(equiv_.edges.n_local_owner), 0.0);
+    eh_pred_local_.resize(static_cast<size_t>(equiv_.edges.n_local_owner), 0.0);
 
     HALO_OWNER::gather_local_owner_edges_sorted(equiv_, owner_edges_sorted_);
-    if (static_cast<int>(owner_edges_sorted_.size()) != equiv_.n_local_edge_owner)
+    if (static_cast<int>(owner_edges_sorted_.size()) != equiv_.edges.n_local_owner)
     {
         throw std::runtime_error(
             "ImplicitHallSolver::Setup: owner_edges_sorted_ size mismatch.");
@@ -146,8 +146,8 @@ void ImplicitHallSolver::FinalizePetsc()
 
 void ImplicitHallSolver::CreatePetscObjects_()
 {
-    const PetscInt nloc = static_cast<PetscInt>(equiv_.n_local_edge_owner);
-    const PetscInt nglb = static_cast<PetscInt>(equiv_.n_global_edge_owner);
+    const PetscInt nloc = static_cast<PetscInt>(equiv_.edges.n_local_owner);
+    const PetscInt nglb = static_cast<PetscInt>(equiv_.edges.n_global_owner);
 
     VecCreateMPI(PETSC_COMM_WORLD, nloc, nglb, &X_);
     VecDuplicate(X_, &F_);
@@ -165,8 +165,8 @@ void ImplicitHallSolver::CreatePetscObjects_()
     // MatCreateSNESMF(snes_, &Jmf_);
     // SNESSetJacobian(snes_, Jmf_, Jmf_, MatMFFDComputeJacobian, nullptr);
 
-    // const PetscInt nloc = static_cast<PetscInt>(equiv_.n_local_edge_owner);
-    // const PetscInt nglb = static_cast<PetscInt>(equiv_.n_global_edge_owner);
+    // const PetscInt nloc = static_cast<PetscInt>(equiv_.edges.n_local_owner);
+    // const PetscInt nglb = static_cast<PetscInt>(equiv_.edges.n_global_owner);
     MatCreateShell(PETSC_COMM_WORLD, nloc, nloc, nglb, nglb, this, &Jshell_);
     MatShellSetOperation(Jshell_, MATOP_MULT,
                          (void (*)(void))&ImplicitHallSolver::MatMult_WhistlerShell_);
@@ -192,8 +192,8 @@ void ImplicitHallSolver::CreatePetscObjects_()
 
     SNESSetFromOptions(snes_);
 
-    // const PetscInt nloc = static_cast<PetscInt>(equiv_.n_local_edge_owner);
-    // const PetscInt nglb = static_cast<PetscInt>(equiv_.n_global_edge_owner);
+    // const PetscInt nloc = static_cast<PetscInt>(equiv_.edges.n_local_owner);
+    // const PetscInt nglb = static_cast<PetscInt>(equiv_.edges.n_global_owner);
 
     // VecCreateMPI(PETSC_COMM_WORLD, nloc, nglb, &X_);
     // VecDuplicate(X_, &F_);

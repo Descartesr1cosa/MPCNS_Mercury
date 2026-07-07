@@ -240,12 +240,12 @@ namespace HALO_OWNER
             const TOPO::Topology &equiv,
             int gid)
         {
-            if (gid < equiv.edge_owner_gid_begin || gid >= equiv.edge_owner_gid_end)
+            if (gid < equiv.edges.owner_gid_begin || gid >= equiv.edges.owner_gid_end)
             {
                 throw std::runtime_error(
                     "local_owner_index_from_gid: gid not owned by this rank.");
             }
-            return gid - equiv.edge_owner_gid_begin;
+            return gid - equiv.edges.owner_gid_begin;
         }
 
     }
@@ -255,9 +255,9 @@ namespace HALO_OWNER
         std::vector<TOPO::EntityKey> &owner_edges_sorted)
     {
         owner_edges_sorted.clear();
-        owner_edges_sorted.reserve(equiv.n_local_edge_owner);
+        owner_edges_sorted.reserve(equiv.edges.n_local_owner);
 
-        for (const auto &[e, gid] : equiv.edge_owner_gid)
+        for (const auto &[e, gid] : equiv.edges.owner_to_gid)
         {
             owner_edges_sorted.push_back(e);
         }
@@ -265,7 +265,7 @@ namespace HALO_OWNER
         std::sort(owner_edges_sorted.begin(), owner_edges_sorted.end(),
                   [&](const TOPO::EntityKey &a, const TOPO::EntityKey &b)
                   {
-                      return equiv.edge_owner_gid.at(a) < equiv.edge_owner_gid.at(b);
+                      return equiv.edges.owner_to_gid.at(a) < equiv.edges.owner_to_gid.at(b);
                   });
     }
 
@@ -304,22 +304,22 @@ namespace HALO_OWNER
     {
         const int ncomp = check_edge_triplet_and_get_ncomp(fld, field_id);
 
-        if (equiv.n_local_edge_owner < 0)
+        if (equiv.edges.n_local_owner < 0)
         {
             throw std::runtime_error(
-                "pack_owner_edge_1form_local: invalid equiv.n_local_edge_owner.");
+                "pack_owner_edge_1form_local: invalid equiv.edges.n_local_owner.");
         }
 
-        if (static_cast<int>(owner_edges_sorted.size()) != equiv.n_local_edge_owner)
+        if (static_cast<int>(owner_edges_sorted.size()) != equiv.edges.n_local_owner)
         {
             throw std::runtime_error(
                 "pack_owner_edge_1form_local: owner edge count mismatch.");
         }
 
         buf_local.resize(
-            static_cast<std::size_t>(equiv.n_local_edge_owner) * ncomp);
+            static_cast<std::size_t>(equiv.edges.n_local_owner) * ncomp);
 
-        for (int lid = 0; lid < equiv.n_local_edge_owner; ++lid)
+        for (int lid = 0; lid < equiv.edges.n_local_owner; ++lid)
         {
             const TOPO::EntityKey &e = owner_edges_sorted[lid];
             FieldBlock &fb = edge_block(fld, field_id, e);
@@ -343,7 +343,7 @@ namespace HALO_OWNER
         const int ncomp = check_edge_triplet_and_get_ncomp(fld, field_id);
 
         const std::size_t expect_size =
-            static_cast<std::size_t>(equiv.n_local_edge_owner) * ncomp;
+            static_cast<std::size_t>(equiv.edges.n_local_owner) * ncomp;
 
         if (buf_local.size() != expect_size)
         {
@@ -351,14 +351,14 @@ namespace HALO_OWNER
                 "unpack_owner_edge_1form_local: buf_local size mismatch.");
         }
 
-        if (static_cast<int>(owner_edges_sorted.size()) != equiv.n_local_edge_owner)
+        if (static_cast<int>(owner_edges_sorted.size()) != equiv.edges.n_local_owner)
         {
             throw std::runtime_error(
                 "unpack_owner_edge_1form_local: owner edge count mismatch.");
         }
 
         // 1) 写回本 rank owner edges
-        for (int lid = 0; lid < equiv.n_local_edge_owner; ++lid)
+        for (int lid = 0; lid < equiv.edges.n_local_owner; ++lid)
         {
             const TOPO::EntityKey &e = owner_edges_sorted[lid];
             FieldBlock &fb = edge_block(fld, field_id, e);

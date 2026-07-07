@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <iosfwd>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -142,6 +143,76 @@ namespace TOPO
         std::vector<EquivMember> members;
     };
 
+    struct NodeTopology
+    {
+        // local node representative -> quotient-node canonical representative
+        std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> local_to_rep;
+        // canonical representative -> dimension-local quotient id
+        std::unordered_map<EntityKey, int, EntityKey::Hash> rep_to_qid;
+        // canonical representative -> gathered equivalence-class size
+        std::unordered_map<EntityKey, int, EntityKey::Hash> rep_count;
+
+        std::vector<EquivClass> classes;
+    };
+
+    struct EdgeTopology
+    {
+        // local edge representative -> canonical quotient edge key
+        std::unordered_map<EntityKey, EdgeKey, EntityKey::Hash> local_to_qkey;
+        // local edge representative -> sign relative to qkey canonical orientation
+        std::unordered_map<EntityKey, int8_t, EntityKey::Hash> local_to_qsign;
+
+        // Final topology view: qkey -> gathered representatives participating
+        // in owner/alias management.  Members may belong to ranks other than
+        // the current rank; construction-time local/candidate collections live
+        // in EdgeBuildScratch, not here.
+        std::unordered_map<EdgeKey, std::vector<EntityKey>, EdgeKey::Hash> qkey_to_members;
+        std::unordered_map<EdgeKey, EntityKey, EdgeKey::Hash> qkey_to_owner;
+        std::unordered_map<EntityKey, bool, EntityKey::Hash> local_is_owner;
+
+        std::unordered_map<EntityKey, int, EntityKey::Hash> owner_to_gid;
+        std::unordered_map<int, EntityKey> gid_to_owner;
+        int n_local_owner = 0;
+        int n_global_owner = 0;
+        int owner_gid_begin = 0;
+        int owner_gid_end = 0; // half-open: [begin, end)
+
+        std::unordered_map<EdgeKey, int, EdgeKey::Hash> qkey_to_qid;
+        std::vector<EquivClass> classes;
+    };
+
+    struct FaceTopology
+    {
+        // local face representative -> canonical quotient face key
+        std::unordered_map<EntityKey, FaceKey, EntityKey::Hash> local_to_qkey;
+        // local face representative -> sign relative to qkey canonical orientation
+        std::unordered_map<EntityKey, int8_t, EntityKey::Hash> local_to_qsign;
+
+        // Final topology view: qkey -> gathered representatives participating
+        // in owner/alias management.  Members may belong to ranks other than
+        // the current rank; construction-time local/candidate collections live
+        // in FaceBuildScratch, not here.
+        std::unordered_map<FaceKey, std::vector<EntityKey>, FaceKey::Hash> qkey_to_members;
+        std::unordered_map<FaceKey, EntityKey, FaceKey::Hash> qkey_to_owner;
+        std::unordered_map<EntityKey, bool, EntityKey::Hash> local_is_owner;
+
+        std::unordered_map<EntityKey, int, EntityKey::Hash> owner_to_gid;
+        std::unordered_map<int, EntityKey> gid_to_owner;
+        int n_local_owner = 0;
+        int n_global_owner = 0;
+        int owner_gid_begin = 0;
+        int owner_gid_end = 0; // half-open: [begin, end)
+
+        std::unordered_map<FaceKey, int, FaceKey::Hash> qkey_to_qid;
+        std::vector<EquivClass> classes;
+    };
+
+    struct CellTopology
+    {
+        // local cell representative -> dimension-local quotient id
+        std::unordered_map<EntityKey, int, EntityKey::Hash> local_to_qid;
+    };
+
     struct Topology
     {
         std::vector<InterfacePatch> inner_patches;
@@ -154,76 +225,36 @@ namespace TOPO
         std::vector<VertexPatch> parallel_vertex_patches;
         std::vector<VertexPatch> physical_vertex_patches;
 
-        // local node entity -> canonical node entity
-        std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> node2eq;
-        // Canonical quotient ids used by the EntityKey facade.  These ids are
-        // dimension-local and do not replace owner-sync gids below.
-        std::unordered_map<EntityKey, int, EntityKey::Hash> node_eq_to_id;
+        NodeTopology nodes;
+        EdgeTopology edges;
+        FaceTopology faces;
+        CellTopology cells;
 
-        // local edge -> canonical edge key
-        std::unordered_map<EntityKey, EdgeKey, EntityKey::Hash> edge2key;
-
-        // local edge -> sign to canonical edge direction
-        // +1 : local direction == key.a -> key.b
-        // -1 : local direction == key.b -> key.a
-        std::unordered_map<EntityKey, int8_t, EntityKey::Hash> edge2sign;
-
-        // canonical edge key -> all local members on this rank
-        std::unordered_map<EdgeKey, std::vector<EntityKey>, EdgeKey::Hash> edge_members;
-
-        // canonical edge key -> chosen owner rep
-        std::unordered_map<EdgeKey, EntityKey, EdgeKey::Hash> edge_owner;
-
-        // local edge -> whether this rep is owner
-        std::unordered_map<EntityKey, bool, EntityKey::Hash> edge_is_owner;
-
-        std::unordered_map<EntityKey, int, EntityKey::Hash> edge_owner_gid;
-        std::unordered_map<int, EntityKey> gid2edge_owner;
-        int n_local_edge_owner = 0;
-        int n_global_edge_owner = 0;
-        int edge_owner_gid_begin = 0;
-        int edge_owner_gid_end = 0; // half-open: [begin, end)
-        std::unordered_map<EdgeKey, int, EdgeKey::Hash> edge_key_to_id;
-
-        std::unordered_map<EntityKey, FaceKey, EntityKey::Hash> face2key;
-        // Sign of a local face relative to the selected owner face orientation.
-        // +1 means the member boundary stencil matches the owner; -1 means the
-        // same stencil with all coefficients reversed.
-        std::unordered_map<EntityKey, int8_t, EntityKey::Hash> face2sign;
-        std::unordered_map<FaceKey, std::vector<EntityKey>, FaceKey::Hash> face_members;
-        std::unordered_map<FaceKey, EntityKey, FaceKey::Hash> face_owner;
-        std::unordered_map<EntityKey, bool, EntityKey::Hash> face_is_owner;
-
-        std::unordered_map<EntityKey, int, EntityKey::Hash> face_owner_gid;
-        std::unordered_map<int, EntityKey> gid2face_owner;
-        int n_local_face_owner = 0;
-        int n_global_face_owner = 0;
-        int face_owner_gid_begin = 0;
-        int face_owner_gid_end = 0; // half-open: [begin, end)
-        std::unordered_map<FaceKey, int, FaceKey::Hash> face_key_to_id;
-
-        // Cells are volume interiors and are not quotiented across block
-        // interfaces, but they still need dimension-local EntityId values so
-        // global d2 incidence can close the DEC complex.
-        std::unordered_map<EntityKey, int, EntityKey::Hash> cell_to_id;
-
-        std::vector<EquivClass> node_classes;
-        std::vector<EquivClass> edge_classes;
-        std::vector<EquivClass> face_classes;
-
-        bool has_node_equiv() const { return !node_classes.empty(); }
+        bool has_node_equiv() const { return !nodes.classes.empty(); }
         bool has_edge_equiv() const
         {
-            return !edge_classes.empty() || !edge_owner.empty();
+            return !edges.classes.empty() || !edges.qkey_to_owner.empty();
         }
-        bool has_face_equiv() const { return !face_classes.empty(); }
+        bool has_face_equiv() const { return !faces.classes.empty(); }
 
         const std::vector<EquivClass> &classes(EntityDim dim) const;
+        const std::vector<EquivClass> &edge_classes_view() const { return edges.classes; }
+        const std::vector<EquivClass> &face_classes_view() const { return faces.classes; }
 
         EntityId id_of(const EntityKey &key) const;
         EntityKey owner_of(const EntityKey &key) const;
         int sign_to_owner(const EntityKey &key) const;
         bool is_owner(const EntityKey &key) const;
+        EdgeKey edge_qkey(const EntityKey &edge) const;
+        FaceKey face_qkey(const EntityKey &face) const;
+        int edge_qsign(const EntityKey &edge) const;
+        int face_qsign(const EntityKey &face) const;
+
+        std::string dump_node(const EntityKey &node) const;
+        std::string dump_edge(const EntityKey &edge) const;
+        std::string dump_face(const EntityKey &face) const;
+        std::string dump_edge_class(const EdgeKey &qkey) const;
+        std::string dump_face_class(const FaceKey &qkey) const;
 
     };
 
@@ -243,25 +274,25 @@ namespace TOPO
     // dir=3 (FaceZe) : (i,j,k), (i+1,j,k), (i,j+1,k), (i+1,j+1,k)
     std::array<EntityKey, 4> corners(const EntityKey &f);
 
-    // build canonical EdgeKey from a local edge using node2eq
+    // build canonical EdgeKey from a local edge using nodes.local_to_rep
     // returns sign_to_canonical:
     //   +1 if local edge direction matches key.a -> key.b
     //   -1 otherwise
     EdgeKey make_edge_key(
         const EntityKey &e,
-        const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &node2eq,
+        const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &local_to_rep,
         int8_t &sign_to_canonical);
 
-    // build canonical FaceKey from a local face using node2eq
+    // build canonical FaceKey from a local face using nodes.local_to_rep
     // returns sign_to_canonical based on local corner ordering parity against
     // the sorted canonical corner ordering. Degenerate 2D faces use +1.
     FaceKey make_face_key(
         const EntityKey &f,
-        const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &node2eq,
+        const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &local_to_rep,
         int8_t &sign_to_canonical);
 
     // Compares global edge boundary stencils induced by all members of each
-    // FaceKey after normalization by their current face2sign value.  This is
+    // FaceKey after normalization by their current faces.local_to_qsign value.  This is
     // a validation hook for the existing sorted-corner orientation rule; it
     // does not change that rule.
     bool validate_face_orientation_stencils(const Topology &topology,

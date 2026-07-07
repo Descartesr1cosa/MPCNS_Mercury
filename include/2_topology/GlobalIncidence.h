@@ -176,7 +176,7 @@ namespace TOPO
 
         void build_edge_rows()
         {
-            for (const auto &[edge, key] : equiv_.edge2key)
+            for (const auto &[edge, key] : equiv_.edges.local_to_qkey)
             {
                 (void)key;
                 const EntityKey local_edge = edge;
@@ -188,7 +188,7 @@ namespace TOPO
 
         void build_face_rows()
         {
-            for (const auto &[face, key] : equiv_.face2key)
+            for (const auto &[face, key] : equiv_.faces.local_to_qkey)
             {
                 (void)key;
                 const EntityKey local_face = face;
@@ -200,7 +200,7 @@ namespace TOPO
 
         void build_cell_rows()
         {
-            for (const auto &[cell, id] : equiv_.cell_to_id)
+            for (const auto &[cell, id] : equiv_.cells.local_to_qid)
             {
                 (void)id;
                 const EntityKey local_cell = cell;
@@ -213,7 +213,7 @@ namespace TOPO
         bool has_local_base_node(const EntityKey &entity) const
         {
             const EntityKey base = make_node(entity.rank, entity.block, entity.i, entity.j, entity.k);
-            return equiv_.node2eq.find(base) != equiv_.node2eq.end();
+            return equiv_.nodes.local_to_rep.find(base) != equiv_.nodes.local_to_rep.end();
         }
     };
 } // namespace TOPO

@@ -101,15 +101,15 @@ namespace HALO_OWNER
         std::vector<int> send_buf;
         send_buf.reserve(1024);
 
-        for (const auto &[key, members] : equiv.edge_members)
+        for (const auto &[key, members] : equiv.edges.qkey_to_members)
         {
             for (const auto &rep : members)
             {
-                auto it_sign = equiv.edge2sign.find(rep);
-                if (it_sign == equiv.edge2sign.end())
+                auto it_sign = equiv.edges.local_to_qsign.find(rep);
+                if (it_sign == equiv.edges.local_to_qsign.end())
                 {
                     throw std::runtime_error(
-                        "build_edge_owner_sync_pattern: local rep missing in equiv.edge2sign.");
+                        "build_edge_owner_sync_pattern: local rep missing in equiv.edges.local_to_qsign.");
                 }
 
                 EdgeMemberCandidate c;
@@ -174,25 +174,25 @@ namespace HALO_OWNER
         // ------------------------------------------------------------
         // ------------------------------------------------------------
         // 4) 针对“本 rank 涉及到的 key”，构造 local_alias / send / recv
-        //    关键：不能只遍历 equiv.edge_members，
-        //         因为 non-owner rank 可能没有 local edge_members[key]，
-        //         但一定有 local edge2key[rep]。
+        //    关键：不能只遍历 equiv.edges.qkey_to_members，
+        //         因为 non-owner rank 可能没有 local edges.qkey_to_members[key]，
+        //         但一定有 local edges.local_to_qkey[rep]。
         // ------------------------------------------------------------
         {
             std::unordered_set<TOPO::EdgeKey, TOPO::EdgeKey::Hash> local_keys;
-            local_keys.reserve(equiv.edge2key.size());
+            local_keys.reserve(equiv.edges.local_to_qkey.size());
 
-            for (const auto &[rep, key] : equiv.edge2key)
+            for (const auto &[rep, key] : equiv.edges.local_to_qkey)
                 local_keys.insert(key);
 
             for (const auto &key : local_keys)
             {
-                auto it_owner = equiv.edge_owner.find(key);
-                if (it_owner == equiv.edge_owner.end())
+                auto it_owner = equiv.edges.qkey_to_owner.find(key);
+                if (it_owner == equiv.edges.qkey_to_owner.end())
                 {
-                    // edge2key also contains private local edges.  Those
+                    // edges.local_to_qkey also contains private local edges.  Those
                     // edges do not participate in owner-alias sync and have
-                    // no entry in edge_owner by construction.
+                    // no entry in edges.qkey_to_owner by construction.
                     continue;
                 }
 

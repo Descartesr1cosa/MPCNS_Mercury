@@ -345,10 +345,10 @@ namespace TOPO_VALIDATOR
     {
         ValidationReport report;
         std::map<TOPO::EntityKey, std::set<TOPO::EntityKey>> node_members;
-        for (const auto &[node, owner] : equiv.node2eq)
+        for (const auto &[node, owner] : equiv.nodes.local_to_rep)
         {
             node_members[owner].insert(node);
-            if (equiv.node_eq_to_id.find(owner) == equiv.node_eq_to_id.end())
+            if (equiv.nodes.rep_to_qid.find(owner) == equiv.nodes.rep_to_qid.end())
             {
                 report.add("Node equivalence owner rank=" + std::to_string(owner.rank) +
                            " block=" + std::to_string(owner.block) +
@@ -359,28 +359,28 @@ namespace TOPO_VALIDATOR
         {
             const TOPO::EntityKey canonical =
                 TOPO::make_node(owner.rank, owner.block, owner.i, owner.j, owner.k);
-            const auto local_owner = equiv.node2eq.find(canonical);
-            if (local_owner != equiv.node2eq.end() && !(local_owner->second == owner))
+            const auto local_owner = equiv.nodes.local_to_rep.find(canonical);
+            if (local_owner != equiv.nodes.local_to_rep.end() && !(local_owner->second == owner))
                 report.add("Node canonical owner maps to a different EntityKey at rank=" +
                            std::to_string(owner.rank) + " block=" + std::to_string(owner.block));
             (void)members;
         }
 
-        for (const auto &[edge, sign] : equiv.edge2sign)
+        for (const auto &[edge, sign] : equiv.edges.local_to_qsign)
         {
             if (sign != +1 && sign != -1)
                 report.add(edge_member_string(edge) + ": invalid edge sign=" + std::to_string(sign));
         }
-        for (const auto &[face, sign] : equiv.face2sign)
+        for (const auto &[face, sign] : equiv.faces.local_to_qsign)
         {
             if (sign != +1 && sign != -1)
                 report.add(face_member_string(face) + ": invalid face sign=" + std::to_string(sign));
         }
 
-        for (const auto &[key, members] : equiv.edge_members)
+        for (const auto &[key, members] : equiv.edges.qkey_to_members)
         {
-            const auto owner_it = equiv.edge_owner.find(key);
-            if (owner_it == equiv.edge_owner.end())
+            const auto owner_it = equiv.edges.qkey_to_owner.find(key);
+            if (owner_it == equiv.edges.qkey_to_owner.end())
             {
                 report.add("Edge equivalence class has no owner");
                 continue;
@@ -393,8 +393,8 @@ namespace TOPO_VALIDATOR
                     report.add(edge_member_string(member) + ": duplicate edge class member");
                 if (member == owner_it->second)
                     ++owner_count;
-                const auto member_key = equiv.edge2key.find(member);
-                if (member_key == equiv.edge2key.end() || !(member_key->second == key))
+                const auto member_key = equiv.edges.local_to_qkey.find(member);
+                if (member_key == equiv.edges.local_to_qkey.end() || !(member_key->second == key))
                     report.add(edge_member_string(member) + ": member does not map back to its EdgeKey");
             }
             if (owner_count != 1)
@@ -402,10 +402,10 @@ namespace TOPO_VALIDATOR
                            ": edge class owner occurrence count=" + std::to_string(owner_count));
         }
 
-        for (const auto &[key, members] : equiv.face_members)
+        for (const auto &[key, members] : equiv.faces.qkey_to_members)
         {
-            const auto owner_it = equiv.face_owner.find(key);
-            if (owner_it == equiv.face_owner.end())
+            const auto owner_it = equiv.faces.qkey_to_owner.find(key);
+            if (owner_it == equiv.faces.qkey_to_owner.end())
             {
                 report.add("Face equivalence class has no owner");
                 continue;
@@ -418,8 +418,8 @@ namespace TOPO_VALIDATOR
                     report.add(face_member_string(member) + ": duplicate face class member");
                 if (member == owner_it->second)
                     ++owner_count;
-                const auto member_key = equiv.face2key.find(member);
-                if (member_key == equiv.face2key.end() || !(member_key->second == key))
+                const auto member_key = equiv.faces.local_to_qkey.find(member);
+                if (member_key == equiv.faces.local_to_qkey.end() || !(member_key->second == key))
                     report.add(face_member_string(member) + ": member does not map back to its FaceKey");
             }
             if (owner_count != 1)
@@ -464,9 +464,9 @@ namespace TOPO_VALIDATOR
                                "]: declared owner is not present in members");
             }
         };
-        check_declared_classes(equiv.node_classes, "Node");
-        check_declared_classes(equiv.edge_classes, "Edge");
-        check_declared_classes(equiv.face_classes, "Face");
+        check_declared_classes(equiv.nodes.classes, "Node");
+        check_declared_classes(equiv.edges.classes, "Edge");
+        check_declared_classes(equiv.faces.classes, "Face");
         return report;
     }
 

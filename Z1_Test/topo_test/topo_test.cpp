@@ -29,7 +29,7 @@ namespace
     TestSummary check_local_boundary_boundary_face(const TOPO::Topology &topology)
     {
         TestSummary result;
-        for (const auto &entry : topology.face2key)
+        for (const auto &entry : topology.faces.local_to_qkey)
         {
             ++result.checked;
             if (!TOPO::check_boundary_boundary_face_zero(entry.first))
@@ -41,7 +41,7 @@ namespace
     TestSummary check_local_boundary_boundary_cell(const TOPO::Topology &topology)
     {
         TestSummary result;
-        for (const auto &entry : topology.cell_to_id)
+        for (const auto &entry : topology.cells.local_to_qid)
         {
             ++result.checked;
             if (!TOPO::check_boundary_boundary_cell_zero(entry.first))
@@ -189,7 +189,7 @@ namespace
     {
         TestSummary result;
 
-        for (const auto &entry : topology.node2eq)
+        for (const auto &entry : topology.nodes.local_to_rep)
         {
             ++result.checked;
             if (topology.owner_of(entry.first) != entry.second)
@@ -199,19 +199,19 @@ namespace
         }
 
         TestSummary edge_result = check_owner_alias_maps<TOPO::EdgeKey, TOPO::EdgeKey::Hash>(
-            topology.edge2key,
-            topology.edge2sign,
-            topology.edge_members,
-            topology.edge_owner,
-            topology.edge_is_owner,
+            topology.edges.local_to_qkey,
+            topology.edges.local_to_qsign,
+            topology.edges.qkey_to_members,
+            topology.edges.qkey_to_owner,
+            topology.edges.local_is_owner,
             topology);
 
         TestSummary face_result = check_owner_alias_maps<TOPO::FaceKey, TOPO::FaceKey::Hash>(
-            topology.face2key,
-            topology.face2sign,
-            topology.face_members,
-            topology.face_owner,
-            topology.face_is_owner,
+            topology.faces.local_to_qkey,
+            topology.faces.local_to_qsign,
+            topology.faces.qkey_to_members,
+            topology.faces.qkey_to_owner,
+            topology.faces.local_is_owner,
             topology);
 
         result.checked += edge_result.checked + face_result.checked;
