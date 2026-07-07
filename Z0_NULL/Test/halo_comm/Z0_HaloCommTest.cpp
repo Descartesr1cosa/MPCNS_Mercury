@@ -77,6 +77,13 @@ namespace
     }
 
     int inverse_perm_axis(const TOPO::IndexTransform &tr, int dst_axis);
+    void inverse_map_index(const TOPO::IndexTransform &tr,
+                           int i,
+                           int j,
+                           int k,
+                           int &io,
+                           int &jo,
+                           int &ko);
 
     bool has_valid_inner_corner_source(Field &field,
                                        const FieldDescriptor &desc,
@@ -86,41 +93,63 @@ namespace
                                        int j,
                                        int k)
     {
-        if (stage == HaloLevel::FaceOnly ||
-            r.this_rank != r.neighbor_rank ||
-            (desc.value_kind != FieldValueKind::FaceContravariant2Form &&
-             desc.value_kind != FieldValueKind::EdgeCovariant1Form))
+        if (r.this_rank != r.neighbor_rank)
             return true;
 
-        const int dst_axis =
-            desc.value_kind == FieldValueKind::FaceContravariant2Form
-                ? LAYOUT::face_axis(desc.location)
-                : LAYOUT::edge_axis(desc.location);
-        const int src_axis =
-            desc.value_kind == FieldValueKind::FaceContravariant2Form
-                ? inverse_perm_axis(r.trans, dst_axis)
-                : r.trans.perm[dst_axis];
-        const char *src_name =
-            desc.value_kind == FieldValueKind::FaceContravariant2Form
-                ? face_field_name_from_axis(src_axis)
-                : edge_field_name_from_axis(src_axis);
+        std::string src_name = desc.name;
+        int si = 0, sj = 0, sk = 0;
+        int src_block = r.neighbor_block;
+
+        if (stage == HaloLevel::FaceOnly)
+        {
+            src_block = r.this_block;
+            inverse_map_index(r.trans, i, j, k, si, sj, sk);
+        }
+        else
+        {
+            src_block = r.neighbor_block;
+            Z0_TEST::map_index(r.trans, i, j, k, si, sj, sk);
+        }
+
+        if (desc.value_kind == FieldValueKind::FaceContravariant2Form)
+        {
+            const int dst_axis = LAYOUT::face_axis(desc.location);
+            const int src_axis = inverse_perm_axis(r.trans, dst_axis);
+            src_name = face_field_name_from_axis(src_axis);
+        }
+        else if (desc.value_kind == FieldValueKind::EdgeCovariant1Form)
+        {
+            const int dst_axis = LAYOUT::edge_axis(desc.location);
+            const int src_axis =
+                stage == HaloLevel::FaceOnly
+                    ? inverse_perm_axis(r.trans, dst_axis)
+                    : r.trans.perm[dst_axis];
+            src_name = edge_field_name_from_axis(src_axis);
+        }
+
         if (!field.has_field(src_name) ||
-            r.neighbor_block < 0 ||
-            r.neighbor_block >= field.num_blocks())
+            src_block < 0 ||
+            src_block >= field.num_blocks())
             return false;
 
         const int src_fid = field.field_id(src_name);
-        const FieldBlock &fb = field.field(src_fid, r.neighbor_block);
+        FieldBlock &fb = field.field(src_fid, src_block);
         if (!fb.is_allocated())
             return false;
 
-        int si = 0, sj = 0, sk = 0;
-        Z0_TEST::map_index(r.trans, i, j, k, si, sj, sk);
         const Int3 lo = fb.get_lo();
         const Int3 hi = fb.get_hi();
-        return si >= lo.i && si < hi.i &&
-               sj >= lo.j && sj < hi.j &&
-               sk >= lo.k && sk < hi.k;
+        if (si < lo.i || si >= hi.i ||
+            sj < lo.j || sj >= hi.j ||
+            sk < lo.k || sk >= hi.k)
+            return false;
+
+        const FieldDescriptor &src_desc = field.descriptor(src_fid);
+        for (int m = 0; m < src_desc.ncomp; ++m)
+            if (!std::isfinite(fb(si, sj, sk, m)))
+                return false;
+
+        return true;
     }
 
     int owner_alias_sign(const FieldDescriptor &desc,
@@ -224,6 +253,8 @@ namespace
                     for (int j = b.lo.j; j < b.hi.j; ++j)
                         for (int k = b.lo.k; k < b.hi.k; ++k)
                         {
+                            if (!has_valid_inner_corner_source(field, desc, r, stage, i, j, k))
+                                continue;
                             for (int m = 0; m < desc.ncomp; ++m)
                                 if (!std::isfinite(fb(i, j, k, m)))
                                 {
@@ -466,6 +497,92 @@ namespace
         }
     }
 
+    void fill_component_copy_stage_sources(Field &field,
+                                           Halo &halo,
+                                           const std::string &name,
+                                           HaloLevel stage)
+    {
+        if (!field.has_field(name))
+            return;
+
+        const int fid = field.field_id(name);
+        const FieldDescriptor &desc = field.descriptor(fid);
+        if (desc.value_kind == FieldValueKind::EdgeCovariant1Form ||
+            desc.value_kind == FieldValueKind::FaceContravariant2Form)
+            return;
+
+        const int myid = Z0_TEST::rank();
+
+        auto fill_box = [&](int block, const Box3 &b)
+        {
+            if (block < 0 || block >= field.num_blocks())
+                return;
+            FieldBlock &fb = field.field(fid, block);
+            if (!fb.is_allocated())
+                return;
+            const Int3 lo = fb.get_lo();
+            const Int3 hi = fb.get_hi();
+            for (int i = b.lo.i; i < b.hi.i; ++i)
+                for (int j = b.lo.j; j < b.hi.j; ++j)
+                    for (int k = b.lo.k; k < b.hi.k; ++k)
+                    {
+                        if (i < lo.i || i >= hi.i ||
+                            j < lo.j || j >= hi.j ||
+                            k < lo.k || k >= hi.k)
+                            continue;
+                        for (int m = 0; m < desc.ncomp; ++m)
+                            fb(i, j, k, m) = Z0_TEST::unique_code(myid, block, i, j, k, m);
+                    }
+        };
+
+        if (stage == HaloLevel::FaceOnly)
+        {
+            const std::vector<HaloRegion> regions =
+                halo.debug_halo_regions(desc.location, desc.nghost, stage);
+            for (const HaloRegion &r : regions)
+                if (r.this_rank == r.neighbor_rank)
+                {
+                    const Box3 &rb = r.recv_box;
+                    for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                        for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                            for (int k = rb.lo.k; k < rb.hi.k; ++k)
+                            {
+                                int si = 0, sj = 0, sk = 0;
+                                inverse_map_index(r.trans, i, j, k, si, sj, sk);
+                                Box3 one{{si, sj, sk}, {si + 1, sj + 1, sk + 1}};
+                                fill_box(r.this_block, one);
+                            }
+                }
+            const std::vector<HaloRegion> send_regions =
+                halo.debug_halo_send_regions(desc.location, desc.nghost, stage);
+            for (const HaloRegion &r : send_regions)
+                fill_box(r.this_block, r.send_box);
+            return;
+        }
+
+        const std::vector<HaloRegion> regions =
+            halo.debug_halo_regions(desc.location, desc.nghost, stage);
+        for (const HaloRegion &r : regions)
+            if (r.this_rank == r.neighbor_rank)
+            {
+                const Box3 &rb = r.recv_box;
+                for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                    for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                        for (int k = rb.lo.k; k < rb.hi.k; ++k)
+                        {
+                            int si = 0, sj = 0, sk = 0;
+                            Z0_TEST::map_index(r.trans, i, j, k, si, sj, sk);
+                            Box3 one{{si, sj, sk}, {si + 1, sj + 1, sk + 1}};
+                            fill_box(r.neighbor_block, one);
+                        }
+            }
+
+        const std::vector<HaloRegion> send_regions =
+            halo.debug_halo_send_regions(desc.location, desc.nghost, stage);
+        for (const HaloRegion &r : send_regions)
+            fill_box(r.this_block, r.send_box);
+    }
+
     void fill_edge_1form_triplet_sources(Field &field, Halo &halo, HaloLevel stage)
     {
         const char *names[3] = {"E_xi", "E_eta", "E_zeta"};
@@ -596,6 +713,8 @@ namespace
         for (const std::string &name : {"B_xi", "B_eta", "B_zeta"})
             if (field.has_field(name))
                 fill_face_send_sources(field, halo, name);
+        for (const std::string &name : Z0_TEST::registered_test_fields())
+            fill_component_copy_stage_sources(field, halo, name, HaloLevel::FaceOnly);
         fill_face_2form_triplet_sources(field, halo, HaloLevel::FaceOnly);
         fill_edge_1form_triplet_sources(field, halo, HaloLevel::FaceOnly);
 
@@ -612,12 +731,16 @@ namespace
             boundary.SyncAllRegistered(HaloLevel::FaceOnly);
             if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
             {
+                for (const std::string &name : Z0_TEST::registered_test_fields())
+                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Edge);
                 fill_face_2form_triplet_sources(field, halo, HaloLevel::Edge);
                 fill_edge_1form_triplet_sources(field, halo, HaloLevel::Edge);
                 boundary.SyncAllRegistered(HaloLevel::Edge);
             }
             if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
             {
+                for (const std::string &name : Z0_TEST::registered_test_fields())
+                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Vertex);
                 fill_face_2form_triplet_sources(field, halo, HaloLevel::Vertex);
                 fill_edge_1form_triplet_sources(field, halo, HaloLevel::Vertex);
                 boundary.SyncAllRegistered(HaloLevel::Vertex);

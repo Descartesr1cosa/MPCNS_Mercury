@@ -1,6 +1,8 @@
 #include "4_halo/Halo.h"
 #include "0_basic/Error.h"
 
+#include <vector>
+
 namespace
 {
     void apply_transform(const TOPO::IndexTransform &transform,
@@ -26,29 +28,81 @@ namespace
         out_k = dst[2];
     }
 
-    void copy_send_box_to_transformed_recv(FieldBlock &send,
-                                           FieldBlock &recv,
-                                           const HaloRegion &region,
-                                           int ncomp)
+    void apply_inverse_transform(const TOPO::IndexTransform &transform,
+                                 int i,
+                                 int j,
+                                 int k,
+                                 int &out_i,
+                                 int &out_j,
+                                 int &out_k)
     {
-        const Box3 &send_box = region.send_box;
+        const int dst[3] = {i, j, k};
+        int src[3] = {0, 0, 0};
+        const int offset[3] = {
+            transform.offset.i,
+            transform.offset.j,
+            transform.offset.k};
 
-        for (int i = send_box.lo.i; i < send_box.hi.i; ++i)
-            for (int j = send_box.lo.j; j < send_box.hi.j; ++j)
-                for (int k = send_box.lo.k; k < send_box.hi.k; ++k)
+        for (int axis = 0; axis < 3; ++axis)
+            src[axis] = transform.sign[axis] * (dst[transform.perm[axis]] - offset[axis]);
+
+        out_i = src[0];
+        out_j = src[1];
+        out_k = src[2];
+    }
+
+    struct PendingCopy
+    {
+        int recv_block = -1;
+        int i = 0;
+        int j = 0;
+        int k = 0;
+        std::vector<double> value;
+    };
+
+    bool inside_field_block(const FieldBlock &fb, int i, int j, int k)
+    {
+        const Int3 lo = fb.get_lo();
+        const Int3 hi = fb.get_hi();
+        return i >= lo.i && i < hi.i &&
+               j >= lo.j && j < hi.j &&
+               k >= lo.k && k < hi.k;
+    }
+
+    void pack_send_box_to_transformed_recv(FieldBlock &send,
+                                           int recv_block,
+                                           const HaloRegion &region,
+                                           int ncomp,
+                                           std::vector<PendingCopy> &pending)
+    {
+        const Box3 &recv_box = region.recv_box;
+
+        for (int i = recv_box.lo.i; i < recv_box.hi.i; ++i)
+            for (int j = recv_box.lo.j; j < recv_box.hi.j; ++j)
+                for (int k = recv_box.lo.k; k < recv_box.hi.k; ++k)
                 {
-                    int recv_i, recv_j, recv_k;
-                    apply_transform(region.trans, i, j, k, recv_i, recv_j, recv_k);
+                    int send_i, send_j, send_k;
+                    apply_inverse_transform(region.trans, i, j, k, send_i, send_j, send_k);
+                    if (!inside_field_block(send, send_i, send_j, send_k))
+                        continue;
 
+                    PendingCopy op;
+                    op.recv_block = recv_block;
+                    op.i = i;
+                    op.j = j;
+                    op.k = k;
+                    op.value.resize(ncomp);
                     for (int m = 0; m < ncomp; ++m)
-                        recv(recv_i, recv_j, recv_k, m) = send(i, j, k, m);
+                        op.value[m] = send(send_i, send_j, send_k, m);
+                    pending.push_back(std::move(op));
                 }
     }
 
-    void copy_transformed_send_to_recv_box(FieldBlock &send,
-                                           FieldBlock &recv,
+    void pack_transformed_send_to_recv_box(FieldBlock &send,
+                                           int recv_block,
                                            const HaloRegion &region,
-                                           int ncomp)
+                                           int ncomp,
+                                           std::vector<PendingCopy> &pending)
     {
         const Box3 &recv_box = region.recv_box;
 
@@ -58,10 +112,37 @@ namespace
                 {
                     int send_i, send_j, send_k;
                     apply_transform(region.trans, i, j, k, send_i, send_j, send_k);
+                    if (!inside_field_block(send, send_i, send_j, send_k))
+                        continue;
 
+                    PendingCopy op;
+                    op.recv_block = recv_block;
+                    op.i = i;
+                    op.j = j;
+                    op.k = k;
+                    op.value.resize(ncomp);
                     for (int m = 0; m < ncomp; ++m)
-                        recv(i, j, k, m) = send(send_i, send_j, send_k, m);
+                        op.value[m] = send(send_i, send_j, send_k, m);
+                    pending.push_back(std::move(op));
                 }
+    }
+
+    void apply_pending_copies(Field *field,
+                              int fid,
+                              int ncomp,
+                              const std::vector<PendingCopy> &pending)
+    {
+        for (const PendingCopy &op : pending)
+        {
+            if (op.recv_block < 0 || op.recv_block >= field->num_blocks())
+                continue;
+            FieldBlock &recv = field->field(fid, op.recv_block);
+            if (!recv.is_allocated() ||
+                !inside_field_block(recv, op.i, op.j, op.k))
+                continue;
+            for (int m = 0; m < ncomp; ++m)
+                recv(op.i, op.j, op.k, m) = op.value[m];
+        }
     }
 }
 
@@ -77,16 +158,18 @@ void Halo::exchange_inner(std::string field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
+    std::vector<PendingCopy> pending;
 
     for (const HaloRegion &r : pat.regions)
     {
         FieldBlock &fb_send = fld_->field(fid, r.this_block);
-        FieldBlock &fb_recv = fld_->field(fid, r.neighbor_block);
-        if (!fb_send.is_allocated() || !fb_recv.is_allocated())
+        if (!fb_send.is_allocated())
             continue;
 
-        copy_send_box_to_transformed_recv(fb_send, fb_recv, r, ncomp);
+        pack_send_box_to_transformed_recv(fb_send, r.neighbor_block, r, ncomp, pending);
     }
+
+    apply_pending_copies(fld_, fid, ncomp, pending);
 }
 
 void Halo::exchange_inner_edge(std::string field_name)
@@ -101,16 +184,18 @@ void Halo::exchange_inner_edge(std::string field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
+    std::vector<PendingCopy> pending;
 
     for (const HaloRegion &r : pat.regions)
     {
-        FieldBlock &fb_recv = fld_->field(fid, r.this_block);
         FieldBlock &fb_send = fld_->field(fid, r.neighbor_block);
-        if (!fb_recv.is_allocated() || !fb_send.is_allocated())
+        if (!fb_send.is_allocated())
             continue;
 
-        copy_transformed_send_to_recv_box(fb_send, fb_recv, r, ncomp);
+        pack_transformed_send_to_recv_box(fb_send, r.this_block, r, ncomp, pending);
     }
+
+    apply_pending_copies(fld_, fid, ncomp, pending);
 }
 
 void Halo::exchange_inner_vertex(std::string field_name)
@@ -125,14 +210,16 @@ void Halo::exchange_inner_vertex(std::string field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
+    std::vector<PendingCopy> pending;
 
     for (const HaloRegion &r : pat.regions)
     {
-        FieldBlock &fb_recv = fld_->field(fid, r.this_block);
         FieldBlock &fb_send = fld_->field(fid, r.neighbor_block);
-        if (!fb_recv.is_allocated() || !fb_send.is_allocated())
+        if (!fb_send.is_allocated())
             continue;
 
-        copy_transformed_send_to_recv_box(fb_send, fb_recv, r, ncomp);
+        pack_transformed_send_to_recv_box(fb_send, r.this_block, r, ncomp, pending);
     }
+
+    apply_pending_copies(fld_, fid, ncomp, pending);
 }
