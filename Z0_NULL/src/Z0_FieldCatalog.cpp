@@ -111,11 +111,6 @@ namespace
         return value == "1" || value == "true" || value == "TRUE" || value == "on" || value == "ON";
     }
 
-    bool env_owner_orientation_enabled()
-    {
-        const std::string value = env_string("Z0_OWNER_ORIENTATION", "0");
-        return value == "1" || value == "true" || value == "TRUE" || value == "on" || value == "ON";
-    }
 }
 
 namespace Z0
@@ -130,34 +125,34 @@ namespace Z0
         const bool halo_face_forms = halo_enabled_for(halo_mode, "forms") || halo_enabled_for(halo_mode, "faceforms");
         const bool halo_cell = halo_enabled_for(halo_mode, "cell");
         const bool owner_sync = env_owner_sync_enabled();
-        const bool owner_orientation = env_owner_orientation_enabled();
+        const bool form_orientation = env_string("Z0_FORM_ORIENTATION", "1") != "0";
         field.register_field(descriptor("phi", StaggerLocation::Node, FieldValueKind::Scalar,
                                         1, nghost, sync_contract("phi", halo_node, false, false,
                                                                  default_level, false,
                                                                  owner_sync && halo_node ? OwnerSyncPolicy::NodeOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("E_xi", StaggerLocation::EdgeXi, FieldValueKind::EdgeCovariant1Form,
                                         1, nghost, sync_contract("Eedge", halo_edge_forms, false, false,
-                                                                 default_level, owner_sync && halo_edge_forms && owner_orientation,
+                                                                 default_level, halo_edge_forms && form_orientation,
                                                                  owner_sync && halo_edge_forms ? OwnerSyncPolicy::EdgeOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("E_eta", StaggerLocation::EdgeEt, FieldValueKind::EdgeCovariant1Form,
                                         1, nghost, sync_contract("Eedge", halo_edge_forms, false, false,
-                                                                 default_level, owner_sync && halo_edge_forms && owner_orientation,
+                                                                 default_level, halo_edge_forms && form_orientation,
                                                                  owner_sync && halo_edge_forms ? OwnerSyncPolicy::EdgeOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("E_zeta", StaggerLocation::EdgeZe, FieldValueKind::EdgeCovariant1Form,
                                         1, nghost, sync_contract("Eedge", halo_edge_forms, false, false,
-                                                                 default_level, owner_sync && halo_edge_forms && owner_orientation,
+                                                                 default_level, halo_edge_forms && form_orientation,
                                                                  owner_sync && halo_edge_forms ? OwnerSyncPolicy::EdgeOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("B_xi", StaggerLocation::FaceXi, FieldValueKind::FaceContravariant2Form,
                                         1, nghost, sync_contract("Bface", halo_face_forms, false, false,
-                                                                 default_level, owner_sync && halo_face_forms && owner_orientation,
+                                                                 default_level, halo_face_forms && form_orientation,
                                                                  owner_sync && halo_face_forms ? OwnerSyncPolicy::FaceOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("B_eta", StaggerLocation::FaceEt, FieldValueKind::FaceContravariant2Form,
                                         1, nghost, sync_contract("Bface", halo_face_forms, false, false,
-                                                                 default_level, owner_sync && halo_face_forms && owner_orientation,
+                                                                 default_level, halo_face_forms && form_orientation,
                                                                  owner_sync && halo_face_forms ? OwnerSyncPolicy::FaceOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("B_zeta", StaggerLocation::FaceZe, FieldValueKind::FaceContravariant2Form,
                                         1, nghost, sync_contract("Bface", halo_face_forms, false, false,
-                                                                 default_level, owner_sync && halo_face_forms && owner_orientation,
+                                                                 default_level, halo_face_forms && form_orientation,
                                                                  owner_sync && halo_face_forms ? OwnerSyncPolicy::FaceOwner : OwnerSyncPolicy::None)));
         field.register_field(descriptor("divB", StaggerLocation::Cell, FieldValueKind::Scalar,
                                         1, nghost, sync_contract("divB", halo_cell, false, false,

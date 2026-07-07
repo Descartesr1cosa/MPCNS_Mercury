@@ -9,13 +9,18 @@
 
 namespace
 {
-    bool owner_only_enabled()
+    bool env_enabled(const char *name)
     {
-        const char *value = std::getenv("Z0_OWNER_ONLY");
+        const char *value = std::getenv(name);
         if (!value)
             return false;
         const std::string s(value);
         return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
+    }
+
+    bool skip_solver_sync()
+    {
+        return env_enabled("Z0_OWNER_ONLY") || env_enabled("Z0_TEST_DRIVEN_SYNC");
     }
 
     bool in_box(const Box3 &b, int i, int j, int k)
@@ -64,7 +69,7 @@ namespace Z0
         }
 
         boundary.ApplyAllPhysicalBoundaries();
-        if (!owner_only_enabled())
+        if (!skip_solver_sync())
             boundary.SyncAllRegistered();
     }
 }

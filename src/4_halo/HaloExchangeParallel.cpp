@@ -1,6 +1,8 @@
 #include "4_halo/Halo.h"
 #include "0_basic/MPI_WRAPPER.h"
 
+#include <map>
+
 void Halo::exchange_parallel(std::string field_name)
 {
     //=========================================================================
@@ -57,6 +59,15 @@ void Halo::exchange_parallel(std::string field_name)
         stat_recv.resize(num_face);
     if (length.size() < num_face)
         length.resize(num_face);
+    std::vector<int32_t> recv_length(num_face, 0);
+    int myid = 0;
+    int nrank = 1;
+    PARALLEL::mpi_rank(&myid);
+    PARALLEL::mpi_size(&nrank);
+    std::map<std::pair<int, int>, int> send_occurrence;
+    std::map<std::pair<int, int>, int> recv_occurrence;
+    std::vector<int> local_length_records;
+    constexpr int record_width = 14;
     //-------------------------------------------------------------------------
     // 打包
     int index = 0;
@@ -65,35 +76,23 @@ void Halo::exchange_parallel(std::string field_name)
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
 
         const Box3 &sb = r.send_box; // 本块 inner strip
+        const Box3 &rb = r.recv_box; // 本块 ghost strip
 
-#if if_Debug_Field_Array == 1
-        // send/recv 区域尺寸（应该相同）
-        const int ni = sb.hi.i - sb.lo.i;
-        const int nj = sb.hi.j - sb.lo.j;
-        const int nk = sb.hi.k - sb.lo.k;
-
-        const Box3 &rb = r.recv_box; // recv
-        const int ni_r = rb.hi.i - rb.lo.i;
-        const int nj_r = rb.hi.j - rb.lo.j;
-        const int nk_r = rb.hi.k - rb.lo.k;
-        // 防御式：确保 send_box 和 recv_box 的大小一致
-        if (ni != ni_r || nj != nj_r || nk != nk_r)
-        {
-            std::cout << "Fatal Error!!! Parallel Halo send/recv box size mismatch "
-                      << "(field=" << field_name << ", block=" << r.this_block << ")\n";
-            std::exit(-1);
-        }
-#endif
-        const int32_t n_total = (sb.hi.i - sb.lo.i) *
-                                (sb.hi.j - sb.lo.j) *
-                                (sb.hi.k - sb.lo.k) *
-                                ncomp;
-        length[index] = n_total;
+        const int32_t send_total = (sb.hi.i - sb.lo.i) *
+                                   (sb.hi.j - sb.lo.j) *
+                                   (sb.hi.k - sb.lo.k) *
+                                   ncomp;
+        const int32_t recv_total = (rb.hi.i - rb.lo.i) *
+                                   (rb.hi.j - rb.lo.j) *
+                                   (rb.hi.k - rb.lo.k) *
+                                   ncomp;
+        length[index] = send_total;
+        recv_length[index] = recv_total;
         // 4. 确保缓冲区足够大（复用 send_buf_ / recv_buf_）
-        if (send_buf[index].size() < n_total)
-            send_buf[index].resize(n_total);
-        if (recv_buf[index].size() < n_total)
-            recv_buf[index].resize(n_total);
+        if (send_buf[index].size() < static_cast<std::size_t>(send_total))
+            send_buf[index].resize(send_total);
+        if (recv_buf[index].size() < static_cast<std::size_t>(recv_total))
+            recv_buf[index].resize(recv_total);
 
         // 5. 打包：本块 inner strip -> send_buf_
 
@@ -145,8 +144,113 @@ void Halo::exchange_parallel(std::string field_name)
                         send_buf[index][base + m] = fb(ijk[0], ijk[1], ijk[2], m);
                 }
 
+        const int send_ord = send_occurrence[{r.neighbor_rank, r.send_flag}]++;
+        local_length_records.insert(local_length_records.end(),
+                                    {0, myid, r.neighbor_rank, r.send_flag, send_ord,
+                                     send_total, index, r.this_block,
+                                     sb.lo.i, sb.lo.j, sb.lo.k,
+                                     sb.hi.i, sb.hi.j, sb.hi.k});
+
+        const int recv_ord = recv_occurrence[{r.neighbor_rank, r.recv_flag}]++;
+        local_length_records.insert(local_length_records.end(),
+                                    {1, r.neighbor_rank, myid, r.recv_flag, recv_ord,
+                                     recv_total, index, r.this_block,
+                                     rb.lo.i, rb.lo.j, rb.lo.k,
+                                     rb.hi.i, rb.hi.j, rb.hi.k});
+
         // 5) 记录regions的个数
         index++;
+    }
+    {
+        const int local_count = static_cast<int>(local_length_records.size());
+        std::vector<int> counts(nrank, 0);
+        MPI_Allgather(&local_count, 1, MPI_INT, counts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+        std::vector<int> displs(nrank, 0);
+        int total_count = 0;
+        for (int r = 0; r < nrank; ++r)
+        {
+            displs[r] = total_count;
+            total_count += counts[r];
+        }
+
+        std::vector<int> all_records(total_count, 0);
+        MPI_Allgatherv(local_length_records.empty() ? nullptr : local_length_records.data(),
+                       local_count,
+                       MPI_INT,
+                       all_records.empty() ? nullptr : all_records.data(),
+                       counts.data(),
+                       displs.data(),
+                       MPI_INT,
+                       MPI_COMM_WORLD);
+
+        auto rec_at = [&](int offset, int component) -> int
+        {
+            return all_records[offset + component];
+        };
+
+        for (std::size_t off = 0; off < local_length_records.size(); off += record_width)
+        {
+            if (local_length_records[off] != 1)
+                continue;
+
+            const int src = local_length_records[off + 1];
+            const int dst = local_length_records[off + 2];
+            const int tag = local_length_records[off + 3];
+            const int ord = local_length_records[off + 4];
+            const int recv_len = local_length_records[off + 5];
+
+            bool found = false;
+            int peer_len = -1;
+            int peer_region = -1;
+            int peer_block = -1;
+            int peer_box[6] = {0, 0, 0, 0, 0, 0};
+            for (int roff = 0; roff < total_count; roff += record_width)
+            {
+                if (rec_at(roff, 0) == 0 &&
+                    rec_at(roff, 1) == src &&
+                    rec_at(roff, 2) == dst &&
+                    rec_at(roff, 3) == tag &&
+                    rec_at(roff, 4) == ord)
+                {
+                    found = true;
+                    peer_len = rec_at(roff, 5);
+                    peer_region = rec_at(roff, 6);
+                    peer_block = rec_at(roff, 7);
+                    for (int c = 0; c < 6; ++c)
+                        peer_box[c] = rec_at(roff, 8 + c);
+                    break;
+                }
+            }
+
+            if (!found || peer_len != recv_len)
+            {
+                std::cout << "[Halo] parallel face length mismatch field=" << field_name
+                          << " rank=" << myid
+                          << " recv_from=" << src
+                          << " tag=" << tag
+                          << " ordinal=" << ord
+                          << " recv_len=" << recv_len
+                          << " peer_send_len=" << peer_len
+                          << " local_region=" << local_length_records[off + 6]
+                          << " local_block=" << local_length_records[off + 7]
+                          << " local_recv_box=["
+                          << local_length_records[off + 8] << ","
+                          << local_length_records[off + 9] << ","
+                          << local_length_records[off + 10] << "]-["
+                          << local_length_records[off + 11] << ","
+                          << local_length_records[off + 12] << ","
+                          << local_length_records[off + 13] << "]"
+                          << " peer_region=" << peer_region
+                          << " peer_block=" << peer_block
+                          << " peer_send_box=["
+                          << peer_box[0] << "," << peer_box[1] << "," << peer_box[2]
+                          << "]-["
+                          << peer_box[3] << "," << peer_box[4] << "," << peer_box[5]
+                          << "]\n";
+                std::exit(-1);
+            }
+        }
     }
     //-------------------------------------------------------------------------
     // 等待
@@ -157,7 +261,7 @@ void Halo::exchange_parallel(std::string field_name)
     for (const HaloRegion &r : pat.regions)
     {
         PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
-        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index].data(), length[index], &(req_recv[index]));
+        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index].data(), recv_length[index], &(req_recv[index]));
         index++;
     }
     //----------------------------------------------------------------------
@@ -185,7 +289,7 @@ void Halo::exchange_parallel(std::string field_name)
         // 防御式检查：与打包时记录的长度一致
 
         const int32_t n_total = ni * nj * nk * ncomp;
-        if (n_total != length[index])
+        if (n_total != recv_length[index])
         {
             std::cout << "Fatal Error!!! Parallel Halo unpack n_total mismatch "
                       << "(field=" << field_name << ", block=" << r.this_block << ")\n";

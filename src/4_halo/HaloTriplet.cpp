@@ -7,6 +7,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -64,6 +65,23 @@ void map_index(const TOPO::IndexTransform &tr,
     jo = tar[1];
     ko = tar[2];
 }
+
+void inverse_map_index(const TOPO::IndexTransform &tr,
+                       int i, int j, int k,
+                       int &io, int &jo, int &ko)
+{
+    const int dst[3] = {i, j, k};
+    int src[3] = {0, 0, 0};
+    const int offset[3] = {tr.offset.i, tr.offset.j, tr.offset.k};
+
+    for (int a = 0; a < 3; ++a)
+        src[a] = tr.sign[a] * (dst[tr.perm[a]] - offset[a]);
+
+    io = src[0];
+    jo = src[1];
+    ko = src[2];
+}
+
 
 std::array<int, 3> edge_triplet_ids(Field *fld, const std::vector<std::string> &fields)
 {
@@ -334,16 +352,16 @@ void Halo::exchange_inner_face_edge_1form_triplet_(const std::vector<std::string
                 continue;
 
             const double factor = static_cast<double>(rdst.trans.sign[src_axis]);
-            const Box3 &sb = rsrc.send_box;
+            const Box3 &rb = rdst.recv_box;
 
-            for (int i = sb.lo.i; i < sb.hi.i; ++i)
-                for (int j = sb.lo.j; j < sb.hi.j; ++j)
-                    for (int k = sb.lo.k; k < sb.hi.k; ++k)
+            for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                    for (int k = rb.lo.k; k < rb.hi.k; ++k)
                     {
-                        int io, jo, ko;
-                        map_index(rdst.trans, i, j, k, io, jo, ko);
+                        int is, js, ks;
+                        inverse_map_index(rdst.trans, i, j, k, is, js, ks);
                         for (int m = 0; m < ncomp; ++m)
-                            fb_recv(io, jo, ko, m) = factor * fb_send(i, j, k, m);
+                            fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
                     }
         }
     }
@@ -570,6 +588,8 @@ void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
     const int nghost = triplet_nghost(fld_, fid);
+    const bool print_nan_detail = std::getenv("Z0_PRINT_NAN_DETAIL") != nullptr;
+    int printed_nan_detail = 0;
 
     for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
     {
@@ -593,19 +613,57 @@ void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string
             FieldBlock &fb_recv = fld_->field(fid[dst_axis], rdst.neighbor_block);
             if (!fb_send.is_allocated() || !fb_recv.is_allocated())
                 continue;
+            const Int3 slo = fb_send.get_lo();
+            const Int3 shi = fb_send.get_hi();
 
             const double factor = static_cast<double>(
                 face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
-            const Box3 &sb = rsrc.send_box;
+            const Box3 &rb = rdst.recv_box;
 
-            for (int i = sb.lo.i; i < sb.hi.i; ++i)
-                for (int j = sb.lo.j; j < sb.hi.j; ++j)
-                    for (int k = sb.lo.k; k < sb.hi.k; ++k)
+            for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                    for (int k = rb.lo.k; k < rb.hi.k; ++k)
                     {
-                        int io, jo, ko;
-                        map_index(rdst.trans, i, j, k, io, jo, ko);
+                        int is, js, ks;
+                        inverse_map_index(rdst.trans, i, j, k, is, js, ks);
+                        if (is < slo.i || is >= shi.i ||
+                            js < slo.j || js >= shi.j ||
+                            ks < slo.k || ks >= shi.k)
+                        {
+                            if (print_nan_detail && printed_nan_detail < 6)
+                            {
+                                int myid = 0;
+                                PARALLEL::mpi_rank(&myid);
+                                std::cout << "[Halo triplet inner source OOB] rank=" << myid
+                                          << " dst_axis=" << dst_axis
+                                          << " src_axis=" << src_axis
+                                          << " this_block=" << rsrc.this_block
+                                          << " neighbor_block=" << rdst.neighbor_block
+                                          << " src=(" << is << "," << js << "," << ks << ")"
+                                          << " dst=(" << i << "," << j << "," << k << ")\n";
+                                ++printed_nan_detail;
+                            }
+                            continue;
+                        }
                         for (int m = 0; m < ncomp; ++m)
-                            fb_recv(io, jo, ko, m) = factor * fb_send(i, j, k, m);
+                        {
+                            if (print_nan_detail && printed_nan_detail < 6 &&
+                                !std::isfinite(fb_send(is, js, ks, m)))
+                            {
+                                int myid = 0;
+                                PARALLEL::mpi_rank(&myid);
+                                std::cout << "[Halo triplet inner source NaN] rank=" << myid
+                                          << " dst_axis=" << dst_axis
+                                          << " src_axis=" << src_axis
+                                          << " this_block=" << rsrc.this_block
+                                          << " neighbor_block=" << rdst.neighbor_block
+                                          << " src=(" << is << "," << js << "," << ks << ")"
+                                          << " dst=(" << i << "," << j << "," << k << ")"
+                                          << " comp=" << m << "\n";
+                                ++printed_nan_detail;
+                            }
+                            fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
+                        }
                     }
         }
     }
@@ -733,6 +791,7 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
             stat_recv.resize(nreg);
         if (length.size() < nreg)
             length.resize(nreg);
+        std::vector<int32_t> recv_length(nreg, 0);
 
         for (int ir = 0; ir < nreg; ++ir)
         {
@@ -747,21 +806,14 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
             FieldBlock &fb = fld_->field(fid[src_axis], rsrc.this_block);
             const Box3 &sb = rsrc.send_box;
 
-            const int ni = rdst.recv_box.hi.i - rdst.recv_box.lo.i;
-            const int nj = rdst.recv_box.hi.j - rdst.recv_box.lo.j;
-            const int nk = rdst.recv_box.hi.k - rdst.recv_box.lo.k;
-            const int32_t n_total = ni * nj * nk * ncomp;
-            length[ir] = n_total;
-            if (send_buf[ir].size() < static_cast<std::size_t>(n_total))
-                send_buf[ir].resize(n_total);
-            if (recv_buf[ir].size() < static_cast<std::size_t>(n_total))
-                recv_buf[ir].resize(n_total);
-
             const double factor = static_cast<double>(
                 face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
 
             int loc_lo[3] = {sb.lo.i, sb.lo.j, sb.lo.k};
             int loc_hi[3] = {sb.hi.i - 1, sb.hi.j - 1, sb.hi.k - 1};
+            int len_loc[3] = {sb.hi.i - sb.lo.i,
+                              sb.hi.j - sb.lo.j,
+                              sb.hi.k - sb.lo.k};
             int offset[3] = {rdst.trans.offset.i, rdst.trans.offset.j, rdst.trans.offset.k};
             int tar1[3], tar2[3], tar_ref[3];
             for (int a = 0; a < 3; ++a)
@@ -772,7 +824,22 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
             for (int a = 0; a < 3; ++a)
                 tar_ref[a] = (tar1[a] <= tar2[a]) ? tar1[a] : tar2[a];
 
-            int len_nb[3] = {ni, nj, nk};
+            int len_nb[3] = {0, 0, 0};
+            for (int a = 0; a < 3; ++a)
+                len_nb[rdst.trans.perm[a]] = len_loc[a];
+
+            const int32_t send_total = len_loc[0] * len_loc[1] * len_loc[2] * ncomp;
+            const int recv_ni = rdst.recv_box.hi.i - rdst.recv_box.lo.i;
+            const int recv_nj = rdst.recv_box.hi.j - rdst.recv_box.lo.j;
+            const int recv_nk = rdst.recv_box.hi.k - rdst.recv_box.lo.k;
+            const int32_t recv_total = recv_ni * recv_nj * recv_nk * ncomp;
+            length[ir] = send_total;
+            recv_length[ir] = recv_total;
+            if (send_buf[ir].size() < static_cast<std::size_t>(send_total))
+                send_buf[ir].resize(send_total);
+            if (recv_buf[ir].size() < static_cast<std::size_t>(recv_total))
+                recv_buf[ir].resize(recv_total);
+
             for (int i = sb.lo.i; i < sb.hi.i; ++i)
                 for (int j = sb.lo.j; j < sb.hi.j; ++j)
                     for (int k = sb.lo.k; k < sb.hi.k; ++k)
@@ -794,7 +861,7 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
             PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag,
                                     send_buf[ir].data(), length[ir], &(req_send[ir]));
             PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag,
-                                    recv_buf[ir].data(), length[ir], &(req_recv[ir]));
+                                    recv_buf[ir].data(), recv_length[ir], &(req_recv[ir]));
         }
 
         int nsend = nreg;
