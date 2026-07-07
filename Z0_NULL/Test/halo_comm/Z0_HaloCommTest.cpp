@@ -67,6 +67,15 @@ namespace
         return "B_zeta";
     }
 
+    const char *edge_field_name_from_axis(int axis)
+    {
+        if (axis == 0)
+            return "E_xi";
+        if (axis == 1)
+            return "E_eta";
+        return "E_zeta";
+    }
+
     int inverse_perm_axis(const TOPO::IndexTransform &tr, int dst_axis);
 
     bool has_valid_inner_corner_source(Field &field,
@@ -79,12 +88,22 @@ namespace
     {
         if (stage == HaloLevel::FaceOnly ||
             r.this_rank != r.neighbor_rank ||
-            desc.value_kind != FieldValueKind::FaceContravariant2Form)
+            (desc.value_kind != FieldValueKind::FaceContravariant2Form &&
+             desc.value_kind != FieldValueKind::EdgeCovariant1Form))
             return true;
 
-        const int dst_axis = LAYOUT::face_axis(desc.location);
-        const int src_axis = inverse_perm_axis(r.trans, dst_axis);
-        const char *src_name = face_field_name_from_axis(src_axis);
+        const int dst_axis =
+            desc.value_kind == FieldValueKind::FaceContravariant2Form
+                ? LAYOUT::face_axis(desc.location)
+                : LAYOUT::edge_axis(desc.location);
+        const int src_axis =
+            desc.value_kind == FieldValueKind::FaceContravariant2Form
+                ? inverse_perm_axis(r.trans, dst_axis)
+                : r.trans.perm[dst_axis];
+        const char *src_name =
+            desc.value_kind == FieldValueKind::FaceContravariant2Form
+                ? face_field_name_from_axis(src_axis)
+                : edge_field_name_from_axis(src_axis);
         if (!field.has_field(src_name) ||
             r.neighbor_block < 0 ||
             r.neighbor_block >= field.num_blocks())
@@ -247,9 +266,13 @@ namespace
                                                   << " stage=" << level_name(stage)
                                                   << " kind=recv-box"
                                                   << " this_block=" << r.this_block
+                                                  << " neighbor_block=" << r.neighbor_block
                                                   << " neighbor_rank=" << r.neighbor_rank
                                                   << " recv=(" << i << "," << j << "," << k << ")"
                                                   << " comp=" << m
+                                                  << " perm=(" << r.trans.perm[0] << "," << r.trans.perm[1] << "," << r.trans.perm[2] << ")"
+                                                  << " sign=(" << r.trans.sign[0] << "," << r.trans.sign[1] << "," << r.trans.sign[2] << ")"
+                                                  << " off=(" << r.trans.offset.i << "," << r.trans.offset.j << "," << r.trans.offset.k << ")"
                                                   << " recv_box=["
                                                   << b.lo.i << "," << b.lo.j << "," << b.lo.k
                                                   << "]-["
@@ -443,6 +466,62 @@ namespace
         }
     }
 
+    void fill_edge_1form_triplet_sources(Field &field, Halo &halo, HaloLevel stage)
+    {
+        const char *names[3] = {"E_xi", "E_eta", "E_zeta"};
+        for (const char *name : names)
+            if (!field.has_field(name))
+                return;
+
+        const int fid[3] = {
+            field.field_id(names[0]),
+            field.field_id(names[1]),
+            field.field_id(names[2])};
+        const int myid = Z0_TEST::rank();
+
+        for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
+        {
+            const FieldDescriptor &dst_desc = field.descriptor(fid[dst_axis]);
+            const std::vector<HaloRegion> regions =
+                halo.debug_halo_regions(dst_desc.location, dst_desc.nghost, stage);
+
+            for (const HaloRegion &r : regions)
+            {
+                const bool inner_face =
+                    stage == HaloLevel::FaceOnly && r.this_rank == r.neighbor_rank;
+                const int src_axis =
+                    inner_face ? inverse_perm_axis(r.trans, dst_axis) : r.trans.perm[dst_axis];
+                const int src_block =
+                    inner_face ? r.this_block :
+                    (stage == HaloLevel::FaceOnly ? r.this_block : r.neighbor_block);
+                if (src_block < 0 || src_block >= field.num_blocks())
+                    continue;
+
+                FieldBlock &fb = field.field(fid[src_axis], src_block);
+                const FieldDescriptor &src_desc = field.descriptor(fid[src_axis]);
+                const Int3 alo = fb.get_lo();
+                const Int3 ahi = fb.get_hi();
+                const Box3 &rb = r.recv_box;
+                for (int i = rb.lo.i; i < rb.hi.i; ++i)
+                    for (int j = rb.lo.j; j < rb.hi.j; ++j)
+                        for (int k = rb.lo.k; k < rb.hi.k; ++k)
+                        {
+                            int si = 0, sj = 0, sk = 0;
+                            if (inner_face)
+                                inverse_map_index(r.trans, i, j, k, si, sj, sk);
+                            else
+                                Z0_TEST::map_index(r.trans, i, j, k, si, sj, sk);
+                            if (si < alo.i || si >= ahi.i ||
+                                sj < alo.j || sj >= ahi.j ||
+                                sk < alo.k || sk >= ahi.k)
+                                continue;
+                            for (int m = 0; m < src_desc.ncomp; ++m)
+                                fb(si, sj, sk, m) = Z0_TEST::unique_code(myid, src_block, si, sj, sk, m);
+                        }
+            }
+        }
+    }
+
     void fill_allocated_unique(Field &field, const std::string &name)
     {
         const int fid = field.field_id(name);
@@ -518,8 +597,7 @@ namespace
             if (field.has_field(name))
                 fill_face_send_sources(field, halo, name);
         fill_face_2form_triplet_sources(field, halo, HaloLevel::FaceOnly);
-        fill_face_2form_triplet_sources(field, halo, HaloLevel::Edge);
-        fill_face_2form_triplet_sources(field, halo, HaloLevel::Vertex);
+        fill_edge_1form_triplet_sources(field, halo, HaloLevel::FaceOnly);
 
         if (owner_only_enabled())
         {
@@ -533,9 +611,17 @@ namespace
         {
             boundary.SyncAllRegistered(HaloLevel::FaceOnly);
             if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
+            {
+                fill_face_2form_triplet_sources(field, halo, HaloLevel::Edge);
+                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Edge);
                 boundary.SyncAllRegistered(HaloLevel::Edge);
+            }
             if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
+            {
+                fill_face_2form_triplet_sources(field, halo, HaloLevel::Vertex);
+                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Vertex);
                 boundary.SyncAllRegistered(HaloLevel::Vertex);
+            }
         }
 
         bool passed = true;
