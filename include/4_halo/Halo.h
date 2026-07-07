@@ -1,6 +1,7 @@
 #pragma once
 #include "2_topology/Topology.h"
 #include "4_halo/HaloTypes.h"
+#include "4_halo/HaloSyncTypes.h"
 #include "3_field/Field.h"
 #include "0_basic/MPI_WRAPPER.h"
 
@@ -124,122 +125,14 @@ private:
     TOPO::Topology *topo_;
     const TOPO::Topology *equiv_ = nullptr;
 
-    enum class HaloSyncSemantics
-    {
-        ComponentCopy,
-        Edge1FormTriplet,
-        Face2FormTriplet
-    };
-
-    struct HaloTripletRequest
-    {
-        std::string group_name;
-
-        std::string xi;
-        std::string eta;
-        std::string zeta;
-
-        FieldValueKind value_kind = FieldValueKind::Scalar;
-
-        HaloLevel level = HaloLevel::Vertex;
-        int nghost = 0;
-
-        bool orientation_aware = true;
-    };
-
-    struct HaloOwnerRequest
-    {
-        std::string field_name;
-        std::string sync_group;
-
-        OwnerSyncPolicy policy = OwnerSyncPolicy::None;
-
-        FieldValueKind value_kind = FieldValueKind::Scalar;
-        StaggerLocation location = StaggerLocation::Cell;
-        int ncomp = 1;
-
-        bool orientation_aware = false;
-    };
-
-    struct OwnerSyncLocalOp
-    {
-        int owner_fid = -1;
-        int alias_fid = -1;
-
-        int owner_block = -1;
-        int owner_i = 0;
-        int owner_j = 0;
-        int owner_k = 0;
-
-        int alias_block = -1;
-        int alias_i = 0;
-        int alias_j = 0;
-        int alias_k = 0;
-
-        int ncomp = 1;
-        int sign = +1;
-    };
-
-    struct OwnerSyncSendOp
-    {
-        int owner_fid = -1;
-        int class_gid = -1;
-
-        int owner_block = -1;
-        int owner_i = 0;
-        int owner_j = 0;
-        int owner_k = 0;
-
-        int alias_rank = -1;
-        int alias_block = -1;
-        int alias_i = 0;
-        int alias_j = 0;
-        int alias_k = 0;
-
-        int ncomp = 1;
-        int sign_for_alias = +1;
-
-        int dst_rank = -1;
-        int tag = -1;
-        int buffer_offset = 0;
-    };
-
-    struct OwnerSyncRecvOp
-    {
-        int alias_fid = -1;
-        int class_gid = -1;
-
-        int alias_block = -1;
-        int alias_i = 0;
-        int alias_j = 0;
-        int alias_k = 0;
-
-        int ncomp = 1;
-
-        int src_rank = -1;
-        int tag = -1;
-        int buffer_offset = 0;
-    };
-
-    struct OwnerSyncPattern
-    {
-        std::string field_name;
-        std::string sync_group;
-
-        OwnerSyncPolicy policy = OwnerSyncPolicy::None;
-
-        FieldValueKind value_kind = FieldValueKind::Scalar;
-        StaggerLocation location = StaggerLocation::Cell;
-
-        bool orientation_aware = false;
-
-        std::vector<OwnerSyncLocalOp> local_ops;
-        std::vector<OwnerSyncSendOp> send_ops;
-        std::vector<OwnerSyncRecvOp> recv_ops;
-
-        std::vector<double> send_buffer;
-        std::vector<double> recv_buffer;
-    };
+    using HaloSyncSemantics = HALO_SYNC::Semantics;
+    using HaloTripletRequest = HALO_SYNC::TripletRequest;
+    using HaloOwnerRequest = HALO_SYNC::OwnerRequest;
+    using OwnerSyncLocalOp = HALO_SYNC::OwnerLocalOp;
+    using OwnerSyncSendOp = HALO_SYNC::OwnerSendOp;
+    using OwnerSyncRecvOp = HALO_SYNC::OwnerRecvOp;
+    using OwnerSyncPattern = HALO_SYNC::OwnerPattern;
+    using CouplingPatternKey = HALO_SYNC::CouplingPatternKey;
 
     // 同一个 field_name 多次注册时取更高等级（FaceOnly < Edge < Vertex）
     std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
@@ -359,28 +252,6 @@ private:
     std::map<PatternKey, HaloPattern> inner_vertex_patterns_;
     std::map<PatternKey, HaloPattern> parallel_vertex_patterns_send;
     std::map<PatternKey, HaloPattern> parallel_vertex_patterns_recv;
-
-    // Coupling (src->dst) parallel corner patterns need their own cache,
-    // because the pattern depends on the directed physical pair in addition
-    // to (loc, nghost).
-    struct CouplingPatternKey
-    {
-        std::string src;
-        std::string dst;
-        StaggerLocation loc;
-        int nghost;
-
-        bool operator<(const CouplingPatternKey &o) const
-        {
-            if (src != o.src)
-                return src < o.src;
-            if (dst != o.dst)
-                return dst < o.dst;
-            if ((int)loc != (int)o.loc)
-                return (int)loc < (int)o.loc;
-            return nghost < o.nghost;
-        }
-    };
 
     // For Coupling (Parallel Corner): patterns are directed (src -> dst)
     std::map<CouplingPatternKey, HaloPattern> coupling_parallel_edge_patterns_send;

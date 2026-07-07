@@ -29,7 +29,12 @@ aux_source_directory(../src/0_basic  DIRSRCS0)
 aux_source_directory(../src/1_grid  DIRSRCS1)
 aux_source_directory(../src/2_topology  DIRSRCS2)
 aux_source_directory(../src/3_field  DIRSRCS3)
-aux_source_directory(../src/4_halo  DIRSRCS4)
+aux_source_directory(../src/4_halo/core DIRSRCS4_CORE)
+aux_source_directory(../src/4_halo/build DIRSRCS4_BUILD)
+aux_source_directory(../src/4_halo/component_copy DIRSRCS4_COMPONENT_COPY)
+aux_source_directory(../src/4_halo/forms DIRSRCS4_FORMS)
+aux_source_directory(../src/4_halo/coupling DIRSRCS4_COUPLING)
+aux_source_directory(../src/4_halo/owner DIRSRCS4_OWNER)
 aux_source_directory(../src/5_boundary  DIRSRCS5)
 aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
@@ -49,7 +54,9 @@ set(SRC_SETUP ./src/MercurySolver_Setup.cpp)
 # build the executable program
 add_executable(MercuryZ4 main.cpp 
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
- ${DIRSRCS4} ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
+ ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
+ ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
+ ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
  ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP} ${SRC_SETUP})
 #  ${SRC0} ${SRC1} ${SRC2} ${SRC3} ${SRC4} ${SRC5} ${SRC6})
 
