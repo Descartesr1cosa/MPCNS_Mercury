@@ -763,7 +763,7 @@ namespace
                 passed &= Z0_TEST::print_result("NaN overwrite " + name, bad == 0, os.str());
             }
 
-            for (const std::string &name : {"U", "Bcell"})
+            for (const std::string &name : {"phi", "divB", "U", "Bcell"})
             {
                 long long local_checked_regions = 0;
                 const double err = component_copy_error(field, halo, name, stage, local_checked_regions);
