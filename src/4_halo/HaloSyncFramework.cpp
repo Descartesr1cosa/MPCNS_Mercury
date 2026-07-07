@@ -3,6 +3,7 @@
 #include "0_basic/LayoutTraits.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <ostream>
 #include <sstream>
 #include <vector>
@@ -22,6 +23,24 @@ namespace
         }
 
         return "Unknown";
+    }
+
+    int entity_axis_index(TOPO::EntityAxis axis)
+    {
+        switch (axis)
+        {
+        case TOPO::EntityAxis::Xi:
+            return 0;
+        case TOPO::EntityAxis::Eta:
+            return 1;
+        case TOPO::EntityAxis::Zeta:
+            return 2;
+        case TOPO::EntityAxis::None:
+            break;
+        }
+
+        ERROR::Abort("[Halo] owner sync requires oriented edge/face axis.");
+        return 0;
     }
 }
 
@@ -220,8 +239,8 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
 void Halo::sync_owner_alias_request_stage_(const HaloOwnerRequest &req, HaloLevel stage)
 {
     const bool stage_matches =
-        (stage == HaloLevel::FaceOnly && req.policy == OwnerSyncPolicy::FaceOwner) ||
-        (stage == HaloLevel::Edge && req.policy == OwnerSyncPolicy::EdgeOwner) ||
+        (req.policy == OwnerSyncPolicy::FaceOwner) ||
+        (halo_level_includes_edge_(stage) && req.policy == OwnerSyncPolicy::EdgeOwner) ||
         (stage == HaloLevel::Vertex && req.policy == OwnerSyncPolicy::NodeOwner);
 
     if (stage_matches)
@@ -442,6 +461,20 @@ void Halo::copy_owner_to_alias_local_(const HaloOwnerRequest &req,
     }
 }
 
+int Halo::owner_sync_member_field_id_(const HaloOwnerRequest &req,
+                                      const TOPO::EquivMember &member) const
+{
+    if (req.value_kind == FieldValueKind::EdgeCovariant1Form ||
+        req.value_kind == FieldValueKind::FaceContravariant2Form)
+    {
+        const int axis = entity_axis_index(member.entity.axis);
+        return fld_->field_id(
+            find_triplet_field_name_(req.field_name, req.value_kind, axis));
+    }
+
+    return fld_->field_id(req.field_name);
+}
+
 void Halo::build_owner_sync_patterns_()
 {
     owner_sync_patterns_.clear();
@@ -465,7 +498,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
     pat.location = req.location;
     pat.orientation_aware = req.orientation_aware;
 
-    const int fid = fld_->field_id(req.field_name);
+    const int alias_fid = fld_->field_id(req.field_name);
     const TOPO::EntityDim dim = owner_policy_to_entity_dim_(req.policy);
     const auto &classes = equiv_->classes(dim);
 
@@ -475,9 +508,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
     for (const auto &cls : classes)
     {
         const TOPO::EquivMember &owner = cls.owner;
-
-        if (!owner_member_matches_field_(req, owner))
-            continue;
+        const int owner_fid = owner_sync_member_field_id_(req, owner);
 
         for (const auto &alias : cls.members)
         {
@@ -492,7 +523,8 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
             if (owner.entity.rank == my_rank && alias.entity.rank == my_rank)
             {
                 OwnerSyncLocalOp op;
-                op.fid = fid;
+                op.owner_fid = owner_fid;
+                op.alias_fid = alias_fid;
                 op.owner_block = owner.entity.block;
                 op.owner_i = owner.entity.i;
                 op.owner_j = owner.entity.j;
@@ -517,7 +549,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                 }
 
                 OwnerSyncSendOp op;
-                op.fid = fid;
+                op.owner_fid = owner_fid;
                 op.class_gid = cls.global_id;
                 op.owner_block = owner.entity.block;
                 op.owner_i = owner.entity.i;
@@ -546,7 +578,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                 }
 
                 OwnerSyncRecvOp op;
-                op.fid = fid;
+                op.alias_fid = alias_fid;
                 op.class_gid = cls.global_id;
                 op.alias_block = alias.entity.block;
                 op.alias_i = alias.entity.i;
@@ -577,7 +609,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                       return a.alias_j < b.alias_j;
                   if (a.alias_k != b.alias_k)
                       return a.alias_k < b.alias_k;
-                  return a.fid < b.fid;
+                  return a.owner_fid < b.owner_fid;
               });
 
     std::sort(pat.recv_ops.begin(), pat.recv_ops.end(),
@@ -595,10 +627,22 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                       return a.alias_j < b.alias_j;
                   if (a.alias_k != b.alias_k)
                       return a.alias_k < b.alias_k;
-                  return a.fid < b.fid;
+                  return a.alias_fid < b.alias_fid;
               });
 
     resize_owner_sync_buffers_(pat);
+    if (std::getenv("Z0_OWNER_DEBUG") != nullptr)
+    {
+        int my_rank = 0;
+        PARALLEL::mpi_rank(&my_rank);
+        std::cout << "[OwnerPattern] rank=" << my_rank
+                  << " field=" << pat.field_name
+                  << " policy=" << owner_sync_policy_name(pat.policy)
+                  << " local=" << pat.local_ops.size()
+                  << " send=" << pat.send_ops.size()
+                  << " recv=" << pat.recv_ops.size()
+                  << "\n";
+    }
     return pat;
 }
 
@@ -640,8 +684,8 @@ void Halo::execute_owner_sync_local_ops_(const OwnerSyncPattern &pat)
 {
     for (const auto &op : pat.local_ops)
     {
-        FieldBlock &owner_block = fld_->field(op.fid, op.owner_block);
-        FieldBlock &alias_block = fld_->field(op.fid, op.alias_block);
+        FieldBlock &owner_block = fld_->field(op.owner_fid, op.owner_block);
+        FieldBlock &alias_block = fld_->field(op.alias_fid, op.alias_block);
 
         if (!owner_block.is_allocated() || !alias_block.is_allocated())
             continue;
@@ -659,7 +703,7 @@ void Halo::pack_owner_sync_send_buffer_(OwnerSyncPattern &pat)
 {
     for (const auto &op : pat.send_ops)
     {
-        FieldBlock &owner_block = fld_->field(op.fid, op.owner_block);
+        FieldBlock &owner_block = fld_->field(op.owner_fid, op.owner_block);
 
         if (!owner_block.is_allocated())
             ERROR::Abort("[Halo] owner sync send op references inactive owner field: " + pat.field_name);
@@ -677,7 +721,7 @@ void Halo::unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat)
 {
     for (const auto &op : pat.recv_ops)
     {
-        FieldBlock &alias_block = fld_->field(op.fid, op.alias_block);
+        FieldBlock &alias_block = fld_->field(op.alias_fid, op.alias_block);
 
         if (!alias_block.is_allocated())
             continue;
@@ -692,9 +736,6 @@ void Halo::unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat)
 
 void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
 {
-    if (pat.send_ops.empty() && pat.recv_ops.empty())
-        return;
-
     pack_owner_sync_send_buffer_(pat);
 
     int nrank = 1;
@@ -715,15 +756,21 @@ void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
     {
         if (recv_lengths_by_rank[r] != expected_recv_lengths_by_rank[r])
         {
+            int my_rank = 0;
+            PARALLEL::mpi_rank(&my_rank);
             std::ostringstream oss;
             oss << "[Halo] owner sync length mismatch field=" << pat.field_name
                 << " policy=" << owner_sync_policy_name(pat.policy)
+                << " rank=" << my_rank
                 << " peer_rank=" << r
                 << " posted_recv_len=" << recv_lengths_by_rank[r]
                 << " expected_from_peer_send_len=" << expected_recv_lengths_by_rank[r];
             ERROR::Abort(oss.str());
         }
     }
+
+    if (pat.send_ops.empty() && pat.recv_ops.empty())
+        return;
 
     std::vector<MPI_Request> recv_requests;
     std::vector<MPI_Request> send_requests;

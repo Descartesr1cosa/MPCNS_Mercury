@@ -163,7 +163,8 @@ private:
 
     struct OwnerSyncLocalOp
     {
-        int fid = -1;
+        int owner_fid = -1;
+        int alias_fid = -1;
 
         int owner_block = -1;
         int owner_i = 0;
@@ -181,7 +182,7 @@ private:
 
     struct OwnerSyncSendOp
     {
-        int fid = -1;
+        int owner_fid = -1;
         int class_gid = -1;
 
         int owner_block = -1;
@@ -205,7 +206,7 @@ private:
 
     struct OwnerSyncRecvOp
     {
-        int fid = -1;
+        int alias_fid = -1;
         int class_gid = -1;
 
         int alias_block = -1;
@@ -314,6 +315,9 @@ private:
 
     bool owner_member_matches_field_(const HaloOwnerRequest &req,
                                      const TOPO::EquivMember &m) const;
+
+    int owner_sync_member_field_id_(const HaloOwnerRequest &req,
+                                    const TOPO::EquivMember &member) const;
 
     void copy_owner_to_alias_local_(const HaloOwnerRequest &req,
                                     int fid,
