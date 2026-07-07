@@ -13,7 +13,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
 include_directories(${MPI_INCLUDE_PATH})
 include_directories(../include)
 include_directories(./include)
-include_directories(./Test/common)
+include_directories(./test/common)
 include_directories(.)
 
 aux_source_directory(../src/0_basic DIRSRCS0)
@@ -31,10 +31,10 @@ aux_source_directory(../src/8_dec DIRSRCS8)
 aux_source_directory(./src Z0_NULL_SRCS)
 aux_source_directory(./src/boundary Z0_NULL_BOUNDARY_SRCS)
 aux_source_directory(./src/physics Z0_NULL_PHYSICS_SRCS)
-aux_source_directory(./Test/halo_comm Z0_NULL_TEST_HALO_SRCS)
-aux_source_directory(./Test/dec_chain Z0_NULL_TEST_DEC_SRCS)
-aux_source_directory(./Test/physical_io Z0_NULL_TEST_IO_SRCS)
-aux_source_directory(./Test/topology Z0_NULL_TEST_TOPOLOGY_SRCS)
+aux_source_directory(./test/halo_comm Z0_NULL_TEST_HALO_SRCS)
+aux_source_directory(./test/dec_chain Z0_NULL_TEST_DEC_SRCS)
+aux_source_directory(./test/physical_io Z0_NULL_TEST_IO_SRCS)
+aux_source_directory(./test/topology Z0_NULL_TEST_TOPOLOGY_SRCS)
 add_executable(z0_null
     main.cpp
     ${DIRSRCS0}
