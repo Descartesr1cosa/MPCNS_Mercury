@@ -36,8 +36,11 @@ public:
     // Test/debug helper: expose the recv/send boxes used by the registered
     // halo patterns without changing the production sync path.
     std::vector<HaloRegion> debug_halo_regions(StaggerLocation location,
-                                               int nghost,
-                                               HaloLevel stage) const;
+                                                int nghost,
+                                                HaloLevel stage) const;
+    std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
+                                                     int nghost,
+                                                     HaloLevel stage) const;
 
     // Topology equivalence is required by owner-alias synchronization.
     void set_topology_equiv(const TOPO::Topology *equiv);

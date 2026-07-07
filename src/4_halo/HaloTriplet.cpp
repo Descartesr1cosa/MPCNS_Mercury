@@ -246,6 +246,7 @@ void pack_triplet_corner_send(Field *fld,
                               int ncomp,
                               std::vector<double> &buf)
 {
+    (void)send_box;
     FieldBlock &fb = fld->field(fid[m.send_axis], m.send_block);
     if (!fb.is_allocated())
         return;
@@ -256,24 +257,33 @@ void pack_triplet_corner_send(Field *fld,
     const int n_total = ni * nj * nk * ncomp;
     if (static_cast<int>(buf.size()) < n_total)
         buf.resize(n_total);
+    std::fill(buf.begin(), buf.begin() + n_total, 0.0);
 
-    const TOPO::IndexTransform send_to_recv =
-        HALO_TOOLS::inverse_transform(m.trans_recv_to_send);
-
-    for (int i = send_box.lo.i; i < send_box.hi.i; ++i)
-        for (int j = send_box.lo.j; j < send_box.hi.j; ++j)
-            for (int k = send_box.lo.k; k < send_box.hi.k; ++k)
+    const Int3 slo = fb.get_lo();
+    const Int3 shi = fb.get_hi();
+    for (int ii = 0; ii < ni; ++ii)
+        for (int jj = 0; jj < nj; ++jj)
+            for (int kk = 0; kk < nk; ++kk)
             {
-                int ir, jr, kr;
-                map_index(send_to_recv, i, j, k, ir, jr, kr);
+                const int ir = m.recv_box.lo.i + ii;
+                const int jr = m.recv_box.lo.j + jj;
+                const int kr = m.recv_box.lo.k + kk;
 
-                const int ii = ir - m.recv_box.lo.i;
-                const int jj = jr - m.recv_box.lo.j;
-                const int kk = kr - m.recv_box.lo.k;
+                int is, js, ks;
+                map_index(m.trans_recv_to_send, ir, jr, kr, is, js, ks);
                 const int base = ((ii * nj + jj) * nk + kk) * ncomp;
+                if (is < slo.i || is >= shi.i ||
+                    js < slo.j || js >= shi.j ||
+                    ks < slo.k || ks >= shi.k)
+                    continue;
 
                 for (int c = 0; c < ncomp; ++c)
-                    buf[base + c] = static_cast<double>(m.sign) * fb(i, j, k, c);
+                {
+                    const double value = fb(is, js, ks, c);
+                    buf[base + c] = std::isfinite(value)
+                                        ? static_cast<double>(m.sign) * value
+                                        : 0.0;
+                }
             }
 }
 
@@ -697,6 +707,8 @@ void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string
             FieldBlock &fb_send = fld_->field(fid[src_axis], rsrc.neighbor_block);
             if (!fb_recv.is_allocated() || !fb_send.is_allocated())
                 continue;
+            const Int3 slo = fb_send.get_lo();
+            const Int3 shi = fb_send.get_hi();
 
             const double factor = static_cast<double>(
                 face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
@@ -708,6 +720,10 @@ void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string
                     {
                         int is, js, ks;
                         map_index(rdst.trans, i, j, k, is, js, ks);
+                        if (is < slo.i || is >= shi.i ||
+                            js < slo.j || js >= shi.j ||
+                            ks < slo.k || ks >= shi.k)
+                            continue;
                         for (int m = 0; m < ncomp; ++m)
                             fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
                     }
@@ -743,6 +759,8 @@ void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::stri
             FieldBlock &fb_send = fld_->field(fid[src_axis], rsrc.neighbor_block);
             if (!fb_recv.is_allocated() || !fb_send.is_allocated())
                 continue;
+            const Int3 slo = fb_send.get_lo();
+            const Int3 shi = fb_send.get_hi();
 
             const double factor = static_cast<double>(
                 face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
@@ -754,6 +772,10 @@ void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::stri
                     {
                         int is, js, ks;
                         map_index(rdst.trans, i, j, k, is, js, ks);
+                        if (is < slo.i || is >= shi.i ||
+                            js < slo.j || js >= shi.j ||
+                            ks < slo.k || ks >= shi.k)
+                            continue;
                         for (int m = 0; m < ncomp; ++m)
                             fb_recv(i, j, k, m) = factor * fb_send(is, js, ks, m);
                     }
