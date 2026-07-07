@@ -18,24 +18,6 @@ class Grid;
 
 namespace TOPO
 {
-    // ============================================================
-    // hash helpers
-    // ============================================================
-
-    inline void hash_combine_inplace(std::size_t &seed, std::size_t v)
-    {
-        seed ^= v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-    }
-
-    template <class T>
-    inline void hash_combine_inplace(std::size_t &seed, const T &v)
-    {
-        hash_combine_inplace(seed, std::hash<T>{}(v));
-    }
-
-    // EntityKey is used for local entities and canonical node representatives.
-
-    // canonical physical edge key, with ordered endpoints a < b
     struct EdgeKey
     {
         EntityKey a;
@@ -48,16 +30,17 @@ namespace TOPO
             std::size_t operator()(const EdgeKey &x) const
             {
                 std::size_t h = 0;
-                hash_combine_inplace(h, EntityKey::Hash{}(x.a));
-                hash_combine_inplace(h, EntityKey::Hash{}(x.b));
+                auto combine = [&](std::size_t v)
+                {
+                    h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+                };
+                combine(EntityKey::Hash{}(x.a));
+                combine(EntityKey::Hash{}(x.b));
                 return h;
             }
         };
     };
 
-    // Canonical physical face key built from sorted corner EntityKeys.  The key
-    // identifies the geometric face; orientation is assigned later by comparing
-    // each member's edge-boundary stencil with the selected owner face.
     struct FaceKey
     {
         EntityKey a;
@@ -72,18 +55,18 @@ namespace TOPO
             std::size_t operator()(const FaceKey &x) const
             {
                 std::size_t h = 0;
-                hash_combine_inplace(h, EntityKey::Hash{}(x.a));
-                hash_combine_inplace(h, EntityKey::Hash{}(x.b));
-                hash_combine_inplace(h, EntityKey::Hash{}(x.c));
-                hash_combine_inplace(h, EntityKey::Hash{}(x.d));
+                auto combine = [&](std::size_t v)
+                {
+                    h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+                };
+                combine(EntityKey::Hash{}(x.a));
+                combine(EntityKey::Hash{}(x.b));
+                combine(EntityKey::Hash{}(x.c));
+                combine(EntityKey::Hash{}(x.d));
                 return h;
             }
         };
     };
-
-    // ============================================================
-    // equivalence-class containers
-    // ============================================================
 
     struct EquivMember
     {
@@ -94,44 +77,6 @@ namespace TOPO
 
         bool is_owner = false;
     };
-
-    inline StaggerLocation stagger_location(const EntityKey &entity)
-    {
-        switch (entity.dim)
-        {
-        case EntityDim::Node:
-            return StaggerLocation::Node;
-        case EntityDim::Cell:
-            return StaggerLocation::Cell;
-        case EntityDim::Edge:
-            switch (entity.axis)
-            {
-            case EntityAxis::Xi:
-                return StaggerLocation::EdgeXi;
-            case EntityAxis::Eta:
-                return StaggerLocation::EdgeEt;
-            case EntityAxis::Zeta:
-                return StaggerLocation::EdgeZe;
-            default:
-                break;
-            }
-            break;
-        case EntityDim::Face:
-            switch (entity.axis)
-            {
-            case EntityAxis::Xi:
-                return StaggerLocation::FaceXi;
-            case EntityAxis::Eta:
-                return StaggerLocation::FaceEt;
-            case EntityAxis::Zeta:
-                return StaggerLocation::FaceZe;
-            default:
-                break;
-            }
-            break;
-        }
-        throw std::invalid_argument("TOPO::stagger_location: entity has an invalid dimension/axis combination.");
-    }
 
     struct EquivClass
     {
@@ -258,43 +203,20 @@ namespace TOPO
 
     };
 
-    // ============================================================
-    // small helpers
-    // ============================================================
-
-    // local edge endpoints
-    // dir=1 (Xi)   : (i,j,k) -> (i+1,j,k)
-    // dir=2 (Eta)  : (i,j,k) -> (i,j+1,k)
-    // dir=3 (Zeta) : (i,j,k) -> (i,j,k+1)
+    StaggerLocation stagger_location(const EntityKey &entity);
     std::pair<EntityKey, EntityKey> endpoints(const EntityKey &e);
-
-    // local face corners in oriented local order.
-    // dir=1 (FaceXi) : (i,j,k), (i,j+1,k), (i,j,k+1), (i,j+1,k+1)
-    // dir=2 (FaceEt) : (i,j,k), (i+1,j,k), (i,j,k+1), (i+1,j,k+1)
-    // dir=3 (FaceZe) : (i,j,k), (i+1,j,k), (i,j+1,k), (i+1,j+1,k)
     std::array<EntityKey, 4> corners(const EntityKey &f);
 
-    // build canonical EdgeKey from a local edge using nodes.local_to_rep
-    // returns sign_to_canonical:
-    //   +1 if local edge direction matches key.a -> key.b
-    //   -1 otherwise
     EdgeKey make_edge_key(
         const EntityKey &e,
         const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &local_to_rep,
         int8_t &sign_to_canonical);
 
-    // build canonical FaceKey from a local face using nodes.local_to_rep
-    // returns sign_to_canonical based on local corner ordering parity against
-    // the sorted canonical corner ordering. Degenerate 2D faces use +1.
     FaceKey make_face_key(
         const EntityKey &f,
         const std::unordered_map<EntityKey, EntityKey, EntityKey::Hash> &local_to_rep,
         int8_t &sign_to_canonical);
 
-    // Compares global edge boundary stencils induced by all members of each
-    // FaceKey after normalization by their current faces.local_to_qsign value.  This is
-    // a validation hook for the existing sorted-corner orientation rule; it
-    // does not change that rule.
     bool validate_face_orientation_stencils(const Topology &topology,
                                             std::ostream &diagnostics);
 
