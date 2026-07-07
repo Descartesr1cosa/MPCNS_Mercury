@@ -1,14 +1,12 @@
-#include "0_basic/1_MPCNS_Parameter.h"
-#include "0_basic/MPI_WRAPPER.h"
-#include "1_grid/1_MPCNS_Grid.h"
+#include "Z0_Tests.h"
+
 #include "2_topology/GlobalIncidence.h"
 #include "2_topology/LocalIncidence.h"
-#include "2_topology/TopologyBuilder.h"
+#include "2_topology/Topology.h"
 
 #include <cstdint>
 #include <iostream>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -239,28 +237,14 @@ namespace
     }
 }
 
-int main(int argc, char **argv)
+namespace Z0_TEST
 {
-    PARALLEL::mpi_initial(argc, argv);
-
-    int exit_code = 0;
-    try
+    bool RunTopologyTests(const TOPO::Topology &topology, int myid)
     {
-        int myid = 0;
-        PARALLEL::mpi_rank(&myid);
-
-        Param param;
-        param.ReadParam(myid);
-
-        Grid grid;
-        grid.Grid_Preprocess(&param);
-
-        const int dimension = param.GetInt("dimension");
-        TOPO::Topology topology = TOPO::build_topology(grid, myid, dimension);
         TOPO::GlobalIncidence incidence(topology);
 
         if (myid == 0)
-            std::cout << "Topology tests\n";
+            std::cout << "Z0 topology tests\n";
 
         bool passed = true;
         passed &= print_counted_test_result(
@@ -282,17 +266,6 @@ int main(int argc, char **argv)
             check_owner_alias_uniqueness_and_signs(topology),
             myid);
 
-        exit_code = passed ? 0 : 1;
+        return passed;
     }
-    catch (const std::exception &ex)
-    {
-        int myid = 0;
-        PARALLEL::mpi_rank(&myid);
-        if (myid == 0)
-            std::cerr << "topo_test failed with exception: " << ex.what() << "\n";
-        exit_code = 1;
-    }
-
-    PARALLEL::mpi_finalize();
-    return exit_code;
 }

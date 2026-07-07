@@ -46,6 +46,7 @@ int main(int argc, char **argv)
         solver.Advance();
 
         bool tests_passed = true;
+        tests_passed &= Z0_TEST::RunTopologyTests(topology, myid);
         tests_passed &= Z0_TEST::RunPhysicalIoTests(field, param);
         tests_passed &= Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param);
         tests_passed &= Z0_TEST::RunDecChainTests(field, halo, boundary, param);

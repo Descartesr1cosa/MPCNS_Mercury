@@ -34,6 +34,7 @@ aux_source_directory(./src/physics Z0_NULL_PHYSICS_SRCS)
 aux_source_directory(./Test/halo_comm Z0_NULL_TEST_HALO_SRCS)
 aux_source_directory(./Test/dec_chain Z0_NULL_TEST_DEC_SRCS)
 aux_source_directory(./Test/physical_io Z0_NULL_TEST_IO_SRCS)
+aux_source_directory(./Test/topology Z0_NULL_TEST_TOPOLOGY_SRCS)
 add_executable(z0_null
     main.cpp
     ${DIRSRCS0}
@@ -53,6 +54,7 @@ add_executable(z0_null
     ${Z0_NULL_PHYSICS_SRCS}
     ${Z0_NULL_TEST_HALO_SRCS}
     ${Z0_NULL_TEST_DEC_SRCS}
-    ${Z0_NULL_TEST_IO_SRCS})
+    ${Z0_NULL_TEST_IO_SRCS}
+    ${Z0_NULL_TEST_TOPOLOGY_SRCS})
 
 target_link_libraries(z0_null PRIVATE ${MPI_LIBRARIES} stdc++fs)
