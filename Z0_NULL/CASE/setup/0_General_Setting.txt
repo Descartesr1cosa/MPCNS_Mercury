@@ -1,0 +1,7 @@
+int	dimension	3
+int	ngg		2
+int	Read_Method	2	//0表示ASCII格式的plot3D 1表示二进制网格
+int	corner_treat	2
+double 	scale	1.0
+
+END_OF_FILE
