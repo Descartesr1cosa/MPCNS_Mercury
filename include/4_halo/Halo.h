@@ -32,6 +32,8 @@ public:
     void sync_group(const std::string &group_name);
     void sync_group(const std::string &group_name, HaloLevel stage);
     void sync_owner_alias();
+    void sync_owner_alias_field(const std::string &field_name);
+    void sync_owner_alias_group(const std::string &group_name);
     void dump_sync_registry(std::ostream &os) const;
 
     // Test/debug helper: expose the recv/send boxes used by the registered
@@ -192,6 +194,8 @@ private:
     void sync_owner_alias_request_(const HaloOwnerRequest &req);
 
     void sync_owner_alias_registered_();
+    bool sync_owner_alias_field_(const std::string &field_name);
+    bool sync_owner_alias_group_(const std::string &group_name);
 
     bool field_is_component_copy_(const std::string &field_name) const;
 

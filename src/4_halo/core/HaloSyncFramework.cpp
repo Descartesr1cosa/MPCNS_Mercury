@@ -242,6 +242,34 @@ void Halo::sync_owner_alias_registered_()
         sync_owner_alias_request_(req);
 }
 
+bool Halo::sync_owner_alias_field_(const std::string &field_name)
+{
+    bool handled = false;
+    for (const auto &own : owner_sync_requests_)
+    {
+        if (own.field_name == field_name)
+        {
+            sync_owner_alias_request_(own);
+            handled = true;
+        }
+    }
+    return handled;
+}
+
+bool Halo::sync_owner_alias_group_(const std::string &group_name)
+{
+    bool handled = false;
+    for (const auto &own : owner_sync_requests_)
+    {
+        if (own.sync_group == group_name)
+        {
+            sync_owner_alias_request_(own);
+            handled = true;
+        }
+    }
+    return handled;
+}
+
 bool Halo::field_is_component_copy_(const std::string &field_name) const
 {
     for (const auto &name : component_copy_fields_)
@@ -850,6 +878,18 @@ void Halo::sync_owner_alias()
     sync_owner_alias_registered_();
 }
 
+void Halo::sync_owner_alias_field(const std::string &field_name)
+{
+    if (!sync_owner_alias_field_(field_name))
+        ERROR::Abort("[Halo] sync_owner_alias_field: field has no owner sync request: " + field_name);
+}
+
+void Halo::sync_owner_alias_group(const std::string &group_name)
+{
+    if (!sync_owner_alias_group_(group_name))
+        ERROR::Abort("[Halo] sync_owner_alias_group: group has no owner sync requests: " + group_name);
+}
+
 void Halo::sync_field(const std::string &field_name)
 {
     const FieldHaloRequest &req = halo_request_(field_name);
@@ -883,11 +923,7 @@ void Halo::sync_field(const std::string &field_name)
         }
     }
 
-    for (const auto &own : owner_sync_requests_)
-    {
-        if (own.field_name == field_name)
-            sync_owner_alias_request_(own);
-    }
+    sync_owner_alias_field_(field_name);
 }
 
 void Halo::sync_field(const std::string &field_name, HaloLevel stage)
@@ -953,14 +989,7 @@ void Halo::sync_group(const std::string &group_name)
         }
     }
 
-    for (const auto &own : owner_sync_requests_)
-    {
-        if (own.sync_group == group_name)
-        {
-            sync_owner_alias_request_(own);
-            handled = true;
-        }
-    }
+    handled = sync_owner_alias_group_(group_name) || handled;
 
     if (!handled)
         ERROR::Abort("[Halo] sync_group: unknown or empty group: " + group_name);

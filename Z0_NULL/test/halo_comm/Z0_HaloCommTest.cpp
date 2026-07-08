@@ -38,6 +38,15 @@ namespace
         return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON";
     }
 
+    void sync_owner_groups_for_stage(Halo &halo, HaloLevel stage)
+    {
+        halo.sync_owner_alias_group("Bface");
+        if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Corner2D))
+            halo.sync_owner_alias_group("Eedge");
+        if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Corner3D))
+            halo.sync_owner_alias_group("phi");
+    }
+
     bool nan_detail_enabled()
     {
         const char *value = std::getenv("Z0_PRINT_NAN_DETAIL");
@@ -720,7 +729,7 @@ namespace
 
         if (owner_only_enabled())
         {
-            halo.sync_owner_alias();
+            sync_owner_groups_for_stage(halo, stage);
         }
         else
         {
@@ -744,7 +753,7 @@ namespace
         }
 
         if (owner_sync_enabled() && !owner_only_enabled())
-            halo.sync_owner_alias();
+            sync_owner_groups_for_stage(halo, stage);
 
         bool passed = true;
         if (!owner_only_enabled())
