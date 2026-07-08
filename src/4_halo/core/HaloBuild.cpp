@@ -40,6 +40,12 @@ namespace
                a.orientation_aware == b.orientation_aware;
     }
 
+    bool is_oriented_form_kind(FieldValueKind kind)
+    {
+        return kind == FieldValueKind::EdgeCovariant1Form ||
+               kind == FieldValueKind::FaceContravariant2Form;
+    }
+
     bool is_edge_location(StaggerLocation loc)
     {
         return loc == StaggerLocation::EdgeXi ||
@@ -327,6 +333,13 @@ void Halo::validate_sync_registry_consistency_() const
         {
             ERROR::Abort("[Halo] FaceOwner sync request must use face location: " + own.field_name);
         }
+
+        if (is_oriented_form_kind(own.value_kind) &&
+            !own.orientation_aware)
+        {
+            ERROR::Abort("[Halo] owner sync for oriented forms requires orientation-aware metadata: " +
+                         own.field_name);
+        }
     }
 }
 
@@ -335,6 +348,9 @@ void Halo::upsert_halo_request_(const FieldHaloRequest &request)
     FieldHaloRequest normalized = request;
     if (normalized.sync_group.empty())
         normalized.sync_group = normalized.field_name;
+
+    if (is_oriented_form_kind(normalized.value_kind))
+        normalized.orientation_aware = true;
 
     // 防止拼错名字导致 silent 插入
     if (!fld_->has_field(normalized.field_name))
