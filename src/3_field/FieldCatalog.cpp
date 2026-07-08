@@ -99,7 +99,8 @@ std::vector<FieldHaloRequest> FieldCatalog::halo_requests() const
     std::vector<FieldHaloRequest> requests;
     for (const auto &desc : descs_)
     {
-        if (!desc.sync.do_halo)
+        if (!desc.sync.do_halo &&
+            desc.sync.owner_sync == OwnerSyncPolicy::None)
             continue;
 
         FieldHaloRequest req;
@@ -109,6 +110,7 @@ std::vector<FieldHaloRequest> FieldCatalog::halo_requests() const
         req.value_kind = desc.value_kind;
         req.ncomp = desc.ncomp;
         req.nghost = desc.nghost;
+        req.do_halo = desc.sync.do_halo;
         req.level = desc.sync.halo_level;
         req.owner_sync = desc.sync.owner_sync;
         req.orientation_aware = desc.sync.orientation_aware;

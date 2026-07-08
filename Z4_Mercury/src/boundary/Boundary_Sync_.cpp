@@ -8,7 +8,7 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
     std::string field_name_temp;
     std::string field_name_temp2;
 
-    // ---------------- Stage 1: FaceOnly (1D) ----------------
+    // ---------------- Stage 1: 1DCorner ----------------
     if (g.do_physical)
     {
         bound_.ApplyPhysical(g.fields);
@@ -36,12 +36,12 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
         }
     }
 
-    // ---------------- Stage 2: Edge (2D) ----------------
-    if (g.halo_level >= HaloLevel::Edge)
+    // ---------------- Stage 2: 2DCorner ----------------
+    if (g.halo_level >= HaloLevel::Corner2D)
     {
         if (g.do_physical)
         {
-            // Security：Edge run corner default again
+            // Security: 2DCorner runs corner default again
             bound_.ApplyPhysicalCornerDefault(g.fields);
         }
 
@@ -67,8 +67,8 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
         }
     }
 
-    // ---------------- Stage 3: Vertex (3D) ----------------
-    if (g.halo_level >= HaloLevel::Vertex)
+    // ---------------- Stage 3: 3DCorner ----------------
+    if (g.halo_level >= HaloLevel::Corner3D)
     {
         // if (g.do_physical)
         // {

@@ -13,11 +13,11 @@ namespace
 {
     const char *level_name(HaloLevel level)
     {
-        if (level == HaloLevel::FaceOnly)
-            return "FaceOnly";
-        if (level == HaloLevel::Edge)
-            return "Edge";
-        return "Vertex";
+        if (level == HaloLevel::Corner1D)
+            return "1DCorner";
+        if (level == HaloLevel::Corner2D)
+            return "2DCorner";
+        return "3DCorner";
     }
 
     bool owner_sync_enabled()
@@ -100,7 +100,7 @@ namespace
         int si = 0, sj = 0, sk = 0;
         int src_block = r.neighbor_block;
 
-        if (stage == HaloLevel::FaceOnly)
+        if (stage == HaloLevel::Corner1D)
         {
             src_block = r.this_block;
             inverse_map_index(r.trans, i, j, k, si, sj, sk);
@@ -121,7 +121,7 @@ namespace
         {
             const int dst_axis = LAYOUT::edge_axis(desc.location);
             const int src_axis =
-                stage == HaloLevel::FaceOnly
+                stage == HaloLevel::Corner1D
                     ? inverse_perm_axis(r.trans, dst_axis)
                     : r.trans.perm[dst_axis];
             src_name = edge_field_name_from_axis(src_axis);
@@ -243,7 +243,7 @@ namespace
 
         for (const HaloRegion &r : regions)
         {
-            if (r.this_rank == r.neighbor_rank && stage == HaloLevel::FaceOnly)
+            if (r.this_rank == r.neighbor_rank && stage == HaloLevel::Corner1D)
             {
                 if (r.neighbor_block < 0 || r.neighbor_block >= field.num_blocks())
                     continue;
@@ -334,7 +334,7 @@ namespace
 
         for (const HaloRegion &r : regions)
         {
-            if (stage == HaloLevel::FaceOnly)
+            if (stage == HaloLevel::Corner1D)
             {
                 ++checked_region_count;
                 if (r.this_rank == r.neighbor_rank)
@@ -400,11 +400,11 @@ namespace
         const int fid = field.field_id(name);
         const FieldDescriptor &desc = field.descriptor(fid);
         std::vector<HaloRegion> regions =
-            halo.debug_halo_regions(desc.location, desc.nghost, HaloLevel::FaceOnly);
+            halo.debug_halo_regions(desc.location, desc.nghost, HaloLevel::Corner1D);
         const std::vector<HaloRegion> edge_send =
-            halo.debug_halo_send_regions(desc.location, desc.nghost, HaloLevel::Edge);
+            halo.debug_halo_send_regions(desc.location, desc.nghost, HaloLevel::Corner2D);
         const std::vector<HaloRegion> vertex_send =
-            halo.debug_halo_send_regions(desc.location, desc.nghost, HaloLevel::Vertex);
+            halo.debug_halo_send_regions(desc.location, desc.nghost, HaloLevel::Corner3D);
         regions.insert(regions.end(), edge_send.begin(), edge_send.end());
         regions.insert(regions.end(), vertex_send.begin(), vertex_send.end());
         const int myid = Z0_TEST::rank();
@@ -468,7 +468,7 @@ namespace
             {
                 const int src_axis = inverse_perm_axis(r.trans, dst_axis);
                 const int src_block =
-                    stage == HaloLevel::FaceOnly ? r.this_block : r.neighbor_block;
+                    stage == HaloLevel::Corner1D ? r.this_block : r.neighbor_block;
                 if (src_block < 0 || src_block >= field.num_blocks())
                     continue;
 
@@ -482,7 +482,7 @@ namespace
                         for (int k = rb.lo.k; k < rb.hi.k; ++k)
                         {
                             int si = 0, sj = 0, sk = 0;
-                            if (stage == HaloLevel::FaceOnly)
+                            if (stage == HaloLevel::Corner1D)
                                 inverse_map_index(r.trans, i, j, k, si, sj, sk);
                             else
                                 Z0_TEST::map_index(r.trans, i, j, k, si, sj, sk);
@@ -535,7 +535,7 @@ namespace
                     }
         };
 
-        if (stage == HaloLevel::FaceOnly)
+        if (stage == HaloLevel::Corner1D)
         {
             const std::vector<HaloRegion> regions =
                 halo.debug_halo_regions(desc.location, desc.nghost, stage);
@@ -605,12 +605,12 @@ namespace
             for (const HaloRegion &r : regions)
             {
                 const bool inner_face =
-                    stage == HaloLevel::FaceOnly && r.this_rank == r.neighbor_rank;
+                    stage == HaloLevel::Corner1D && r.this_rank == r.neighbor_rank;
                 const int src_axis =
                     inner_face ? inverse_perm_axis(r.trans, dst_axis) : r.trans.perm[dst_axis];
                 const int src_block =
                     inner_face ? r.this_block :
-                    (stage == HaloLevel::FaceOnly ? r.this_block : r.neighbor_block);
+                    (stage == HaloLevel::Corner1D ? r.this_block : r.neighbor_block);
                 if (src_block < 0 || src_block >= field.num_blocks())
                     continue;
 
@@ -673,7 +673,7 @@ namespace
         for (const HaloRegion &r : regions)
         {
             const int recv_block =
-                (r.this_rank == r.neighbor_rank && stage == HaloLevel::FaceOnly)
+                (r.this_rank == r.neighbor_rank && stage == HaloLevel::Corner1D)
                     ? r.neighbor_block
                     : r.this_block;
             if (recv_block < 0 || recv_block >= field.num_blocks())
@@ -706,46 +706,45 @@ namespace
         for (const std::string &name : {"B_xi", "B_eta", "B_zeta"})
             if (field.has_field(name))
             {
-                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::FaceOnly);
-                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::Edge);
-                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::Vertex);
+                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::Corner1D);
+                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::Corner2D);
+                reset_halo_recv_boxes_to_nan(field, halo, name, HaloLevel::Corner3D);
             }
         for (const std::string &name : {"B_xi", "B_eta", "B_zeta"})
             if (field.has_field(name))
                 fill_face_send_sources(field, halo, name);
         for (const std::string &name : Z0_TEST::registered_test_fields())
-            fill_component_copy_stage_sources(field, halo, name, HaloLevel::FaceOnly);
-        fill_face_2form_triplet_sources(field, halo, HaloLevel::FaceOnly);
-        fill_edge_1form_triplet_sources(field, halo, HaloLevel::FaceOnly);
+            fill_component_copy_stage_sources(field, halo, name, HaloLevel::Corner1D);
+        fill_face_2form_triplet_sources(field, halo, HaloLevel::Corner1D);
+        fill_edge_1form_triplet_sources(field, halo, HaloLevel::Corner1D);
 
         if (owner_only_enabled())
         {
-            halo.sync_owner_alias_stage(HaloLevel::FaceOnly);
-            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
-                halo.sync_owner_alias_stage(HaloLevel::Edge);
-            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
-                halo.sync_owner_alias_stage(HaloLevel::Vertex);
+            halo.sync_owner_alias();
         }
         else
         {
-            boundary.SyncAllRegistered(HaloLevel::FaceOnly);
-            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Edge))
+            boundary.SyncAllRegistered(HaloLevel::Corner1D);
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Corner2D))
             {
                 for (const std::string &name : Z0_TEST::registered_test_fields())
-                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Edge);
-                fill_face_2form_triplet_sources(field, halo, HaloLevel::Edge);
-                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Edge);
-                boundary.SyncAllRegistered(HaloLevel::Edge);
+                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Corner2D);
+                fill_face_2form_triplet_sources(field, halo, HaloLevel::Corner2D);
+                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Corner2D);
+                boundary.SyncAllRegistered(HaloLevel::Corner2D);
             }
-            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Vertex))
+            if (static_cast<int>(stage) >= static_cast<int>(HaloLevel::Corner3D))
             {
                 for (const std::string &name : Z0_TEST::registered_test_fields())
-                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Vertex);
-                fill_face_2form_triplet_sources(field, halo, HaloLevel::Vertex);
-                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Vertex);
-                boundary.SyncAllRegistered(HaloLevel::Vertex);
+                    fill_component_copy_stage_sources(field, halo, name, HaloLevel::Corner3D);
+                fill_face_2form_triplet_sources(field, halo, HaloLevel::Corner3D);
+                fill_edge_1form_triplet_sources(field, halo, HaloLevel::Corner3D);
+                boundary.SyncAllRegistered(HaloLevel::Corner3D);
             }
         }
+
+        if (owner_sync_enabled() && !owner_only_enabled())
+            halo.sync_owner_alias();
 
         bool passed = true;
         if (!owner_only_enabled())
@@ -789,13 +788,13 @@ namespace
             };
 
             const OwnerCheck checks[] = {
-                {"B_xi", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
-                {"B_eta", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
-                {"B_zeta", TOPO::EntityDim::Face, HaloLevel::FaceOnly},
-                {"E_xi", TOPO::EntityDim::Edge, HaloLevel::Edge},
-                {"E_eta", TOPO::EntityDim::Edge, HaloLevel::Edge},
-                {"E_zeta", TOPO::EntityDim::Edge, HaloLevel::Edge},
-                {"phi", TOPO::EntityDim::Node, HaloLevel::Vertex},
+                {"B_xi", TOPO::EntityDim::Face, HaloLevel::Corner1D},
+                {"B_eta", TOPO::EntityDim::Face, HaloLevel::Corner1D},
+                {"B_zeta", TOPO::EntityDim::Face, HaloLevel::Corner1D},
+                {"E_xi", TOPO::EntityDim::Edge, HaloLevel::Corner2D},
+                {"E_eta", TOPO::EntityDim::Edge, HaloLevel::Corner2D},
+                {"E_zeta", TOPO::EntityDim::Edge, HaloLevel::Corner2D},
+                {"phi", TOPO::EntityDim::Node, HaloLevel::Corner3D},
             };
 
             for (const auto &c : checks)
@@ -828,9 +827,9 @@ namespace Z0_TEST
             std::cout << "Z0 halo communication tests\n";
 
         bool passed = true;
-        passed &= run_stage(field, halo, boundary, HaloLevel::FaceOnly);
-        passed &= run_stage(field, halo, boundary, HaloLevel::Edge);
-        passed &= run_stage(field, halo, boundary, HaloLevel::Vertex);
+        passed &= run_stage(field, halo, boundary, HaloLevel::Corner1D);
+        passed &= run_stage(field, halo, boundary, HaloLevel::Corner2D);
+        passed &= run_stage(field, halo, boundary, HaloLevel::Corner3D);
         return passed;
     }
 }

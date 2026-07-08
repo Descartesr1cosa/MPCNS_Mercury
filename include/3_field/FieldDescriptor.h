@@ -40,7 +40,8 @@ struct FieldHaloRequest
     FieldValueKind value_kind = FieldValueKind::Scalar;
     int ncomp = 1;
     int nghost = 0;
-    HaloLevel level = HaloLevel::Vertex;
+    bool do_halo = true;
+    HaloLevel level = HaloLevel::Corner3D;
     OwnerSyncPolicy owner_sync = OwnerSyncPolicy::None;
     bool orientation_aware = false;
 };
@@ -55,7 +56,7 @@ struct FieldSyncContract
     bool do_physical = false; // require physical boundary handlers
     bool do_halo = false;     // exchange same-field halo data
 
-    HaloLevel halo_level = HaloLevel::Vertex;
+    HaloLevel halo_level = HaloLevel::Corner3D;
     OwnerSyncPolicy owner_sync = OwnerSyncPolicy::None;
     bool orientation_aware = false;
 };

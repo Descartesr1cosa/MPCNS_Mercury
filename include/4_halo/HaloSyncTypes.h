@@ -29,7 +29,7 @@ namespace HALO_SYNC
 
         FieldValueKind value_kind = FieldValueKind::Scalar;
 
-        HaloLevel level = HaloLevel::Vertex;
+        HaloLevel level = HaloLevel::Corner3D;
         int nghost = 0;
 
         bool orientation_aware = true;

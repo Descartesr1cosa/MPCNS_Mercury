@@ -14,12 +14,12 @@ namespace
     {
         switch (level)
         {
-        case HaloLevel::FaceOnly:
-            return "FaceOnly";
-        case HaloLevel::Edge:
-            return "Edge";
-        case HaloLevel::Vertex:
-            return "Vertex";
+        case HaloLevel::Corner1D:
+            return "1DCorner";
+        case HaloLevel::Corner2D:
+            return "2DCorner";
+        case HaloLevel::Corner3D:
+            return "3DCorner";
         }
 
         return "Unknown";
@@ -55,26 +55,26 @@ const FieldHaloRequest &Halo::halo_request_(const std::string &field_name) const
 
 bool Halo::halo_level_includes_edge_(HaloLevel level) const
 {
-    return level == HaloLevel::Edge ||
-           level == HaloLevel::Vertex;
+    return level == HaloLevel::Corner2D ||
+           level == HaloLevel::Corner3D;
 }
 
 bool Halo::halo_level_includes_vertex_(HaloLevel level) const
 {
-    return level == HaloLevel::Vertex;
+    return level == HaloLevel::Corner3D;
 }
 
 void Halo::sync_component_copy_field_(const std::string &field_name)
 {
     const FieldHaloRequest &req = halo_request_(field_name);
 
-    sync_component_copy_field_stage_(field_name, HaloLevel::FaceOnly);
+    sync_component_copy_field_stage_(field_name, HaloLevel::Corner1D);
 
     if (halo_level_includes_edge_(req.level))
-        sync_component_copy_field_stage_(field_name, HaloLevel::Edge);
+        sync_component_copy_field_stage_(field_name, HaloLevel::Corner2D);
 
     if (halo_level_includes_vertex_(req.level))
-        sync_component_copy_field_stage_(field_name, HaloLevel::Vertex);
+        sync_component_copy_field_stage_(field_name, HaloLevel::Corner3D);
 }
 
 void Halo::sync_component_copy_field_stage_(const std::string &field_name, HaloLevel stage)
@@ -83,17 +83,17 @@ void Halo::sync_component_copy_field_stage_(const std::string &field_name, HaloL
     if (static_cast<int>(req.level) < static_cast<int>(stage))
         return;
 
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
     {
         exchange_inner(field_name);
         exchange_parallel(field_name);
     }
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
     {
         exchange_inner_edge(field_name);
         exchange_parallel_edge(field_name);
     }
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
     {
         exchange_inner_vertex(field_name);
         exchange_parallel_vertex(field_name);
@@ -133,17 +133,17 @@ void Halo::sync_edge_1form_triplet_stage_(const HaloTripletRequest &tri, HaloLev
         return;
 
     const std::vector<std::string> fields{tri.xi, tri.eta, tri.zeta};
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
     {
         exchange_inner_face_edge_1form_triplet_(fields);
         exchange_parallel_face_edge_1form_triplet_(fields);
     }
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
     {
         exchange_inner_edge_edge_1form_triplet_(fields);
         exchange_parallel_edge_edge_1form_triplet_(fields);
     }
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
     {
         exchange_inner_vertex_edge_1form_triplet_(fields);
         exchange_parallel_vertex_edge_1form_triplet_(fields);
@@ -201,11 +201,11 @@ void Halo::sync_face_2form_triplet_stage_(const HaloTripletRequest &tri, HaloLev
     if (static_cast<int>(tri.level) < static_cast<int>(stage))
         return;
 
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
         sync_face_2form_triplet_face_level_(tri);
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
         sync_face_2form_triplet_edge_level_(tri);
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
         sync_face_2form_triplet_vertex_level_(tri);
 }
 
@@ -236,27 +236,10 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
     execute_owner_sync_mpi_ops_(pat);
 }
 
-void Halo::sync_owner_alias_request_stage_(const HaloOwnerRequest &req, HaloLevel stage)
-{
-    const bool stage_matches =
-        (req.policy == OwnerSyncPolicy::FaceOwner) ||
-        (halo_level_includes_edge_(stage) && req.policy == OwnerSyncPolicy::EdgeOwner) ||
-        (stage == HaloLevel::Vertex && req.policy == OwnerSyncPolicy::NodeOwner);
-
-    if (stage_matches)
-        sync_owner_alias_request_(req);
-}
-
 void Halo::sync_owner_alias_registered_()
 {
     for (const auto &req : owner_sync_requests_)
         sync_owner_alias_request_(req);
-}
-
-void Halo::sync_owner_alias_registered_stage_(HaloLevel stage)
-{
-    for (const auto &req : owner_sync_requests_)
-        sync_owner_alias_request_stage_(req, stage);
 }
 
 bool Halo::field_is_component_copy_(const std::string &field_name) const
@@ -284,6 +267,7 @@ void Halo::dump_sync_registry(std::ostream &os) const
            << " group=" << group
            << " loc=" << LAYOUT::location_name(req.location)
            << " kind=" << field_value_kind_name(req.value_kind)
+           << " do_halo=" << (req.do_halo ? "true" : "false")
            << " level=" << halo_level_name(req.level)
            << " owner=" << owner_sync_policy_name(req.owner_sync)
            << " orientation=" << (req.orientation_aware ? "true" : "false")
@@ -859,13 +843,11 @@ void Halo::sync_registered(HaloLevel stage)
     sync_edge_1form_triplets_registered_stage_(stage);
 
     sync_face_2form_triplets_registered_stage_(stage);
-
-    sync_owner_alias_registered_stage_(stage);
 }
 
-void Halo::sync_owner_alias_stage(HaloLevel stage)
+void Halo::sync_owner_alias()
 {
-    sync_owner_alias_registered_stage_(stage);
+    sync_owner_alias_registered_();
 }
 
 void Halo::sync_field(const std::string &field_name)
@@ -875,27 +857,30 @@ void Halo::sync_field(const std::string &field_name)
     const std::string group =
         req.sync_group.empty() ? req.field_name : req.sync_group;
 
-    const HaloSyncSemantics sem = sync_semantics_(req);
-
-    if (sem == HaloSyncSemantics::ComponentCopy)
+    if (req.do_halo)
     {
-        sync_component_copy_field_(field_name);
-    }
-    else if (sem == HaloSyncSemantics::Edge1FormTriplet)
-    {
-        auto it = edge_1form_triplets_.find(group);
-        if (it == edge_1form_triplets_.end())
-            ERROR::Abort("[Halo] sync_field: missing edge 1-form group for field: " + field_name);
+        const HaloSyncSemantics sem = sync_semantics_(req);
 
-        sync_edge_1form_triplet_(it->second);
-    }
-    else if (sem == HaloSyncSemantics::Face2FormTriplet)
-    {
-        auto it = face_2form_triplets_.find(group);
-        if (it == face_2form_triplets_.end())
-            ERROR::Abort("[Halo] sync_field: missing face 2-form group for field: " + field_name);
+        if (sem == HaloSyncSemantics::ComponentCopy)
+        {
+            sync_component_copy_field_(field_name);
+        }
+        else if (sem == HaloSyncSemantics::Edge1FormTriplet)
+        {
+            auto it = edge_1form_triplets_.find(group);
+            if (it == edge_1form_triplets_.end())
+                ERROR::Abort("[Halo] sync_field: missing edge 1-form group for field: " + field_name);
 
-        sync_face_2form_triplet_(it->second);
+            sync_edge_1form_triplet_(it->second);
+        }
+        else if (sem == HaloSyncSemantics::Face2FormTriplet)
+        {
+            auto it = face_2form_triplets_.find(group);
+            if (it == face_2form_triplets_.end())
+                ERROR::Abort("[Halo] sync_field: missing face 2-form group for field: " + field_name);
+
+            sync_face_2form_triplet_(it->second);
+        }
     }
 
     for (const auto &own : owner_sync_requests_)
@@ -912,33 +897,30 @@ void Halo::sync_field(const std::string &field_name, HaloLevel stage)
     const std::string group =
         req.sync_group.empty() ? req.field_name : req.sync_group;
 
-    const HaloSyncSemantics sem = sync_semantics_(req);
-
-    if (sem == HaloSyncSemantics::ComponentCopy)
+    if (req.do_halo)
     {
-        sync_component_copy_field_stage_(field_name, stage);
-    }
-    else if (sem == HaloSyncSemantics::Edge1FormTriplet)
-    {
-        auto it = edge_1form_triplets_.find(group);
-        if (it == edge_1form_triplets_.end())
-            ERROR::Abort("[Halo] sync_field(stage): missing edge 1-form group for field: " + field_name);
+        const HaloSyncSemantics sem = sync_semantics_(req);
 
-        sync_edge_1form_triplet_stage_(it->second, stage);
-    }
-    else if (sem == HaloSyncSemantics::Face2FormTriplet)
-    {
-        auto it = face_2form_triplets_.find(group);
-        if (it == face_2form_triplets_.end())
-            ERROR::Abort("[Halo] sync_field(stage): missing face 2-form group for field: " + field_name);
+        if (sem == HaloSyncSemantics::ComponentCopy)
+        {
+            sync_component_copy_field_stage_(field_name, stage);
+        }
+        else if (sem == HaloSyncSemantics::Edge1FormTriplet)
+        {
+            auto it = edge_1form_triplets_.find(group);
+            if (it == edge_1form_triplets_.end())
+                ERROR::Abort("[Halo] sync_field(stage): missing edge 1-form group for field: " + field_name);
 
-        sync_face_2form_triplet_stage_(it->second, stage);
-    }
+            sync_edge_1form_triplet_stage_(it->second, stage);
+        }
+        else if (sem == HaloSyncSemantics::Face2FormTriplet)
+        {
+            auto it = face_2form_triplets_.find(group);
+            if (it == face_2form_triplets_.end())
+                ERROR::Abort("[Halo] sync_field(stage): missing face 2-form group for field: " + field_name);
 
-    for (const auto &own : owner_sync_requests_)
-    {
-        if (own.field_name == field_name)
-            sync_owner_alias_request_stage_(own, stage);
+            sync_face_2form_triplet_stage_(it->second, stage);
+        }
     }
 }
 
@@ -1009,15 +991,6 @@ void Halo::sync_group(const std::string &group_name, HaloLevel stage)
         if (git != field_to_group_.end() && git->second == group_name)
         {
             sync_component_copy_field_stage_(field_name, stage);
-            handled = true;
-        }
-    }
-
-    for (const auto &own : owner_sync_requests_)
-    {
-        if (own.sync_group == group_name)
-        {
-            sync_owner_alias_request_stage_(own, stage);
             handled = true;
         }
     }

@@ -25,8 +25,8 @@ public:
     // Setup
     void SetUp(Grid *grd, Field *fld, TOPO::Topology *topo, Param *par, const std::vector<std::string> &field_names);
 
-    // Physical boundary: Face stage uses registered handlers; Edge/Vertex
-    // stages use default corner fill unless explicitly replaced later.
+    // Physical boundary: 1DCorner stage uses registered handlers; 2D/3D
+    // corner stages use default corner fill unless explicitly replaced later.
     void RegisterPhysical(const std::string &field_name,
                           const std::string &bc_name,
                           BOUND::PhysicalHandler h);
@@ -43,7 +43,7 @@ public:
     void ApplyPhysicalVertexDefault(const std::vector<std::string> &field_names);
     static void DefaultPhysicalCopy(FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int nghost);
 
-    // Coupling boundary: callers pick the current Face/Edge/Vertex stage.
+    // Coupling boundary: callers pick the current 1D/2D/3D corner stage.
     void RegisterCoupling(const std::string &src,
                           const std::string &dst,
                           StaggerLocation loc,

@@ -569,7 +569,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gU.do_coupling = false;
     gU.do_physical = true;
     gU.do_halo = true;
-    gU.halo_level = HaloLevel::Vertex;
+    gU.halo_level = HaloLevel::Corner3D;
     AddGroup(gU);
 
     BoundGroup gJ;
@@ -578,7 +578,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gJ.do_coupling = true;
     gJ.do_physical = true;
     gJ.do_halo = true;
-    gJ.halo_level = HaloLevel::Vertex;
+    gJ.halo_level = HaloLevel::Corner3D;
     gJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gJ);
 
@@ -588,7 +588,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gE.do_coupling = true;
     gE.do_physical = true;
     gE.do_halo = true;
-    gE.halo_level = HaloLevel::Vertex;
+    gE.halo_level = HaloLevel::Corner3D;
     gE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gE);
 
@@ -598,7 +598,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gEhall.do_coupling = true;
     gEhall.do_physical = true;
     gEhall.do_halo = true;
-    gEhall.halo_level = HaloLevel::Vertex;
+    gEhall.halo_level = HaloLevel::Corner3D;
     gEhall.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gEhall);
 
@@ -608,7 +608,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gEres.do_coupling = true;
     gEres.do_physical = true;
     gEres.do_halo = true;
-    gEres.halo_level = HaloLevel::Vertex;
+    gEres.halo_level = HaloLevel::Corner3D;
     gEres.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gEres);
 
@@ -618,7 +618,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gEres1form.do_coupling = true;
     gEres1form.do_physical = true;
     gEres1form.do_halo = true;
-    gEres1form.halo_level = HaloLevel::Vertex;
+    gEres1form.halo_level = HaloLevel::Corner3D;
     gEres1form.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gEres1form);
 
@@ -628,7 +628,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gB.do_coupling = true;
     gB.do_physical = true;
     gB.do_halo = true;
-    gB.halo_level = HaloLevel::Vertex;
+    gB.halo_level = HaloLevel::Corner3D;
     gB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gB);
 
@@ -638,7 +638,7 @@ void MercuryBoundary::InstallDefaultGroups()
     EfaceB.do_coupling = true;
     EfaceB.do_physical = true;
     EfaceB.do_halo = true;
-    EfaceB.halo_level = HaloLevel::Vertex;
+    EfaceB.halo_level = HaloLevel::Corner3D;
     EfaceB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(EfaceB);
 
@@ -648,7 +648,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gBc.do_coupling = true;
     gBc.do_physical = true;
     gBc.do_halo = true;
-    gBc.halo_level = HaloLevel::Vertex;
+    gBc.halo_level = HaloLevel::Corner3D;
     gBc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gBc);
 
@@ -658,7 +658,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gJc.do_coupling = true;
     gJc.do_physical = true;
     gJc.do_halo = true;
-    gJc.halo_level = HaloLevel::Vertex;
+    gJc.halo_level = HaloLevel::Corner3D;
     gJc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gJc);
 
@@ -668,7 +668,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gUplus.do_coupling = false;
     gUplus.do_physical = false;
     gUplus.do_halo = true;
-    gUplus.halo_level = HaloLevel::Vertex;
+    gUplus.halo_level = HaloLevel::Corner3D;
     AddGroup(gUplus);
 
     BoundGroup gdE;
@@ -677,7 +677,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gdE.do_coupling = true;
     gdE.do_physical = true;
     gdE.do_halo = true;
-    gdE.halo_level = HaloLevel::Vertex;
+    gdE.halo_level = HaloLevel::Corner3D;
     gdE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gdE);
 
@@ -687,7 +687,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gdB.do_coupling = true;
     gdB.do_physical = true;
     gdB.do_halo = true;
-    gdB.halo_level = HaloLevel::Vertex;
+    gdB.halo_level = HaloLevel::Corner3D;
     gdB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gdB);
 
@@ -697,7 +697,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gdJ.do_coupling = true;
     gdJ.do_physical = true;
     gdJ.do_halo = true;
-    gdJ.halo_level = HaloLevel::Vertex;
+    gdJ.halo_level = HaloLevel::Corner3D;
     gdJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gdJ);
 
@@ -707,7 +707,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gdJcell.do_coupling = true;
     gdJcell.do_physical = true;
     gdJcell.do_halo = true;
-    gdJcell.halo_level = HaloLevel::Vertex;
+    gdJcell.halo_level = HaloLevel::Corner3D;
     gdJcell.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gdJcell);
 
@@ -717,7 +717,7 @@ void MercuryBoundary::InstallDefaultGroups()
     gBadd.do_coupling = true;
     gBadd.do_physical = true;
     gBadd.do_halo = true;
-    gBadd.halo_level = HaloLevel::Vertex;
+    gBadd.halo_level = HaloLevel::Corner3D;
     gBadd.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gBadd);
 }

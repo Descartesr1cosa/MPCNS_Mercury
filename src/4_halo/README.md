@@ -23,6 +23,6 @@ families:
 
 Layer names map to geometric halo depth:
 
-- `FaceOnly`: 1D face halo.
-- `Edge`: 2D edge/corner halo, including `FaceOnly`.
-- `Vertex`: 3D vertex/corner halo, including `FaceOnly` and `Edge`.
+- `Corner1D` (`1DCorner` in diagnostics): 1D corner/face halo.
+- `Corner2D` (`2DCorner` in diagnostics): 2D corner halo, including `Corner1D`.
+- `Corner3D` (`3DCorner` in diagnostics): 3D corner halo, including `Corner1D` and `Corner2D`.

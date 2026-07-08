@@ -191,11 +191,11 @@ void BoundaryCore::ApplyPhysical(const std::vector<std::string> &field_names)
 
 void BoundaryCore::ApplyPhysical(const std::string &field_name, HaloLevel stage)
 {
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
         ApplyPhysical(field_name);
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
         ApplyPhysicalEdgeDefault(field_name);
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
         ApplyPhysicalVertexDefault(field_name);
 }
 

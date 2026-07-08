@@ -19,7 +19,7 @@ public:
     // Registration and pattern lifecycle.
     void register_halo_field(const FieldHaloRequest &request);
     void register_halo_field(const std::string &field_name,
-                             HaloLevel level = HaloLevel::Vertex);
+                             HaloLevel level = HaloLevel::Corner3D);
     void register_halo_fields(const std::vector<FieldHaloRequest> &requests);
 
     void build_registered_patterns();
@@ -31,7 +31,7 @@ public:
     void sync_field(const std::string &field_name, HaloLevel stage);
     void sync_group(const std::string &group_name);
     void sync_group(const std::string &group_name, HaloLevel stage);
-    void sync_owner_alias_stage(HaloLevel stage);
+    void sync_owner_alias();
     void dump_sync_registry(std::ostream &os) const;
 
     // Test/debug helper: expose the recv/send boxes used by the registered
@@ -134,7 +134,7 @@ private:
     using OwnerSyncPattern = HALO_SYNC::OwnerPattern;
     using CouplingPatternKey = HALO_SYNC::CouplingPatternKey;
 
-    // 同一个 field_name 多次注册时取更高等级（FaceOnly < Edge < Vertex）
+    // 同一个 field_name 多次注册时取更高等级（Corner1D < Corner2D < Corner3D）
     std::unordered_map<std::string, FieldHaloRequest> halo_registry_;
 
     std::vector<std::string> component_copy_fields_;
@@ -190,10 +190,8 @@ private:
     void sync_face_2form_triplets_registered_stage_(HaloLevel stage);
 
     void sync_owner_alias_request_(const HaloOwnerRequest &req);
-    void sync_owner_alias_request_stage_(const HaloOwnerRequest &req, HaloLevel stage);
 
     void sync_owner_alias_registered_();
-    void sync_owner_alias_registered_stage_(HaloLevel stage);
 
     bool field_is_component_copy_(const std::string &field_name) const;
 

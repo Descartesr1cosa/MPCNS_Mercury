@@ -16,7 +16,7 @@ enum class StaggerLocation
 
 enum class HaloLevel : int
 {
-    FaceOnly = 1, // 只需要 1D（面）halo
-    Edge = 2,     // 需要到 2D corner（棱）
-    Vertex = 3    // 需要到 3D corner（角点）
+    Corner1D = 1, // 1D corner/face halo
+    Corner2D = 2, // 2D corner halo
+    Corner3D = 3  // 3D corner halo
 };

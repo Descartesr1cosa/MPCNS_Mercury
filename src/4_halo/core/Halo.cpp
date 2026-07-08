@@ -31,17 +31,17 @@ std::vector<HaloRegion> Halo::debug_halo_regions(StaggerLocation location,
         regions.insert(regions.end(), it->second.regions.begin(), it->second.regions.end());
     };
 
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
     {
         append(inner_patterns_, key);
         append(parallel_patterns_, key);
     }
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
     {
         append(inner_edge_patterns_, key);
         append(parallel_edge_patterns_recv, key);
     }
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
     {
         append(inner_vertex_patterns_, key);
         append(parallel_vertex_patterns_recv, key);
@@ -66,15 +66,15 @@ std::vector<HaloRegion> Halo::debug_halo_send_regions(StaggerLocation location,
         regions.insert(regions.end(), it->second.regions.begin(), it->second.regions.end());
     };
 
-    if (stage == HaloLevel::FaceOnly)
+    if (stage == HaloLevel::Corner1D)
     {
         append(parallel_patterns_, key);
     }
-    else if (stage == HaloLevel::Edge)
+    else if (stage == HaloLevel::Corner2D)
     {
         append(parallel_edge_patterns_send, key);
     }
-    else if (stage == HaloLevel::Vertex)
+    else if (stage == HaloLevel::Corner3D)
     {
         append(parallel_vertex_patterns_send, key);
     }

@@ -72,32 +72,32 @@ void BoundaryCore::ApplyCouplingPair(const std::string &src,
 
 void BoundaryCore::ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::FaceOnly, nullptr);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner1D, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_1DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::FaceOnly, &cids_fields);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner1D, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingPair_2DCorner(const std::string &src, const std::string &dst)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::Edge, nullptr);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner2D, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_2DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::Edge, &cids_fields);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner2D, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingPair_3DCorner(const std::string &src, const std::string &dst)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::Vertex, nullptr);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner3D, nullptr);
 }
 
 void BoundaryCore::ApplyCouplingPair_3DCorner(const std::string &src, const std::string &dst, const std::vector<int32_t> &cids_fields)
 {
-    ApplyCouplingBuffers_(src, dst, HaloLevel::Vertex, &cids_fields);
+    ApplyCouplingBuffers_(src, dst, HaloLevel::Corner3D, &cids_fields);
 }
 
 void BoundaryCore::ApplyCouplingBuffers_(const std::string &src,
@@ -121,17 +121,17 @@ void BoundaryCore::ApplyCouplingBuffers_(const std::string &src,
         const int fid_dst = fld_->field_id(dst_field);
         auto handler = ResolveCoupling(src, dst, loc, tag, dst_field);
 
-        if (stage == HaloLevel::FaceOnly)
+        if (stage == HaloLevel::Corner1D)
         {
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_face[cid], src, dst, tag);
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_face[cid], src, dst, tag);
         }
-        else if (stage == HaloLevel::Edge)
+        else if (stage == HaloLevel::Corner2D)
         {
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_edge[cid], src, dst, tag);
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_edge[cid], src, dst, tag);
         }
-        else if (stage == HaloLevel::Vertex)
+        else if (stage == HaloLevel::Corner3D)
         {
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.inner_vertex[cid], src, dst, tag);
             apply_coupling_buffer_list(fld_, fid_dst, handler, bs.parallel_vertex[cid], src, dst, tag);

@@ -35,6 +35,7 @@ namespace
                a.value_kind == b.value_kind &&
                a.ncomp == b.ncomp &&
                a.nghost == b.nghost &&
+               a.do_halo == b.do_halo &&
                a.owner_sync == b.owner_sync &&
                a.orientation_aware == b.orientation_aware;
     }
@@ -101,55 +102,58 @@ void Halo::classify_registered_request_(const FieldHaloRequest &req)
 
     field_to_group_[req.field_name] = group;
 
-    const HaloSyncSemantics sem = sync_semantics_(req);
-
-    if (sem == HaloSyncSemantics::ComponentCopy)
+    if (req.do_halo)
     {
-        component_copy_fields_.push_back(req.field_name);
-    }
-    else if (sem == HaloSyncSemantics::Edge1FormTriplet)
-    {
-        HaloTripletRequest &tri = edge_1form_triplets_[group];
+        const HaloSyncSemantics sem = sync_semantics_(req);
 
-        if (tri.group_name.empty())
-            tri.group_name = group;
+        if (sem == HaloSyncSemantics::ComponentCopy)
+        {
+            component_copy_fields_.push_back(req.field_name);
+        }
+        else if (sem == HaloSyncSemantics::Edge1FormTriplet)
+        {
+            HaloTripletRequest &tri = edge_1form_triplets_[group];
 
-        tri.value_kind = req.value_kind;
-        tri.level = req.level;
-        tri.nghost = req.nghost;
-        tri.orientation_aware = req.orientation_aware;
+            if (tri.group_name.empty())
+                tri.group_name = group;
 
-        const int ax = triplet_axis_from_location(req.location);
-        if (ax == 0)
-            tri.xi = req.field_name;
-        else if (ax == 1)
-            tri.eta = req.field_name;
-        else if (ax == 2)
-            tri.zeta = req.field_name;
-        else
-            ERROR::Abort("[Halo] invalid triplet component location for field: " + req.field_name);
-    }
-    else if (sem == HaloSyncSemantics::Face2FormTriplet)
-    {
-        HaloTripletRequest &tri = face_2form_triplets_[group];
+            tri.value_kind = req.value_kind;
+            tri.level = req.level;
+            tri.nghost = req.nghost;
+            tri.orientation_aware = req.orientation_aware;
 
-        if (tri.group_name.empty())
-            tri.group_name = group;
+            const int ax = triplet_axis_from_location(req.location);
+            if (ax == 0)
+                tri.xi = req.field_name;
+            else if (ax == 1)
+                tri.eta = req.field_name;
+            else if (ax == 2)
+                tri.zeta = req.field_name;
+            else
+                ERROR::Abort("[Halo] invalid triplet component location for field: " + req.field_name);
+        }
+        else if (sem == HaloSyncSemantics::Face2FormTriplet)
+        {
+            HaloTripletRequest &tri = face_2form_triplets_[group];
 
-        tri.value_kind = req.value_kind;
-        tri.level = req.level;
-        tri.nghost = req.nghost;
-        tri.orientation_aware = req.orientation_aware;
+            if (tri.group_name.empty())
+                tri.group_name = group;
 
-        const int ax = triplet_axis_from_location(req.location);
-        if (ax == 0)
-            tri.xi = req.field_name;
-        else if (ax == 1)
-            tri.eta = req.field_name;
-        else if (ax == 2)
-            tri.zeta = req.field_name;
-        else
-            ERROR::Abort("[Halo] invalid triplet component location for field: " + req.field_name);
+            tri.value_kind = req.value_kind;
+            tri.level = req.level;
+            tri.nghost = req.nghost;
+            tri.orientation_aware = req.orientation_aware;
+
+            const int ax = triplet_axis_from_location(req.location);
+            if (ax == 0)
+                tri.xi = req.field_name;
+            else if (ax == 1)
+                tri.eta = req.field_name;
+            else if (ax == 2)
+                tri.zeta = req.field_name;
+            else
+                ERROR::Abort("[Halo] invalid triplet component location for field: " + req.field_name);
+        }
     }
 
     if (req.owner_sync != OwnerSyncPolicy::None)
@@ -378,6 +382,7 @@ void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
     request.value_kind = desc.value_kind;
     request.ncomp = desc.ncomp;
     request.nghost = desc.nghost;
+    request.do_halo = true;
     request.level = level;
     request.owner_sync = desc.sync.owner_sync;
     request.orientation_aware = desc.sync.orientation_aware;
@@ -417,13 +422,16 @@ void Halo::build_registered_patterns()
     {
         const FieldHaloRequest &req = kv.second;
 
+        if (!req.do_halo)
+            continue;
+
         PatternKey key = {req.location, req.nghost};
         face_keys.insert(key);
 
-        if (dim >= 2 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Edge))
+        if (dim >= 2 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Corner2D))
             edge_keys.insert(key);
 
-        if (dim >= 3 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Vertex))
+        if (dim >= 3 && static_cast<int>(req.level) >= static_cast<int>(HaloLevel::Corner3D))
             vertex_keys.insert(key);
     }
 

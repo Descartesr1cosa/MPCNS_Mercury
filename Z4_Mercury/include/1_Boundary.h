@@ -74,7 +74,7 @@ private:
         bool do_physical = true;  // whether to apply physical BC
         bool do_halo = true;      // whether to halo-exchange
 
-        HaloLevel halo_level = HaloLevel::Vertex;
+        HaloLevel halo_level = HaloLevel::Corner3D;
         int ngh = 0; // reserved: boundary ngh (if BoundaryCore later supports per-call ngh)
 
         // directed pairs for coupling stage (e.g., {{"Solid","Fluid"},{"Fluid","Solid"}})
