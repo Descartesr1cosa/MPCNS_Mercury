@@ -32,12 +32,12 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         io_.ClearRestartFields();
         io_.SetRestartFields(bin_name);
 
-        io_.SetTecplotMode(IOModule::TecplotMode::CellAsNode);
+        io_.SetTecplotOutputMode(IOModule::TecplotMode::CellAndNode);
         std::vector<std::string> tec_block_name = {}; // 全部物理块输出
-        io_.SetTecplotBlock(tec_block_name);
+        io_.SetTecplotBlocks(tec_block_name);
 
         std::vector<std::string> plt_name = {"PV_H", "PV_Na", "B_cell", "Bind_cell", "Na", "J_cell"};
-        io_.SetTecplotFields(plt_name);
+        io_.SetTecplotPhysicalOutputs(plt_name);
 
         std::string fld_name = "PV_H";
         std::vector<std::string> var_name = {"u_H", "v_H", "w_H", "p_H", "T_H"};

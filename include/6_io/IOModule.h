@@ -9,6 +9,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class IOModule
@@ -33,16 +34,27 @@ public:
     //=========================================================================
     // 2) Tecplot File Output
     void WriteTecplotBinFile(int step, double time);
+    void WriteTecplotBinary(int step, double time) { WriteTecplotBinFile(step, time); }
 
     // Tecplot controls
     enum class TecplotMode
     {
-        CellAsNode, // cell data written as nodal at dual_x/y/z
-        CellToNode, // interpolate cell->node and write nodal at x/y/z
-        Mixed       // x/y/z nodal, node fields nodal, cell fields cell-centered
+        CellAndNode, // x/y/z nodal, node fields nodal, cell fields cell-centered
+        AllNode,     // x/y/z nodal, cell fields interpolated to nodes
+
+        CellAsNode, // legacy: cell data written as nodal at dual_x/y/z
+        CellToNode, // legacy alias of AllNode
+        Mixed       // legacy alias of CellAndNode
+    };
+    enum class TecplotFormReconstruction
+    {
+        ToCell,
+        ToNode
     };
     void SetTecplotMode(TecplotMode m) { tec_mode_ = m; }
+    void SetTecplotOutputMode(TecplotMode m) { SetTecplotMode(m); }
     void SetTecplotFields(const std::vector<std::string> &names) { tec_fields_ = names; }
+    void SetTecplotPhysicalOutputs(const std::vector<std::string> &names) { SetTecplotFields(names); }
     void SetTecplotFieldComponentNames(const std::string &field_name,
                                        const std::vector<std::string> &comp_names)
     {
@@ -50,6 +62,8 @@ public:
     }
     // 可选：只输出某些 block_name（空=全部）
     void SetTecplotBlock(const std::vector<std::string> &bn) { tec_block_ = bn; }
+    void SetTecplotBlocks(const std::vector<std::string> &bn) { SetTecplotBlock(bn); }
+    void SetTecplotFormReconstruction(TecplotFormReconstruction mode) { tec_form_reconstruction_ = mode; }
     //=========================================================================
 
     //=========================================================================
@@ -105,6 +119,7 @@ private:
     std::vector<std::string> tec_block_;
     std::unordered_map<std::string, std::vector<std::string>> tec_comp_names_;
     TecplotMode tec_mode_{TecplotMode::Mixed};
+    TecplotFormReconstruction tec_form_reconstruction_{TecplotFormReconstruction::ToCell};
     std::string tecplot_path_;
     // ----- tecplot helpers -----
     static void TecWriteStr_(FILE *fp, const std::string &s);
@@ -121,16 +136,42 @@ private:
     // ----- tecplot vars -----
     struct TecVar
     {
+        enum class Kind
+        {
+            Coordinate,
+            Field,
+            ReconstructedForm
+        };
+
+        Kind kind = Kind::Field;
         int fid = -1;
         int comp = -1;
         int32_t loc = 0; // 0 nodal, 1 cell-centered (Tecplot ZoneHeader var-location)
+        int form_fid_xi = -1;
+        int form_fid_eta = -1;
+        int form_fid_zeta = -1;
+        bool form_is_face = false;
         std::string name;
     };
     std::vector<TecVar> BuildTecVars_() const; // Build variable list from Field descriptors
+    TecplotMode NormalizedTecplotMode_() const;
+    bool TecplotBlockSelected_(const std::string &block_name) const;
+    bool BuildTecFormTriplet_(const std::string &name,
+                              int &fid_xi,
+                              int &fid_eta,
+                              int &fid_zeta,
+                              bool &is_face,
+                              std::string &output_name) const;
+    bool AddTecFieldOrGroup_(const std::string &name,
+                             std::vector<TecVar> &vars,
+                             std::unordered_set<std::string> &seen_scalars,
+                             std::unordered_set<std::string> &seen_forms) const;
     // ---- evaluators ----
     // coordinate evaluators
     void EvalCoord_Node_(int ib, int i, int j, int k, double &x, double &y, double &z) const;
     void EvalCoord_Cell_(int ib, int i, int j, int k, double &x, double &y, double &z) const;
+    double EvalValue_ReconstructedFormAtCell_(const TecVar &tv, int ib, int i, int j, int k) const;
+    double EvalValue_ReconstructedFormAtNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k) const;

@@ -25,4 +25,24 @@ namespace METRIC
     void build_field_geometry(Field &fields, Grid &grid, int geometry_ghost);
 
     MetricDiagnostics diagnose_metric_fields(Field &fields);
+
+    bool reconstruct_face_2form_to_cell(Field &fields,
+                                        int fid_xi, int fid_eta, int fid_zeta,
+                                        int iblock, int i, int j, int k,
+                                        double out_xyz[3]);
+
+    bool reconstruct_edge_1form_to_cell(Field &fields,
+                                        int fid_xi, int fid_eta, int fid_zeta,
+                                        int iblock, int i, int j, int k,
+                                        double out_xyz[3]);
+
+    bool reconstruct_face_2form_to_node(Field &fields,
+                                        int fid_xi, int fid_eta, int fid_zeta,
+                                        int iblock, int i, int j, int k,
+                                        double out_xyz[3]);
+
+    bool reconstruct_edge_1form_to_node(Field &fields,
+                                        int fid_xi, int fid_eta, int fid_zeta,
+                                        int iblock, int i, int j, int k,
+                                        double out_xyz[3]);
 }

@@ -1493,4 +1493,201 @@ MetricDiagnostics diagnose_metric_fields(Field &fields)
 
     return diag;
 }
+
+namespace
+{
+bool metric_in_range(const FieldBlock &fb, int i, int j, int k)
+{
+    const Int3 lo = fb.get_lo();
+    const Int3 hi = fb.get_hi();
+    return i >= lo.i && i < hi.i &&
+           j >= lo.j && j < hi.j &&
+           k >= lo.k && k < hi.k;
+}
+
+void metric_zero(double out_xyz[3])
+{
+    out_xyz[0] = 0.0;
+    out_xyz[1] = 0.0;
+    out_xyz[2] = 0.0;
+}
+}
+
+bool reconstruct_face_2form_to_cell(Field &fields,
+                                    int fid_xi, int fid_eta, int fid_zeta,
+                                    int iblock, int i, int j, int k,
+                                    double out_xyz[3])
+{
+    metric_zero(out_xyz);
+
+    if (!fields.has_field("Bcell_from_Bface_w"))
+        return false;
+
+    FieldBlock &Fxi = fields.field(fid_xi, iblock);
+    FieldBlock &Feta = fields.field(fid_eta, iblock);
+    FieldBlock &Fzeta = fields.field(fid_zeta, iblock);
+    FieldBlock &W = fields.field("Bcell_from_Bface_w", iblock);
+
+    if (!Fxi.is_allocated() || !Feta.is_allocated() || !Fzeta.is_allocated() || !W.is_allocated())
+        return false;
+
+    if (!metric_in_range(W, i, j, k) ||
+        !metric_in_range(Fxi, i, j, k) ||
+        !metric_in_range(Fxi, i + 1, j, k) ||
+        !metric_in_range(Feta, i, j, k) ||
+        !metric_in_range(Feta, i, j + 1, k) ||
+        !metric_in_range(Fzeta, i, j, k) ||
+        !metric_in_range(Fzeta, i, j, k + 1))
+        return false;
+
+    const double phi[6] = {
+        -Fxi(i, j, k, 0),
+        Fxi(i + 1, j, k, 0),
+        -Feta(i, j, k, 0),
+        Feta(i, j + 1, k, 0),
+        -Fzeta(i, j, k, 0),
+        Fzeta(i, j, k + 1, 0)};
+
+    for (int n = 0; n < 6; ++n)
+    {
+        out_xyz[0] += W(i, j, k, n) * phi[n];
+        out_xyz[1] += W(i, j, k, 6 + n) * phi[n];
+        out_xyz[2] += W(i, j, k, 12 + n) * phi[n];
+    }
+
+    return true;
+}
+
+bool reconstruct_edge_1form_to_cell(Field &fields,
+                                    int fid_xi, int fid_eta, int fid_zeta,
+                                    int iblock, int i, int j, int k,
+                                    double out_xyz[3])
+{
+    metric_zero(out_xyz);
+
+    if (!fields.has_field("Jcell_from_Jedge_w"))
+        return false;
+
+    FieldBlock &Exi = fields.field(fid_xi, iblock);
+    FieldBlock &Eeta = fields.field(fid_eta, iblock);
+    FieldBlock &Ezeta = fields.field(fid_zeta, iblock);
+    FieldBlock &W = fields.field("Jcell_from_Jedge_w", iblock);
+
+    if (!Exi.is_allocated() || !Eeta.is_allocated() || !Ezeta.is_allocated() || !W.is_allocated())
+        return false;
+
+    if (!metric_in_range(W, i, j, k) ||
+        !metric_in_range(Exi, i, j, k) ||
+        !metric_in_range(Exi, i, j + 1, k) ||
+        !metric_in_range(Exi, i, j, k + 1) ||
+        !metric_in_range(Exi, i, j + 1, k + 1) ||
+        !metric_in_range(Eeta, i, j, k) ||
+        !metric_in_range(Eeta, i + 1, j, k) ||
+        !metric_in_range(Eeta, i, j, k + 1) ||
+        !metric_in_range(Eeta, i + 1, j, k + 1) ||
+        !metric_in_range(Ezeta, i, j, k) ||
+        !metric_in_range(Ezeta, i + 1, j, k) ||
+        !metric_in_range(Ezeta, i, j + 1, k) ||
+        !metric_in_range(Ezeta, i + 1, j + 1, k))
+        return false;
+
+    const double s[12] = {
+        Exi(i, j, k, 0),
+        Exi(i, j + 1, k, 0),
+        Exi(i, j, k + 1, 0),
+        Exi(i, j + 1, k + 1, 0),
+        Eeta(i, j, k, 0),
+        Eeta(i + 1, j, k, 0),
+        Eeta(i, j, k + 1, 0),
+        Eeta(i + 1, j, k + 1, 0),
+        Ezeta(i, j, k, 0),
+        Ezeta(i + 1, j, k, 0),
+        Ezeta(i, j + 1, k, 0),
+        Ezeta(i + 1, j + 1, k, 0)};
+
+    for (int n = 0; n < 12; ++n)
+    {
+        out_xyz[0] += W(i, j, k, n) * s[n];
+        out_xyz[1] += W(i, j, k, 12 + n) * s[n];
+        out_xyz[2] += W(i, j, k, 24 + n) * s[n];
+    }
+
+    return true;
+}
+
+bool reconstruct_face_2form_to_node(Field &fields,
+                                    int fid_xi, int fid_eta, int fid_zeta,
+                                    int iblock, int i, int j, int k,
+                                    double out_xyz[3])
+{
+    metric_zero(out_xyz);
+
+    const FieldBlock &ref = fields.field(fid_xi, iblock);
+    const Block &blk = ref.get_block();
+    const int dim = blk.dimension;
+
+    double sum[3] = {0.0, 0.0, 0.0};
+    int count = 0;
+    for (int di = -1; di <= 0; ++di)
+        for (int dj = -1; dj <= 0; ++dj)
+            for (int dk = (dim == 3 ? -1 : 0); dk <= 0; ++dk)
+            {
+                if (dim == 2 && dk != 0)
+                    continue;
+                double cell_xyz[3];
+                if (!reconstruct_face_2form_to_cell(fields, fid_xi, fid_eta, fid_zeta,
+                                                     iblock, i + di, j + dj, k + dk, cell_xyz))
+                    continue;
+                sum[0] += cell_xyz[0];
+                sum[1] += cell_xyz[1];
+                sum[2] += cell_xyz[2];
+                ++count;
+            }
+
+    if (count == 0)
+        return false;
+
+    out_xyz[0] = sum[0] / count;
+    out_xyz[1] = sum[1] / count;
+    out_xyz[2] = sum[2] / count;
+    return true;
+}
+
+bool reconstruct_edge_1form_to_node(Field &fields,
+                                    int fid_xi, int fid_eta, int fid_zeta,
+                                    int iblock, int i, int j, int k,
+                                    double out_xyz[3])
+{
+    metric_zero(out_xyz);
+
+    const FieldBlock &ref = fields.field(fid_xi, iblock);
+    const Block &blk = ref.get_block();
+    const int dim = blk.dimension;
+
+    double sum[3] = {0.0, 0.0, 0.0};
+    int count = 0;
+    for (int di = -1; di <= 0; ++di)
+        for (int dj = -1; dj <= 0; ++dj)
+            for (int dk = (dim == 3 ? -1 : 0); dk <= 0; ++dk)
+            {
+                if (dim == 2 && dk != 0)
+                    continue;
+                double cell_xyz[3];
+                if (!reconstruct_edge_1form_to_cell(fields, fid_xi, fid_eta, fid_zeta,
+                                                     iblock, i + di, j + dj, k + dk, cell_xyz))
+                    continue;
+                sum[0] += cell_xyz[0];
+                sum[1] += cell_xyz[1];
+                sum[2] += cell_xyz[2];
+                ++count;
+            }
+
+    if (count == 0)
+        return false;
+
+    out_xyz[0] = sum[0] / count;
+    out_xyz[1] = sum[1] / count;
+    out_xyz[2] = sum[2] / count;
+    return true;
+}
 }

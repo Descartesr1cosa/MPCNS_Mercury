@@ -1,5 +1,7 @@
 #include "6_io/IOModule.h"
+#include "7_metric/Metric.h"
 
+#include <algorithm>
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
@@ -25,63 +27,220 @@ void IOModule::TecWriteStr_(FILE *fp, const std::string &s)
     std::fwrite(&z, sizeof(int32_t), 1, fp);
 }
 
+IOModule::TecplotMode IOModule::NormalizedTecplotMode_() const
+{
+    if (tec_mode_ == TecplotMode::CellToNode)
+        return TecplotMode::AllNode;
+    if (tec_mode_ == TecplotMode::Mixed)
+        return TecplotMode::CellAndNode;
+    return tec_mode_;
+}
+
+bool IOModule::TecplotBlockSelected_(const std::string &block_name) const
+{
+    return tec_block_.empty() ||
+           std::find(tec_block_.begin(), tec_block_.end(), block_name) != tec_block_.end();
+}
+
+bool IOModule::BuildTecFormTriplet_(const std::string &name,
+                                    int &fid_xi,
+                                    int &fid_eta,
+                                    int &fid_zeta,
+                                    bool &is_face,
+                                    std::string &output_name) const
+{
+    fid_xi = -1;
+    fid_eta = -1;
+    fid_zeta = -1;
+    is_face = false;
+    output_name = name;
+
+    std::string group_name = name;
+    if (fld_->has_field(name))
+    {
+        const FieldDescriptor &direct = fld_->descriptor(name);
+        const bool direct_form =
+            direct.value_kind == FieldValueKind::FaceContravariant2Form ||
+            direct.value_kind == FieldValueKind::EdgeCovariant1Form;
+        if (direct_form && !direct.sync.group.empty())
+        {
+            group_name = direct.sync.group;
+            output_name = direct.sync.group;
+        }
+    }
+
+    auto accept = [&](const FieldDescriptor &d) -> bool
+    {
+        if (d.sync.group == group_name)
+            return true;
+        if (d.name == group_name)
+            return true;
+        return false;
+    };
+
+    for (const FieldDescriptor &d : fld_->descriptors())
+    {
+        if (!accept(d))
+            continue;
+
+        const bool face = (d.value_kind == FieldValueKind::FaceContravariant2Form);
+        const bool edge = (d.value_kind == FieldValueKind::EdgeCovariant1Form);
+        if (!face && !edge)
+            continue;
+
+        if (d.ncomp != 1)
+            continue;
+
+        if (d.sync.group.empty() && d.name != group_name)
+            continue;
+
+        if (fid_xi >= 0 && is_face != face)
+            return false;
+
+        is_face = face;
+        if (!d.sync.group.empty())
+            output_name = d.sync.group;
+
+        const int fid = fld_->field_id(d.name);
+        if (d.location == StaggerLocation::FaceXi || d.location == StaggerLocation::EdgeXi)
+            fid_xi = fid;
+        else if (d.location == StaggerLocation::FaceEt || d.location == StaggerLocation::EdgeEt)
+            fid_eta = fid;
+        else if (d.location == StaggerLocation::FaceZe || d.location == StaggerLocation::EdgeZe)
+            fid_zeta = fid;
+    }
+
+    return fid_xi >= 0 && fid_eta >= 0 && fid_zeta >= 0;
+}
+
+bool IOModule::AddTecFieldOrGroup_(const std::string &name,
+                                   std::vector<TecVar> &vars,
+                                   std::unordered_set<std::string> &seen_scalars,
+                                   std::unordered_set<std::string> &seen_forms) const
+{
+    if (name.empty())
+        return true;
+
+    int form_xi = -1, form_eta = -1, form_zeta = -1;
+    bool form_is_face = false;
+    std::string form_output_name;
+    if (BuildTecFormTriplet_(name, form_xi, form_eta, form_zeta, form_is_face, form_output_name))
+    {
+        const std::string key = (form_is_face ? "face:" : "edge:") + form_output_name;
+        if (!seen_forms.insert(key).second)
+            return true;
+
+        const bool all_node = NormalizedTecplotMode_() == TecplotMode::AllNode ||
+                              tec_form_reconstruction_ == TecplotFormReconstruction::ToNode;
+        const int32_t loc = all_node ? 0 : 1;
+
+        auto custom = tec_comp_names_.find(form_output_name);
+        if (custom == tec_comp_names_.end())
+            custom = tec_comp_names_.find(name);
+        const std::vector<std::string> default_names = {
+            form_output_name + "_x",
+            form_output_name + "_y",
+            form_output_name + "_z"};
+
+        for (int c = 0; c < 3; ++c)
+        {
+            TecVar tv;
+            tv.kind = TecVar::Kind::ReconstructedForm;
+            tv.comp = c;
+            tv.loc = loc;
+            tv.form_fid_xi = form_xi;
+            tv.form_fid_eta = form_eta;
+            tv.form_fid_zeta = form_zeta;
+            tv.form_is_face = form_is_face;
+            if (custom != tec_comp_names_.end() && c < static_cast<int>(custom->second.size()))
+                tv.name = custom->second[c];
+            else
+                tv.name = default_names[c];
+            vars.push_back(std::move(tv));
+        }
+        return true;
+    }
+
+    if (!fld_->has_field(name))
+    {
+        bool expanded_group = false;
+        for (const FieldDescriptor &gd : fld_->descriptors())
+        {
+            if (gd.sync.group != name)
+                continue;
+            if (gd.location != StaggerLocation::Cell && gd.location != StaggerLocation::Node)
+                continue;
+
+            expanded_group = true;
+            AddTecFieldOrGroup_(gd.name, vars, seen_scalars, seen_forms);
+        }
+
+        if (expanded_group)
+            return true;
+
+        std::fprintf(stderr, "[IOModule][Tecplot] skip missing field or group: %s\n", name.c_str());
+        return false;
+    }
+
+    int fid = fld_->field_id(name);
+    const auto &d = fld_->descriptor(fid);
+
+    if (d.location != StaggerLocation::Cell && d.location != StaggerLocation::Node)
+    {
+        std::fprintf(stderr, "[IOModule][Tecplot] skip unsupported standalone field=%s loc=%d kind=%s\n",
+                     name.c_str(), static_cast<int>(d.location), field_value_kind_name(d.value_kind));
+        return false;
+    }
+
+    if (!seen_scalars.insert(d.name).second)
+        return true;
+
+    auto it = tec_comp_names_.find(name);
+    const bool has_custom_names = (it != tec_comp_names_.end());
+    const TecplotMode mode = NormalizedTecplotMode_();
+
+    for (int c = 0; c < d.ncomp; ++c)
+    {
+        TecVar tv;
+        tv.kind = TecVar::Kind::Field;
+        tv.fid = fid;
+        tv.comp = c;
+
+        if (mode == TecplotMode::CellAndNode)
+            tv.loc = (d.location == StaggerLocation::Cell) ? 1 : 0;
+        else
+            tv.loc = 0;
+
+        if (has_custom_names && c < static_cast<int>(it->second.size()))
+            tv.name = it->second[c];
+        else
+            tv.name = name + "_" + std::to_string(c);
+
+        vars.push_back(std::move(tv));
+    }
+
+    return true;
+}
+
 std::vector<IOModule::TecVar> IOModule::BuildTecVars_() const
 {
     std::vector<TecVar> vars;
 
     // 先放坐标（名字固定）
-    vars.push_back(TecVar{-1, 0, 0, "x"});
-    vars.push_back(TecVar{-1, 0, 0, "y"});
-    vars.push_back(TecVar{-1, 0, 0, "z"});
-
-    // 用户白名单字段
-    for (const auto &fname : tec_fields_)
+    for (const std::string &coord : {"x", "y", "z"})
     {
-        if (!fld_->has_field(fname))
-        {
-            std::fprintf(stderr, "[IOModule][Tecplot] skip missing field: %s\n", fname.c_str());
-            continue;
-        }
-
-        int fid = fld_->field_id(fname);
-        const auto &d = fld_->descriptor(fid);
-
-        // 目前只支持 Cell/Node
-        if (d.location != StaggerLocation::Cell && d.location != StaggerLocation::Node)
-        {
-            std::fprintf(stderr, "[IOModule][Tecplot] skip unsupported location field=%s loc=%d\n",
-                         fname.c_str(), static_cast<int>(d.location));
-            continue;
-        }
-
-        // 组件名映射（可选）
-        auto it = tec_comp_names_.find(fname);
-        const bool has_custom_names = (it != tec_comp_names_.end());
-
-        for (int c = 0; c < d.ncomp; ++c)
-        {
-            TecVar tv;
-            tv.fid = fid;
-            tv.comp = c;
-
-            // loc 取决于模式
-            if (tec_mode_ == TecplotMode::Mixed)
-            {
-                tv.loc = (d.location == StaggerLocation::Cell) ? 1 : 0;
-            }
-            else
-            {
-                tv.loc = 0; // CellAsNode / CellToNode 都是全 nodal
-            }
-
-            if (has_custom_names && c < static_cast<int>(it->second.size()))
-                tv.name = it->second[c];
-            else
-                tv.name = fname + "_" + std::to_string(c);
-
-            vars.push_back(std::move(tv));
-        }
+        TecVar tv;
+        tv.kind = TecVar::Kind::Coordinate;
+        tv.comp = static_cast<int>(vars.size());
+        tv.loc = 0;
+        tv.name = coord;
+        vars.push_back(std::move(tv));
     }
+
+    std::unordered_set<std::string> seen_scalars;
+    std::unordered_set<std::string> seen_forms;
+    for (const auto &fname : tec_fields_)
+        AddTecFieldOrGroup_(fname, vars, seen_scalars, seen_forms);
 
     return vars;
 }
@@ -105,7 +264,7 @@ void IOModule::EvalCoord_Cell_(int ib, int i, int j, int k, double &x, double &y
 
 double IOModule::EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, int k) const
 {
-    if (tv.fid < 0)
+    if (tv.kind == TecVar::Kind::Coordinate)
     {
         double x, y, z;
         EvalCoord_Cell_(ib, i, j, k, x, y, z);
@@ -115,6 +274,9 @@ double IOModule::EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, i
             return y;
         return z;
     }
+
+    if (tv.kind == TecVar::Kind::ReconstructedForm)
+        return EvalValue_ReconstructedFormAtCell_(tv, ib, i, j, k);
 
     const auto &d = fld_->descriptor(tv.fid);
     FieldBlock &fb = fld_->field(tv.fid, ib);
@@ -141,12 +303,12 @@ double IOModule::EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, i
 
     auto add_node = [&](int ii, int jj, int kk)
     {
-        // if (ii < 0 || ii >= NiN)
-        //     return;
-        // if (jj < 0 || jj >= NjN)
-        //     return;
-        // if (kk < 0 || kk >= NkN)
-        //     return;
+        if (ii < 0 || ii >= NiN)
+            return;
+        if (jj < 0 || jj >= NjN)
+            return;
+        if (kk < 0 || kk >= NkN)
+            return;
         sum += fb(ii, jj, kk, tv.comp);
         cnt += 1;
     };
@@ -169,7 +331,7 @@ double IOModule::EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, i
 
 double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, int k) const
 {
-    if (tv.fid < 0)
+    if (tv.kind == TecVar::Kind::Coordinate)
     {
         double x, y, z;
         EvalCoord_Node_(ib, i, j, k, x, y, z);
@@ -179,6 +341,9 @@ double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, i
             return y;
         return z;
     }
+
+    if (tv.kind == TecVar::Kind::ReconstructedForm)
+        return EvalValue_ReconstructedFormAtNode_(tv, ib, i, j, k);
 
     const auto &d = fld_->descriptor(tv.fid);
     FieldBlock &fb = fld_->field(tv.fid, ib);
@@ -202,12 +367,12 @@ double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, i
 
     auto add_cell = [&](int ii, int jj, int kk)
     {
-        // if (ii < 0 || ii >= NiC)
-        //     return;
-        // if (jj < 0 || jj >= NjC)
-        //     return;
-        // if (kk < 0 || kk >= NkC)
-        //     return;
+        if (ii < 0 || ii >= NiC)
+            return;
+        if (jj < 0 || jj >= NjC)
+            return;
+        if (kk < 0 || kk >= NkC)
+            return;
         sum += fb(ii, jj, kk, tv.comp);
         cnt += 1;
     };
@@ -241,7 +406,7 @@ double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, i
 double IOModule::EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k) const
 {
     // Mixed: coords are node coords, variables follow their own location
-    if (tv.fid < 0)
+    if (tv.kind == TecVar::Kind::Coordinate)
     {
         double x, y, z;
         EvalCoord_Node_(ib, i, j, k, x, y, z);
@@ -252,11 +417,48 @@ double IOModule::EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k)
         return z;
     }
 
+    if (tv.kind == TecVar::Kind::ReconstructedForm)
+    {
+        if (tv.loc == 0)
+            return EvalValue_ReconstructedFormAtNode_(tv, ib, i, j, k);
+        return EvalValue_ReconstructedFormAtCell_(tv, ib, i, j, k);
+    }
+
     FieldBlock &fb = fld_->field(tv.fid, ib);
     if (!fb.is_allocated())
         return 0.0;
 
     return fb(i, j, k, tv.comp);
+}
+
+double IOModule::EvalValue_ReconstructedFormAtCell_(const TecVar &tv, int ib, int i, int j, int k) const
+{
+    double xyz[3] = {0.0, 0.0, 0.0};
+    bool ok = false;
+    if (tv.form_is_face)
+        ok = METRIC::reconstruct_face_2form_to_cell(*fld_,
+                                                    tv.form_fid_xi, tv.form_fid_eta, tv.form_fid_zeta,
+                                                    ib, i, j, k, xyz);
+    else
+        ok = METRIC::reconstruct_edge_1form_to_cell(*fld_,
+                                                    tv.form_fid_xi, tv.form_fid_eta, tv.form_fid_zeta,
+                                                    ib, i, j, k, xyz);
+    return ok ? xyz[tv.comp] : 0.0;
+}
+
+double IOModule::EvalValue_ReconstructedFormAtNode_(const TecVar &tv, int ib, int i, int j, int k) const
+{
+    double xyz[3] = {0.0, 0.0, 0.0};
+    bool ok = false;
+    if (tv.form_is_face)
+        ok = METRIC::reconstruct_face_2form_to_node(*fld_,
+                                                    tv.form_fid_xi, tv.form_fid_eta, tv.form_fid_zeta,
+                                                    ib, i, j, k, xyz);
+    else
+        ok = METRIC::reconstruct_edge_1form_to_node(*fld_,
+                                                    tv.form_fid_xi, tv.form_fid_eta, tv.form_fid_zeta,
+                                                    ib, i, j, k, xyz);
+    return ok ? xyz[tv.comp] : 0.0;
 }
 
 void IOModule::plt_write_header_(FILE *fp, const std::string &title,
@@ -323,6 +525,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
         Fail_("[IOModule][Tecplot] Setup() must be called before WriteTecplotFile()");
 
     const std::string path = tecplot_path_;
+    const TecplotMode output_mode = NormalizedTecplotMode_();
 
     FILE *fp = std::fopen(path.c_str(), "wb");
     if (!fp)
@@ -356,11 +559,14 @@ void IOModule::WriteTecplotBinFile(int step, double time)
     for (int ib = 0; ib < nblock; ++ib)
     {
         Block &blk = grd_->grids(ib);
+        if (!TecplotBlockSelected_(blk.block_name))
+            continue;
+
         const int dim = blk.dimension;
 
         int IMax = 0, JMax = 0, KMax = 0;
 
-        if (tec_mode_ == TecplotMode::CellAsNode)
+        if (output_mode == TecplotMode::CellAsNode)
         {
             IMax = blk.mx;
             JMax = blk.my;
@@ -384,6 +590,9 @@ void IOModule::WriteTecplotBinFile(int step, double time)
     for (int ib = 0; ib < nblock; ++ib)
     {
         Block &blk = grd_->grids(ib);
+        if (!TecplotBlockSelected_(blk.block_name))
+            continue;
+
         const int dim = blk.dimension;
 
         const int NiC = blk.mx;
@@ -398,7 +607,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
         const int NkCellWrite = (dim == 2) ? 1 : (NkN - 1);
 
         int IMax = 0, JMax = 0, KMax = 0;
-        if (tec_mode_ == TecplotMode::CellAsNode)
+        if (output_mode == TecplotMode::CellAsNode)
         {
             IMax = NiC;
             JMax = NjC;
@@ -423,7 +632,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
             const TecVar &tv = vars[v];
 
             // decide loop extents by mode + loc
-            if (tec_mode_ == TecplotMode::CellAsNode)
+            if (output_mode == TecplotMode::CellAsNode)
             {
                 for (int k = 0; k < NkC; ++k)
                     for (int j = 0; j < NjC; ++j)
@@ -444,7 +653,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
                             }
                         }
             }
-            else if (tec_mode_ == TecplotMode::CellToNode)
+            else if (output_mode == TecplotMode::AllNode)
             {
                 for (int k = 0; k < NkN; ++k)
                     for (int j = 0; j < NjN; ++j)
@@ -523,7 +732,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
         {
             const TecVar &tv = vars[v];
 
-            if (tec_mode_ == TecplotMode::CellAsNode)
+            if (output_mode == TecplotMode::CellAsNode)
             {
                 for (int k = 0; k < NkC; ++k)
                     for (int j = 0; j < NjC; ++j)
@@ -533,7 +742,7 @@ void IOModule::WriteTecplotBinFile(int step, double time)
                             TecWriteF32_(fp, fv);
                         }
             }
-            else if (tec_mode_ == TecplotMode::CellToNode)
+            else if (output_mode == TecplotMode::AllNode)
             {
                 for (int k = 0; k < NkN; ++k)
                     for (int j = 0; j < NjN; ++j)
