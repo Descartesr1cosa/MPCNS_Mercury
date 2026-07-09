@@ -53,7 +53,7 @@ void Z0_Solver::Diagnostics_()
 
 void Z0_Solver::Output_()
 {
-    // no-op template hook for output.
+    io_.WriteTecplotBinFile(control_.step, control_.time);
 }
 
 void Z0_Solver::AdvanceRunState_()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Z0_Control.h"
+#include "6_io/IOModule.h"
 
 class Field;
 class Grid;
@@ -49,6 +50,7 @@ private:
     Param *param_ = nullptr;
 
     Z0::Control control_;
+    IOModule io_;
     bool initialized_ = false;
     bool setup_done_ = false;
 };

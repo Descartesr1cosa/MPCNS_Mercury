@@ -26,6 +26,7 @@ aux_source_directory(../src/4_halo/component_copy DIRSRCS4_COMPONENT_COPY)
 aux_source_directory(../src/4_halo/forms DIRSRCS4_FORMS)
 aux_source_directory(../src/4_halo/coupling DIRSRCS4_COUPLING)
 aux_source_directory(../src/4_halo/owner DIRSRCS4_OWNER)
+aux_source_directory(../src/6_io DIRSRCS6)
 aux_source_directory(../src/7_metric DIRSRCS7)
 aux_source_directory(../src/8_dec DIRSRCS8)
 aux_source_directory(./src Z0_NULL_SRCS)
@@ -47,6 +48,7 @@ add_executable(z0_null
     ${DIRSRCS4_FORMS}
     ${DIRSRCS4_COUPLING}
     ${DIRSRCS4_OWNER}
+    ${DIRSRCS6}
     ${DIRSRCS7}
     ${DIRSRCS8}
     ${Z0_NULL_SRCS}
