@@ -69,12 +69,12 @@ public:
 
 private:
     // Same-field component copy exchange.
-    void exchange_inner(std::string field_name);
-    void exchange_parallel(std::string field_name);
-    void exchange_inner_edge(std::string field_name);
-    void exchange_parallel_edge(std::string field_name);
-    void exchange_inner_vertex(std::string field_name);
-    void exchange_parallel_vertex(std::string field_name);
+    void exchange_inner(const std::string &field_name);
+    void exchange_parallel(const std::string &field_name);
+    void exchange_inner_edge(const std::string &field_name);
+    void exchange_parallel_edge(const std::string &field_name);
+    void exchange_inner_vertex(const std::string &field_name);
+    void exchange_parallel_vertex(const std::string &field_name);
 
     // Orientation-aware triplet exchange.
     void exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields);
