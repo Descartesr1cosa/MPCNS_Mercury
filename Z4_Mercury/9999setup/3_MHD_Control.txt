@@ -9,16 +9,28 @@ x0              y0              z0          mx          my          mz          
 LIST==================================================================
 
 // Mercury interior resistivity
-bool    is_Mercury_resistance           1
-bool    use_implicit_mercury_resistance 1
+bool    is_Mercury_resistance           0
+bool    use_implicit_mercury_resistance 0
 int     n_resistive_subcycles           1
-double  implicit_resistive_ksp_rtol     5.0e-4
-double  implicit_resistive_ksp_atol     5.0e-1
-int     implicit_resistive_ksp_max_it   20
+double  implicit_resistive_ksp_rtol     1.0e-2
+double  implicit_resistive_ksp_atol     1.0e-8
+int     implicit_resistive_ksp_max_it   10
+
+bool    is_Ambipolar_Efield             1
+double  r_min                           1.5
+double  r_max                           1.9
 
 // artificial resistivity limiter
 double  arti_eta_max                    0.00
 double  J_range_start                   800.0
 double  J_range_on                      3000.0
+
+bool    is_local_artificial_resistivity 1
+double  local_arti_eta_max              0.1
+double  local_arti_x0                   1.53
+double  local_arti_y0                   0.0
+double  local_arti_z0                   0.25
+double  local_arti_r_decay              0.05
+double  local_arti_r_cutoff             0.05
 
 END_OF_FILE

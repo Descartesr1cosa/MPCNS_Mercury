@@ -1,4 +1,28 @@
 #include "MercurySolver.h"
+#include "1_grid/1_MPCNS_Grid.h"
+
+#include <cmath>
+
+double MercurySolver::HallRadialTaper_(double x, double y, double z)
+{
+    const double r = std::sqrt(x*x + y*y + z*z);
+    const double width = hall_taper_r_max - hall_taper_r_min;
+    if (width <= 0.0) return (r >= hall_taper_r_min) ? 1.0 : 0.0;
+    const double mid = 0.5 * (hall_taper_r_min + hall_taper_r_max);
+    return 0.5 * (1.0 + std::tanh(2.0 * (r - mid) / width));
+}
+
+double MercurySolver::HallRadialTaperEdge_(int ib, StaggerLocation loc, int i, int j, int k)
+{
+    auto &b = grd_->grids(ib);
+    int ip=i, jp=j, kp=k;
+    if (loc == StaggerLocation::EdgeXi) ++ip;
+    else if (loc == StaggerLocation::EdgeEt) ++jp;
+    else ++kp;
+    return HallRadialTaper_(0.5*(b.x(i,j,k)+b.x(ip,jp,kp)),
+                            0.5*(b.y(i,j,k)+b.y(ip,jp,kp)),
+                            0.5*(b.z(i,j,k)+b.z(ip,jp,kp)));
+}
 void MercurySolver::AddHallEdgeEMF_()
 {
 #if HALL_IMPLICIT == 1
@@ -195,7 +219,8 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBeta_zeta = Bet(i, j, k, 0) - Bet(i, j, k - 1, 0);
 
                         Exi(i, j, k, 0) =
-                            Ecen + 0.5 * mu_eta * dBzeta_eta - 0.5 * mu_zeta * dBeta_zeta;
+                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeXi, i,j,k) *
+                            (Ecen + 0.5 * mu_eta * dBzeta_eta - 0.5 * mu_zeta * dBeta_zeta);
                     }
         }
 
@@ -260,7 +285,8 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBzeta_xi = Bze(i, j, k, 0) - Bze(i - 1, j, k, 0);
 
                         Eet(i, j, k, 0) =
-                            Ecen + 0.5 * mu_zeta * dBxi_zeta - 0.5 * mu_xi * dBzeta_xi;
+                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeEt, i,j,k) *
+                            (Ecen + 0.5 * mu_zeta * dBxi_zeta - 0.5 * mu_xi * dBzeta_xi);
                     }
         }
 
@@ -325,7 +351,8 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBxi_eta = Bxi(i, j, k, 0) - Bxi(i, j - 1, k, 0);
 
                         Eze(i, j, k, 0) =
-                            Ecen + 0.5 * mu_xi * dBeta_xi - 0.5 * mu_eta * dBxi_eta;
+                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeZe, i,j,k) *
+                            (Ecen + 0.5 * mu_xi * dBeta_xi - 0.5 * mu_eta * dBxi_eta);
                     }
         }
 

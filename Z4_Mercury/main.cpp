@@ -14,6 +14,8 @@
 #include "4_halo/HaloEdgeOwner.h"
 
 #include "MercurySolver.h"
+#include "MercuryCase.h"
+#include "MercuryGridValidation.h"
 
 #if HALL_IMPLICIT == 1
 // #include "4_solver/ImplicitHall_Solver.h"
@@ -28,21 +30,23 @@ int main(int arg, char **argv)
 {
     //=============================================================================================
     // MPI initialization
-    int myid;
+        int myid;
     PARALLEL::mpi_initial(arg, argv);
     PARALLEL::mpi_rank(&myid);
-    PetscInitialize(&arg, &argv, NULL, NULL); // 再 PETSc 初始化
+        PetscInitialize(&arg, &argv, NULL, NULL); // 再 PETSc 初始化
     //=============================================================================================
     {
         //=============================================================================================
         //--------------------------------------------------------------------------
         // Read control parameters
+        MERCURY::PrepareCaseWorkdirIfNeeded(myid);
         Param *par = new Param;
         par->ReadParam(myid);
         //--------------------------------------------------------------------------
         // Read Grid and Preprocess the Grid related info
         Grid *grd = new Grid;
         grd->Grid_Preprocess(par);
+        MERCURY::ValidateCubicSphereGridOrAbort(*grd, par->GetInt("ngg"), myid);
         //--------------------------------------------------------------------------
         // Build topology
         TOPO::Topology topology = TOPO::build_topology(*grd, myid, par->GetInt("dimension"));

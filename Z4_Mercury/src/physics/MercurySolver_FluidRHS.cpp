@@ -206,9 +206,9 @@ void MercurySolver::Scheme_U_()
 void MercurySolver::AddSourceToRHS_Fluid()
 {
     // ---------- constants  ----------
-    const double Tn0 = 185.0;  // K
-    const double sk1 = 5.0e-5; // 1/s  (day side)
-    const double sk2 = 1.0e-5; // 1/s  (night side)
+    const double Tn0 = 1000.0; // 185.0;  // K
+    const double sk1 = 5.0e-5; // 1/s  (illuminated region)
+    const double sk2 = 1.0e-5; // 1/s  (geometric shadow region)
 
     // coefficients matching Fortran structure (see explanation in my previous message)
 
@@ -356,43 +356,42 @@ void MercurySolver::AddSourceToRHS_Fluid()
                     // const double nH_m = (rho_ref * rhoH_nd) / m_H;
                     // const double nNa_m = (rho_ref * rhoNa_nd) / m_Na;
 
-                    // -------------------- metric derv(ax..cz) --------------------
-                    // double ax, ay, az, bx, by, bz, cx, cy, cz;
-                    // derv_at(Jac, Axi, Aet, Aze, i, j, k, ax, ay, az, bx, by, bz, cx, cy, cz);
-                    // -------------------- grad(pe) --------------------
-                    // double dpex, dpey, dpez;
-                    // {
-                    //     const double pe_p_i = PVH(i + 1, j, k, 3) + PVN(i + 1, j, k, 3);
-                    //     const double pe_m_i = PVH(i - 1, j, k, 3) + PVN(i - 1, j, k, 3);
+                    double dpex = 0.0;
+                    double dpey = 0.0;
+                    double dpez = 0.0;
+                    if (ambipolar_control.enabled)
+                    {
+                        // Same electron pressure as AddAmbipolarEdgeEMF_: pe = p_H + p_Na.
+                        double ax, ay, az, bx, by, bz, cxm, cym, czm;
+                        derv_at(Jac, Axi, Aet, Aze, i, j, k,
+                                ax, ay, az, bx, by, bz, cxm, cym, czm);
 
-                    //     double pe_p_j = 0, pe_m_j = 0, pe_p_k = 0, pe_m_k = 0;
+                        const double pe_p_i = PVH(i + 1, j, k, 3) + PVN(i + 1, j, k, 3);
+                        const double pe_m_i = PVH(i - 1, j, k, 3) + PVN(i - 1, j, k, 3);
 
-                    //     pe_p_j = PVH(i, j + 1, k, 3) + PVN(i, j + 1, k, 3);
-                    //     pe_m_j = PVH(i, j - 1, k, 3) + PVN(i, j - 1, k, 3);
+                        const double pe_p_j = PVH(i, j + 1, k, 3) + PVN(i, j + 1, k, 3);
+                        const double pe_m_j = PVH(i, j - 1, k, 3) + PVN(i, j - 1, k, 3);
 
-                    //     pe_p_k = PVH(i, j, k + 1, 3) + PVN(i, j, k + 1, 3);
-                    //     pe_m_k = PVH(i, j, k - 1, 3) + PVN(i, j, k - 1, 3);
+                        const double pe_p_k = PVH(i, j, k + 1, 3) + PVN(i, j, k + 1, 3);
+                        const double pe_m_k = PVH(i, j, k - 1, 3) + PVN(i, j, k - 1, 3);
 
-                    //     // dpex = dd(ax, bx, cx, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
-                    //     // dpey = dd(ay, by, cy, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
-                    //     // dpez = dd(az, bz, cz, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
-
-                    //     dpex = 0.0;
-                    //     dpey = 0.0;
-                    //     dpez = 0.0;
-                    // }
+                        dpex = dd(ax, bx, cxm, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+                        dpey = dd(ay, by, cym, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+                        dpez = dd(az, bz, czm, pe_p_i, pe_m_i, pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+                    }
 
                     // ---------- ionization source sss (cm^-3 s^-1), only for Na+ ----------
                     const double sss = Photo(i, j, k, 0); // cm^-3 s^-1
 
                     // -------------------- drag frequency vst (1/s) --------------------
-                    // Fortran: if(x>=0) vst=sk1 else vst=sk2  （x 为无量纲坐标）
-                    // C++ 目前没有直接取物理坐标，这里用 Jac/metric 无法得到 x；
-                    // 因此：如果你要严格复现 Fortran 的 x 判定，请从几何场里取坐标场（例如 fid_.fid_coord）再判断。
-                    // 这里给一个保守默认：统一用 sk1（你也可以改成 sk2 或按你已有的坐标场实现）
-                    // const double sk1 = 5E-5;
-                    // const double sk2 = 1E-5;
-                    const double vst = (cx(i, j, k) >= 0) ? sk1 : sk2;
+                    // Use the same geometric shadow criterion as Photo_rate:
+                    // behind Mercury and inside the cylindrical shadow.
+                    const double x = cx(i + 1, j + 1, k + 1);
+                    const double y = cy(i + 1, j + 1, k + 1);
+                    const double z = cz(i + 1, j + 1, k + 1);
+                    const double rho_cyl = std::sqrt(y * y + z * z);
+                    const bool in_shadow = (x < 0.0 && rho_cyl < 1.0);
+                    const double vst = in_shadow ? sk2 : sk1;
 
                     // b2 = (sm2/(sm1+sm2))*vst ;  b1 = (Tn0 - Ts0)*sm1/(sm1+sm2)
 
@@ -415,7 +414,7 @@ void MercurySolver::AddSourceToRHS_Fluid()
 
                         const double subu = subx * u + suby * v + subz * w;
                         const double sjbu = sjbx * u + sjby * v + sjbz * w;
-                        // const double dpeu = dpex * u + dpey * v + dpez * w;
+                        const double dpeu = dpex * u + dpey * v + dpez * w;
 
                         // Ts0 in Kelvin
                         const double Ts0 = PVH(i, j, k, 4) * T_ref;
@@ -428,10 +427,13 @@ void MercurySolver::AddSourceToRHS_Fluid()
                         RHS_H(i, j, k, 2) += momentum_induce_coeff * nH * suby + momentum_hall_coeff * chi_H * sjby;
                         RHS_H(i, j, k, 3) += momentum_induce_coeff * nH * subz + momentum_hall_coeff * chi_H * sjbz;
                         RHS_H(i, j, k, 4) += momentum_induce_coeff * nH * subu + momentum_hall_coeff * chi_H * sjbu;
-                        // RHS_H(i, j, k, 1) -= sns0 * (dpex / ne_cm);
-                        // RHS_H(i, j, k, 2) -= sns0 * (dpey / ne_cm);
-                        // RHS_H(i, j, k, 3) -= sns0 * (dpez / ne_cm);
-                        // RHS_H(i, j, k, 4) -= sns0 * (dpeu / ne_cm);
+                        if (ambipolar_control.enabled)
+                        {
+                            RHS_H(i, j, k, 1) -= chi_H * dpex;
+                            RHS_H(i, j, k, 2) -= chi_H * dpey;
+                            RHS_H(i, j, k, 3) -= chi_H * dpez;
+                            RHS_H(i, j, k, 4) -= chi_H * dpeu;
+                        }
                         //=============================================================================================
 
                         //=============================================================================================
@@ -473,7 +475,7 @@ void MercurySolver::AddSourceToRHS_Fluid()
 
                         const double subu = subx * u + suby * v + subz * w;
                         const double sjbu = sjbx * u + sjby * v + sjbz * w;
-                        // const double dpeu = dpex * u + dpey * v + dpez * w;
+                        const double dpeu = dpex * u + dpey * v + dpez * w;
 
                         // Ts0 in Kelvin
                         const double Ts0 = PVN(i, j, k, 4) * T_ref;
@@ -487,10 +489,13 @@ void MercurySolver::AddSourceToRHS_Fluid()
                         RHS_Na(i, j, k, 2) += momentum_induce_coeff * nNa * suby + momentum_hall_coeff * chi_Na * sjby;
                         RHS_Na(i, j, k, 3) += momentum_induce_coeff * nNa * subz + momentum_hall_coeff * chi_Na * sjbz;
                         RHS_Na(i, j, k, 4) += momentum_induce_coeff * nNa * subu + momentum_hall_coeff * chi_Na * sjbu;
-                        // RHS_Na(i, j, k, 1) -= sns0 * (dpex / ne_cm);
-                        // RHS_Na(i, j, k, 2) -= sns0 * (dpey / ne_cm);
-                        // RHS_Na(i, j, k, 3) -= sns0 * (dpez / ne_cm);
-                        // RHS_Na(i, j, k, 4) -= sns0 * (dpeu / ne_cm);
+                        if (ambipolar_control.enabled)
+                        {
+                            RHS_Na(i, j, k, 1) -= chi_Na * dpex;
+                            RHS_Na(i, j, k, 2) -= chi_Na * dpey;
+                            RHS_Na(i, j, k, 3) -= chi_Na * dpez;
+                            RHS_Na(i, j, k, 4) -= chi_Na * dpeu;
+                        }
                         //=============================================================================================
 
                         //=============================================================================================

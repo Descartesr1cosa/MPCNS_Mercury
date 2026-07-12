@@ -149,9 +149,20 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     resist_control.implicit_ksp_atol = par_->GetDou("implicit_resistive_ksp_atol");
     resist_control.implicit_ksp_max_it = par_->GetInt("implicit_resistive_ksp_max_it");
 
+    ambipolar_control.enabled = par_->GetBoo("is_Ambipolar_Efield");
+    hall_taper_r_min = par_->GetDou("r_min");
+    hall_taper_r_max = par_->GetDou("r_max");
+
     arti_resist_control.eta_max = par_->GetDou("arti_eta_max");
     arti_resist_control.J_range_start = par_->GetDou("J_range_start");
     arti_resist_control.J_range_on = par_->GetDou("J_range_on");
+    arti_resist_control.local_enabled = par_->GetBoo("is_local_artificial_resistivity");
+    arti_resist_control.local_eta_max = par_->GetDou("local_arti_eta_max");
+    arti_resist_control.local_center[0] = par_->GetDou("local_arti_x0");
+    arti_resist_control.local_center[1] = par_->GetDou("local_arti_y0");
+    arti_resist_control.local_center[2] = par_->GetDou("local_arti_z0");
+    arti_resist_control.local_r_decay = par_->GetDou("local_arti_r_decay");
+    arti_resist_control.local_r_cutoff = par_->GetDou("local_arti_r_cutoff");
 
     SetupHallFaceScratch_();
 

@@ -8,6 +8,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # directories
 #==================================================================
-add_subdirectory(./Z0_NULL)
-# add_subdirectory(./Z4_Mercury)
+# add_subdirectory(./Z0_NULL)
+add_subdirectory(./Z4_Mercury)
 #==================================================================

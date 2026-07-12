@@ -1,25 +1,24 @@
-// time stepping and stop criteria
 double  CFL                     0.8
-double  max_Time                12.0
-int     max_Nstep               8000000
-
-// output and restart
+double  yee                     0.125
+double  max_Time                20.0
 int     output_step             1000
-int     output_residual         100
-double  Archive_Output_Time     1.0     //(hours), <=0 means closing the archive function
-bool    continue_calc           1
-
-// grid and topology
+int     output_residual         50
+double  Archive_Output_Time     0.5
 int     dimension               3
-int     ngg                     4
-int     Read_Method             2       //0表示ASCII格式的plot3D 1表示二进制unformatted网格 2 binary
-int     corner_treat            2
-double  scale                   1.0
 
-// species and physical constants
+// cubic-sphere panel coupling needs enough non-degenerate ghost layers for
+// reconstruction, CT edge forms, and corner communication.
+int     ngg                     4
+bool    continue_calc           1
+bool    continue_calc_index     0
+int     Read_Method             2
+int     max_Nstep               80000000
+int     corner_treat            2
+
+double  eta_max_mercury         1.25E7
+int     ns                      2
 double  mole_mass1              0.001
 double  mole_mass2              0.023
-double  eta_max_mercury         1.25E7
 
 LIST==================================================================
 constant        5
@@ -27,5 +26,7 @@ constant        5
 gamma           NA              R_uni       mu_mag             q_e
 1.6667          6.02E23         8.314       1.256637061e-6     1.602E-19
 LIST==================================================================
+
+double  scale                   1.0
 
 END_OF_FILE

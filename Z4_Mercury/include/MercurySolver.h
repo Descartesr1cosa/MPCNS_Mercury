@@ -53,7 +53,14 @@ struct ArtificialResistivityControl
     double eta_max = 0.0;
     double J_range_start = 0.0;
     double J_range_on = 0.0;
+    bool local_enabled = false;
+    double local_eta_max = 0.0;
+    double local_center[3] = {0.0, 0.0, 0.0};
+    double local_r_decay = 1.0;
+    double local_r_cutoff = 0.0;
 };
+
+struct AmbipolarEdgeEMFControl { bool enabled = false; };
 
 // ---- forward declarations (avoid heavy includes in header) ----
 class Grid;
@@ -137,6 +144,8 @@ private:
     double CFL{0.0};
     double hall_coef{0.0};
     double ambi_coef{0.0};
+    double hall_taper_r_min{0.0};
+    double hall_taper_r_max{0.0};
 
     double momentum_induce_coeff{0.0};
     double momentum_hall_coeff{0.0};
@@ -146,6 +155,7 @@ private:
 
     ResistiveEdgeEMFControl resist_control;
     ArtificialResistivityControl arti_resist_control;
+    AmbipolarEdgeEMFControl ambipolar_control;
 
     struct ImplicitResistiveDof
     {
@@ -159,6 +169,8 @@ private:
     std::vector<Scalar> resist_Bstar_xi_;
     std::vector<Scalar> resist_Bstar_eta_;
     std::vector<Scalar> resist_Bstar_ze_;
+    std::vector<Scalar> local_arti_eta_xi_, local_arti_eta_eta_, local_arti_eta_ze_;
+    bool local_arti_eta_ready_{false};
 
     KSP implicit_resistive_ksp_{nullptr};
     Mat implicit_resistive_A_{nullptr};
@@ -245,6 +257,8 @@ private:
     void PrintMinMaxDiagnostics_();
     // void Hall_Num_Limiter(double rhoH, double rhoNa, double *num);
     NumInfo Hall_Num_Limiter(double rhoH, double rhoNa);
+    double HallRadialTaper_(double x, double y, double z);
+    double HallRadialTaperEdge_(int ib, StaggerLocation loc, int i, int j, int k);
 
     //=========================================================================
 
@@ -264,6 +278,7 @@ private:
     // For Magnetic
     void AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget);
     void AddArtificialResistivityToEdgeEMF_();
+    void AddLocalArtificialResistivityToEdgeEMF_();
     void AddIdealEdgeEMF_();
     void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
