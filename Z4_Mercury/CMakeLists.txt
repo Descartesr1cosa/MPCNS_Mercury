@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json" FORCE)
 
 # Find MPI
-find_package(MPI REQUIRED)
+find_package(MPI REQUIRED COMPONENTS CXX)
 
 # Find PETSc
 find_package(PkgConfig REQUIRED)

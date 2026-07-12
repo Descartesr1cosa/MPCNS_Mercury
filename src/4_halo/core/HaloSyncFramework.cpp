@@ -1,6 +1,7 @@
 #include "4_halo/Halo.h"
 #include "0_basic/Error.h"
 #include "0_basic/LayoutTraits.h"
+#include "7_metric/SingularEdgeRegistry.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -225,6 +226,9 @@ void Halo::sync_owner_alias_request_(const HaloOwnerRequest &req)
 {
     if (req.policy == OwnerSyncPolicy::None)
         return;
+
+    if (req.policy == OwnerSyncPolicy::EdgeOwner && singular_edges_)
+        singular_edges_->reduce_field_to_local_owners(*fld_, req.field_name);
 
     auto it = owner_sync_patterns_.find(req.field_name);
     if (it == owner_sync_patterns_.end())

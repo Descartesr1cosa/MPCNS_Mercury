@@ -94,4 +94,18 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
             }
         }
     }
+
+    // The staged halo API deliberately handles only one halo depth at a time;
+    // unlike Halo::sync_group(group), it does not perform the final owner ->
+    // alias reconciliation.  Do that after physical/coupling updates, so a
+    // topological entity shared by several blocks has one canonical value.
+    // This is essential at cubic-sphere singular edges (three incident blocks).
+    if (g.do_halo &&
+        (g.name == "Bface" || g.name == "Badd" || g.name == "dB" ||
+         g.name == "Eedge" || g.name == "Ehall" || g.name == "Eres" ||
+         g.name == "Jedge" || g.name == "dE" || g.name == "dJ" ||
+         g.name == "dEpre"))
+    {
+        halo_->sync_owner_alias_group(g.name);
+    }
 }

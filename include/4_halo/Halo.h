@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace METRIC { class SingularEdgeRegistry; }
+
 class Halo
 {
 public:
@@ -48,6 +50,7 @@ public:
     // Topology equivalence is required by owner-alias synchronization.
     void set_topology_equiv(const TOPO::Topology *equiv);
     const TOPO::Topology *topology_equiv() const;
+    void set_singular_edge_registry(const METRIC::SingularEdgeRegistry *registry) { singular_edges_ = registry; }
 
     // Legacy halo transfer API. Prefer sync_registered/sync_field for new code.
     void data_trans_1DCorner(std::string &field_name);
@@ -128,6 +131,7 @@ private:
     Field *fld_;
     TOPO::Topology *topo_;
     const TOPO::Topology *equiv_ = nullptr;
+    const METRIC::SingularEdgeRegistry *singular_edges_ = nullptr;
 
     using HaloSyncSemantics = HALO_SYNC::Semantics;
     using HaloTripletRequest = HALO_SYNC::TripletRequest;

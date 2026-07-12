@@ -8,6 +8,7 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "2_topology/TopologyBuilder.h"
+#include "7_metric/SingularEdgeRegistry.h"
 #include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
@@ -56,10 +57,17 @@ int main(int arg, char **argv)
         Field *fld = new Field(grd, par, ngg);
         MercurySolver::RegisterFields(fld, ngg);
         MercurySolver::RegisterCouplingChannels(fld, topology, par->GetInt("dimension"), ngg);
+        METRIC::SingularEdgeRegistry singular_edges;
+        singular_edges.build(topology, *fld, myid);
+        singular_edges.validate_or_abort();
+        if (myid == 0)
+            std::cout << "[SingularEdgeRegistry] physical singular edges="
+                      << singular_edges.size() << "\n";
         //--------------------------------------------------------------------------
         // Build Halo Communicator
         Halo *hal = new Halo(fld, &topology);
         hal->set_topology_equiv(&topology);
+        hal->set_singular_edge_registry(&singular_edges);
         MercurySolver::RegisterHaloFields(fld, hal);
         //--------------------------------------------------------------------------
         HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pat;
