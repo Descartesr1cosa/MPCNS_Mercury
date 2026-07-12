@@ -273,7 +273,10 @@ void MercurySolver::calc_Uplus()
                 }
     }
 
-    mercury_bound_.Sync("Uplus");
+    // Uplus is reconstructed over the complete allocated range, including
+    // ghosts, from U_H/U_Na and PV after Ucell synchronization.  It exists
+    // only on Fluid blocks, so a topology-wide component-copy halo would
+    // incorrectly try to pack inactive Solid-block storage.
 }
 
 void MercurySolver::UpdateFluidDerivedFields_()

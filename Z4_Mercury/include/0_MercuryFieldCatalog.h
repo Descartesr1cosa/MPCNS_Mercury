@@ -75,10 +75,10 @@ inline std::vector<FieldSpec> FieldSpecs()
     return {
         // Conservative fluid state.
         {"U_H", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid",
-         SyncContract("Ucell", false, true, true),
+         SyncContract("Ucell", false, true, true, HaloLevel::Corner1D),
          FieldValueKind::ConservedVector},
         {"U_Na", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid",
-         SyncContract("Ucell", false, true, true),
+         SyncContract("Ucell", false, true, true, HaloLevel::Corner1D),
          FieldValueKind::ConservedVector},
 
         // Magnetic field, electric field, current, and derived cell fields.

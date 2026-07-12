@@ -17,11 +17,10 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
 
     if (g.do_halo)
     {
-        for (auto &fn : g.fields)
-        {
-            field_name_temp = fn;
-            halo_->data_trans_1DCorner(field_name_temp);
-        }
+        if (g.name == "Eface")
+            halo_->data_trans_face_axis_triplet(g.fields, HaloLevel::Corner1D);
+        else
+            halo_->sync_group(g.name, HaloLevel::Corner1D);
     }
 
     if (g.do_coupling)
@@ -47,11 +46,10 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
 
         if (g.do_halo)
         {
-            for (auto &fn : g.fields)
-            {
-                field_name_temp = fn;
-                halo_->data_trans_2DCorner(field_name_temp);
-            }
+            if (g.name == "Eface")
+                halo_->data_trans_face_axis_triplet(g.fields, HaloLevel::Corner2D);
+            else
+                halo_->sync_group(g.name, HaloLevel::Corner2D);
         }
 
         if (g.do_coupling)
@@ -78,11 +76,10 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
 
         if (g.do_halo)
         {
-            for (auto &fn : g.fields)
-            {
-                field_name_temp = fn;
-                halo_->data_trans_3DCorner(field_name_temp);
-            }
+            if (g.name == "Eface")
+                halo_->data_trans_face_axis_triplet(g.fields, HaloLevel::Corner3D);
+            else
+                halo_->sync_group(g.name, HaloLevel::Corner3D);
         }
 
         if (g.do_coupling)

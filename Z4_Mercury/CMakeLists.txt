@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0069 NEW)
 project(MercuryZ4)
+option(MERCURY_SANITIZE_ADDRESS "Build MercuryZ4 with AddressSanitizer" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json" FORCE)
 
@@ -64,11 +65,16 @@ ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
 # add the mpi linkings
 target_link_libraries(MercuryZ4 PRIVATE ${MPI_LIBRARIES} PkgConfig::PETSC stdc++fs)
 
+if(MERCURY_SANITIZE_ADDRESS)
+    target_compile_options(MercuryZ4 PRIVATE -O1 -g -fno-omit-frame-pointer -fsanitize=address)
+    target_link_options(MercuryZ4 PRIVATE -fsanitize=address)
+endif()
+
 # Allow cross-translation-unit inlining of the small Field/FieldBlock accessors
 # used throughout the inner loops.  This changes code generation only; the
 # numerical algorithm and floating-point model remain unchanged.
 include(CheckIPOSupported)
 check_ipo_supported(RESULT MERCURY_IPO_SUPPORTED OUTPUT MERCURY_IPO_ERROR)
-if(MERCURY_IPO_SUPPORTED)
+if(MERCURY_IPO_SUPPORTED AND NOT MERCURY_SANITIZE_ADDRESS)
     set_property(TARGET MercuryZ4 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()

@@ -332,6 +332,26 @@ void Halo::data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
     }
 }
 
+void Halo::data_trans_face_axis_triplet(const std::vector<std::string> &fields,
+                                        HaloLevel level)
+{
+    if (level == HaloLevel::Corner1D)
+    {
+        exchange_inner_face_face_2form_triplet_(fields, false);
+        exchange_parallel_face_face_2form_triplet_(fields, false);
+    }
+    else if (level == HaloLevel::Corner2D)
+    {
+        exchange_inner_edge_face_2form_triplet_(fields, false);
+        exchange_parallel_edge_face_2form_triplet_(fields, false);
+    }
+    else if (level == HaloLevel::Corner3D)
+    {
+        exchange_inner_vertex_face_2form_triplet_(fields, false);
+        exchange_parallel_vertex_face_2form_triplet_(fields, false);
+    }
+}
+
 void Halo::exchange_inner_face_edge_1form_triplet_(const std::vector<std::string> &fields)
 {
     const auto fid = edge_triplet_ids(fld_, fields);
@@ -618,7 +638,7 @@ void Halo::sync_face_2form_triplet_vertex_level_(const HaloTripletRequest &tri)
     exchange_parallel_vertex_face_2form_triplet_(fields);
 }
 
-void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -651,8 +671,8 @@ void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string
             const Int3 slo = fb_send.get_lo();
             const Int3 shi = fb_send.get_hi();
 
-            const double factor = static_cast<double>(
-                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const double factor = oriented ? static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis)) : 1.0;
             const Box3 &rb = rdst.recv_box;
 
             for (int i = rb.lo.i; i < rb.hi.i; ++i)
@@ -704,7 +724,7 @@ void Halo::exchange_inner_face_face_2form_triplet_(const std::vector<std::string
     }
 }
 
-void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -735,8 +755,8 @@ void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string
             const Int3 slo = fb_send.get_lo();
             const Int3 shi = fb_send.get_hi();
 
-            const double factor = static_cast<double>(
-                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const double factor = oriented ? static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis)) : 1.0;
             const Box3 &rb = rdst.recv_box;
 
             for (int i = rb.lo.i; i < rb.hi.i; ++i)
@@ -756,7 +776,7 @@ void Halo::exchange_inner_edge_face_2form_triplet_(const std::vector<std::string
     }
 }
 
-void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -787,8 +807,8 @@ void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::stri
             const Int3 slo = fb_send.get_lo();
             const Int3 shi = fb_send.get_hi();
 
-            const double factor = static_cast<double>(
-                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const double factor = oriented ? static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis)) : 1.0;
             const Box3 &rb = rdst.recv_box;
 
             for (int i = rb.lo.i; i < rb.hi.i; ++i)
@@ -808,7 +828,7 @@ void Halo::exchange_inner_vertex_face_2form_triplet_(const std::vector<std::stri
     }
 }
 
-void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -853,8 +873,8 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
             FieldBlock &fb = fld_->field(fid[src_axis], rsrc.this_block);
             const Box3 &sb = rsrc.send_box;
 
-            const double factor = static_cast<double>(
-                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis));
+            const double factor = oriented ? static_cast<double>(
+                face_2form_orientation_sign(rdst.trans, src_axis, dst_axis)) : 1.0;
 
             int loc_lo[3] = {sb.lo.i, sb.lo.j, sb.lo.k};
             int loc_hi[3] = {sb.hi.i - 1, sb.hi.j - 1, sb.hi.k - 1};
@@ -940,7 +960,7 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
     }
 }
 
-void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -986,7 +1006,7 @@ void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::str
             m.send_block = ep.nb_block;
             m.recv_axis = recv_axis;
             m.send_axis = send_axis;
-            m.sign = face_2form_orientation_sign(ep.trans, send_axis, recv_axis);
+            m.sign = oriented ? face_2form_orientation_sign(ep.trans, send_axis, recv_axis) : 1;
             m.recv_box = HALO_BOX::make_2DCorner_ghost_box(
                 face_loc_from_axis(recv_axis), ep.this_box_node, this_d1, this_d2, nghost);
             m.node_box_on_send = ep.nb_box_node;
@@ -1056,7 +1076,7 @@ void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::str
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
 
-void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields)
+void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented)
 {
     const auto fid = face_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
@@ -1106,7 +1126,7 @@ void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::s
             m.send_block = vp.nb_block;
             m.recv_axis = recv_axis;
             m.send_axis = send_axis;
-            m.sign = face_2form_orientation_sign(vp.trans, send_axis, recv_axis);
+            m.sign = oriented ? face_2form_orientation_sign(vp.trans, send_axis, recv_axis) : 1;
             m.recv_box = HALO_BOX::make_3DCorner_ghost_box(
                 face_loc_from_axis(recv_axis), vp.this_box_node, this_d1, this_d2, this_d3, nghost);
             m.node_box_on_send = vp.nb_box_node;

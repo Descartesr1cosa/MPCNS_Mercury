@@ -1,5 +1,6 @@
 #include "4_halo/Halo.h"
 #include "0_basic/MPI_WRAPPER.h"
+#include "0_basic/Error.h"
 
 void Halo::exchange_parallel(std::string field_name)
 {
@@ -43,6 +44,23 @@ void Halo::exchange_parallel(std::string field_name)
     //-------------------------------------------------------------------------
     // 检测缓冲空间是否足够
     const int num_face = pat.regions.size();
+    std::vector<int> local_active(num_face, 0), peer_active(num_face, 0);
+    std::vector<MPI_Request> active_send_req(num_face, MPI_REQUEST_NULL);
+    std::vector<MPI_Request> active_recv_req(num_face, MPI_REQUEST_NULL);
+    for (int ir = 0; ir < num_face; ++ir)
+    {
+        const HaloRegion &r = pat.regions[ir];
+        local_active[ir] = fld_->field(fid, r.this_block).is_allocated() ? 1 : 0;
+        MPI_Irecv(&peer_active[ir], 1, MPI_INT, r.neighbor_rank, r.recv_flag,
+                  MPI_COMM_WORLD, &active_recv_req[ir]);
+        MPI_Isend(&local_active[ir], 1, MPI_INT, r.neighbor_rank, r.send_flag,
+                  MPI_COMM_WORLD, &active_send_req[ir]);
+    }
+    if (num_face > 0)
+    {
+        MPI_Waitall(num_face, active_send_req.data(), MPI_STATUSES_IGNORE);
+        MPI_Waitall(num_face, active_recv_req.data(), MPI_STATUSES_IGNORE);
+    }
     if (send_buf.size() < num_face)
         send_buf.resize(num_face);
     if (recv_buf.size() < num_face)
@@ -63,6 +81,13 @@ void Halo::exchange_parallel(std::string field_name)
     int index = 0;
     for (const HaloRegion &r : pat.regions)
     {
+        if (!local_active[index] || !peer_active[index])
+        {
+            length[index] = 0;
+            recv_length[index] = 0;
+            ++index;
+            continue;
+        }
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
 
         const Box3 &sb = r.send_box; // 本块 inner strip
@@ -141,12 +166,37 @@ void Halo::exchange_parallel(std::string field_name)
     // 等待
     // PARALLEL::mpi_barrier();
     //-------------------------------------------------------------------------
-    // mpi发送接收
+    // Post all sends first.  Probe each incoming message before posting its
+    // receive so a malformed/nonconforming interface can never overrun the
+    // locally predicted receive buffer.
+    std::vector<int32_t> actual_recv_length(num_face, 0);
     index = 0;
     for (const HaloRegion &r : pat.regions)
     {
-        PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
-        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index].data(), recv_length[index], &(req_recv[index]));
+        if (local_active[index] && peer_active[index])
+            PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
+        else
+            req_send[index] = MPI_REQUEST_NULL;
+        index++;
+    }
+    index = 0;
+    for (const HaloRegion &r : pat.regions)
+    {
+        if (!local_active[index] || !peer_active[index])
+        {
+            req_recv[index] = MPI_REQUEST_NULL;
+            ++index;
+            continue;
+        }
+        MPI_Status probe_status;
+        MPI_Probe(r.neighbor_rank, r.recv_flag, MPI_COMM_WORLD, &probe_status);
+        int incoming = 0;
+        MPI_Get_count(&probe_status, MPI_DOUBLE, &incoming);
+        actual_recv_length[index] = incoming;
+        if (recv_buf[index].size() < static_cast<std::size_t>(incoming))
+            recv_buf[index].resize(incoming);
+        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag,
+                                recv_buf[index].data(), incoming, &(req_recv[index]));
         index++;
     }
     //----------------------------------------------------------------------
@@ -154,6 +204,34 @@ void Halo::exchange_parallel(std::string field_name)
     int num_face_comm = num_face;
     PARALLEL::mpi_wait(num_face_comm, req_send.data(), stat_send.data());
     PARALLEL::mpi_wait(num_face_comm, req_recv.data(), stat_recv.data());
+
+    bool length_mismatch = false;
+    index = 0;
+    for (const HaloRegion &r : pat.regions)
+    {
+        if (!local_active[index] || !peer_active[index])
+        {
+            ++index;
+            continue;
+        }
+        if (actual_recv_length[index] != recv_length[index])
+        {
+            int myid = 0;
+            PARALLEL::mpi_rank(&myid);
+            const Box3 &rb = r.recv_box;
+            std::cerr << "[Halo] nonconforming parallel face: field=" << field_name
+                      << " rank=" << myid << " block=" << r.this_block
+                      << " peer=" << r.neighbor_rank << " recv_tag=" << r.recv_flag
+                      << " expected=" << recv_length[index]
+                      << " incoming=" << actual_recv_length[index]
+                      << " recv_box=[" << rb.lo.i << ',' << rb.lo.j << ',' << rb.lo.k
+                      << "]-[" << rb.hi.i << ',' << rb.hi.j << ',' << rb.hi.k << "]\n";
+            length_mismatch = true;
+        }
+        ++index;
+    }
+    if (length_mismatch)
+        ERROR::Abort("Halo::exchange_parallel: nonconforming interface message length");
     //----------------------------------------------------------------------
 
     //----------------------------------------------------------------------
@@ -162,6 +240,11 @@ void Halo::exchange_parallel(std::string field_name)
     index = 0;
     for (const HaloRegion &r : pat.regions)
     {
+        if (!local_active[index] || !peer_active[index])
+        {
+            ++index;
+            continue;
+        }
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
         const Box3 &rb = r.recv_box;                     // 要填充的 halo 区域
 

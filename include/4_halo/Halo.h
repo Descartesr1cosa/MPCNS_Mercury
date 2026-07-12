@@ -55,6 +55,8 @@ public:
     void data_trans_3DCorner(std::string &field_name);
     void data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
                                        HaloLevel stage);
+    void data_trans_face_axis_triplet(const std::vector<std::string> &fields,
+                                      HaloLevel stage);
 
     // Coupling transfer API. These fill coupling buffers and do not write ghosts.
     void coupling_trans_1DCorner(std::string &src, std::string &dst);
@@ -81,12 +83,12 @@ private:
     void exchange_inner_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
     void exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::string> &fields);
 
-    void exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields);
-    void exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields);
-    void exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields);
-    void exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields);
-    void exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
-    void exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields);
+    void exchange_inner_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_face_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_inner_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_edge_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_inner_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
+    void exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::string> &fields, bool oriented = true);
 
     // Coupling buffer exchange.
     void coupling_inner_face(const std::string &src, const std::string &dst);
