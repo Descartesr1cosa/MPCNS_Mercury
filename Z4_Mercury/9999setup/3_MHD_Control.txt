@@ -17,8 +17,8 @@ double  implicit_resistive_ksp_atol     1.0e-8
 int     implicit_resistive_ksp_max_it   10
 
 bool    is_Ambipolar_Efield             1
-double  r_min                           1.5
-double  r_max                           1.9
+double  r_min                           1.1
+double  r_max                           1.2
 
 // artificial resistivity limiter
 double  arti_eta_max                    0.00
