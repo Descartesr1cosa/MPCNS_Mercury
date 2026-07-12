@@ -206,8 +206,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
         }
 
         // 全局严格流水线，保留 barrier
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // ---------------- unpack to coupling buffers ----------------
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -215,7 +214,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }
 
@@ -437,8 +436,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
         }
 
         // 全局严格流水线，保留 barrier
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // ---------------- unpack to coupling buffers ----------------
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -446,7 +444,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }
 
@@ -713,8 +711,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
         }
 
         // 严格流水线
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // ---------------- unpack to coupling buffers ----------------
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -722,7 +719,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }
 
@@ -989,8 +986,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
         }
 
         // 严格流水线
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // ---------------- unpack to coupling buffers ----------------
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -998,7 +994,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }
 
@@ -1257,8 +1253,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             PARALLEL::mpi_wait(nrecv, req_recv.data(), stat_recv.data());
         }
 
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // unpack
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -1266,7 +1261,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }
 
@@ -1525,8 +1520,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             PARALLEL::mpi_wait(nrecv, req_recv.data(), stat_recv.data());
         }
 
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         // unpack
         for (size_t ir = 0; ir < recvs.size(); ++ir)
         {
@@ -1534,6 +1528,6 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
             HALO_TOOLS::unpack_to_coupling_buffer(*(it.buf), it.rb, ncomp, recv_buf[ir]);
         }
 
-        PARALLEL::mpi_barrier();
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     }
 }

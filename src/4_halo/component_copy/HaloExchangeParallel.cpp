@@ -1,8 +1,6 @@
 #include "4_halo/Halo.h"
 #include "0_basic/MPI_WRAPPER.h"
 
-#include <map>
-
 void Halo::exchange_parallel(std::string field_name)
 {
     //=========================================================================
@@ -60,14 +58,6 @@ void Halo::exchange_parallel(std::string field_name)
     if (length.size() < num_face)
         length.resize(num_face);
     std::vector<int32_t> recv_length(num_face, 0);
-    int myid = 0;
-    int nrank = 1;
-    PARALLEL::mpi_rank(&myid);
-    PARALLEL::mpi_size(&nrank);
-    std::map<std::pair<int, int>, int> send_occurrence;
-    std::map<std::pair<int, int>, int> recv_occurrence;
-    std::vector<int> local_length_records;
-    constexpr int record_width = 14;
     //-------------------------------------------------------------------------
     // 打包
     int index = 0;
@@ -144,113 +134,8 @@ void Halo::exchange_parallel(std::string field_name)
                         send_buf[index][base + m] = fb(ijk[0], ijk[1], ijk[2], m);
                 }
 
-        const int send_ord = send_occurrence[{r.neighbor_rank, r.send_flag}]++;
-        local_length_records.insert(local_length_records.end(),
-                                    {0, myid, r.neighbor_rank, r.send_flag, send_ord,
-                                     send_total, index, r.this_block,
-                                     sb.lo.i, sb.lo.j, sb.lo.k,
-                                     sb.hi.i, sb.hi.j, sb.hi.k});
-
-        const int recv_ord = recv_occurrence[{r.neighbor_rank, r.recv_flag}]++;
-        local_length_records.insert(local_length_records.end(),
-                                    {1, r.neighbor_rank, myid, r.recv_flag, recv_ord,
-                                     recv_total, index, r.this_block,
-                                     rb.lo.i, rb.lo.j, rb.lo.k,
-                                     rb.hi.i, rb.hi.j, rb.hi.k});
-
         // 5) 记录regions的个数
         index++;
-    }
-    {
-        const int local_count = static_cast<int>(local_length_records.size());
-        std::vector<int> counts(nrank, 0);
-        MPI_Allgather(&local_count, 1, MPI_INT, counts.data(), 1, MPI_INT, MPI_COMM_WORLD);
-
-        std::vector<int> displs(nrank, 0);
-        int total_count = 0;
-        for (int r = 0; r < nrank; ++r)
-        {
-            displs[r] = total_count;
-            total_count += counts[r];
-        }
-
-        std::vector<int> all_records(total_count, 0);
-        MPI_Allgatherv(local_length_records.empty() ? nullptr : local_length_records.data(),
-                       local_count,
-                       MPI_INT,
-                       all_records.empty() ? nullptr : all_records.data(),
-                       counts.data(),
-                       displs.data(),
-                       MPI_INT,
-                       MPI_COMM_WORLD);
-
-        auto rec_at = [&](int offset, int component) -> int
-        {
-            return all_records[offset + component];
-        };
-
-        for (std::size_t off = 0; off < local_length_records.size(); off += record_width)
-        {
-            if (local_length_records[off] != 1)
-                continue;
-
-            const int src = local_length_records[off + 1];
-            const int dst = local_length_records[off + 2];
-            const int tag = local_length_records[off + 3];
-            const int ord = local_length_records[off + 4];
-            const int recv_len = local_length_records[off + 5];
-
-            bool found = false;
-            int peer_len = -1;
-            int peer_region = -1;
-            int peer_block = -1;
-            int peer_box[6] = {0, 0, 0, 0, 0, 0};
-            for (int roff = 0; roff < total_count; roff += record_width)
-            {
-                if (rec_at(roff, 0) == 0 &&
-                    rec_at(roff, 1) == src &&
-                    rec_at(roff, 2) == dst &&
-                    rec_at(roff, 3) == tag &&
-                    rec_at(roff, 4) == ord)
-                {
-                    found = true;
-                    peer_len = rec_at(roff, 5);
-                    peer_region = rec_at(roff, 6);
-                    peer_block = rec_at(roff, 7);
-                    for (int c = 0; c < 6; ++c)
-                        peer_box[c] = rec_at(roff, 8 + c);
-                    break;
-                }
-            }
-
-            if (!found || peer_len != recv_len)
-            {
-                std::cout << "[Halo] parallel face length mismatch field=" << field_name
-                          << " rank=" << myid
-                          << " recv_from=" << src
-                          << " tag=" << tag
-                          << " ordinal=" << ord
-                          << " recv_len=" << recv_len
-                          << " peer_send_len=" << peer_len
-                          << " local_region=" << local_length_records[off + 6]
-                          << " local_block=" << local_length_records[off + 7]
-                          << " local_recv_box=["
-                          << local_length_records[off + 8] << ","
-                          << local_length_records[off + 9] << ","
-                          << local_length_records[off + 10] << "]-["
-                          << local_length_records[off + 11] << ","
-                          << local_length_records[off + 12] << ","
-                          << local_length_records[off + 13] << "]"
-                          << " peer_region=" << peer_region
-                          << " peer_block=" << peer_block
-                          << " peer_send_box=["
-                          << peer_box[0] << "," << peer_box[1] << "," << peer_box[2]
-                          << "]-["
-                          << peer_box[3] << "," << peer_box[4] << "," << peer_box[5]
-                          << "]\n";
-                std::exit(-1);
-            }
-        }
     }
     //-------------------------------------------------------------------------
     // 等待
@@ -269,7 +154,6 @@ void Halo::exchange_parallel(std::string field_name)
     int num_face_comm = num_face;
     PARALLEL::mpi_wait(num_face_comm, req_send.data(), stat_send.data());
     PARALLEL::mpi_wait(num_face_comm, req_recv.data(), stat_recv.data());
-    PARALLEL::mpi_barrier();
     //----------------------------------------------------------------------
 
     //----------------------------------------------------------------------
@@ -519,7 +403,6 @@ void Halo::exchange_parallel_vertex(std::string field_name)
     int num_face_comm_recv = num_face_recv;
     PARALLEL::mpi_wait(num_face_comm_send, req_send.data(), stat_send.data());
     PARALLEL::mpi_wait(num_face_comm_recv, req_recv.data(), stat_recv.data());
-    PARALLEL::mpi_barrier();
     //----------------------------------------------------------------------
 
     //=========================================================================
@@ -757,7 +640,6 @@ void Halo::exchange_parallel_edge(std::string field_name)
     int num_face_comm_recv = num_face_recv;
     PARALLEL::mpi_wait(num_face_comm_send, req_send.data(), stat_send.data());
     PARALLEL::mpi_wait(num_face_comm_recv, req_recv.data(), stat_recv.data());
-    PARALLEL::mpi_barrier();
     //----------------------------------------------------------------------
 
     //=========================================================================

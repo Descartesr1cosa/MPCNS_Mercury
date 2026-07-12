@@ -22,7 +22,6 @@ void MercurySolver::AddAmbipolarEdgeEMF_()
             for (int dj = -1; dj <= 0; ++dj)
                 for (int dk = -1; dk <= 0; ++dk)
                     sum += pe_cell(PVH, PVN, i + di, j + dj, k + dk);
-
         return 0.125 * sum;
     };
 

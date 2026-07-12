@@ -572,8 +572,7 @@ void Halo::exchange_parallel_face_edge_1form_triplet_(const std::vector<std::str
         int nrecv = nreg;
         PARALLEL::mpi_wait(nsend, req_send.data(), stat_send.data());
         PARALLEL::mpi_wait(nrecv, req_recv.data(), stat_recv.data());
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         for (int ir = 0; ir < nreg; ++ir)
         {
             const HaloRegion &r = pat_dst.regions[ir];
@@ -916,8 +915,7 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
         int nrecv = nreg;
         PARALLEL::mpi_wait(nsend, req_send.data(), stat_send.data());
         PARALLEL::mpi_wait(nrecv, req_recv.data(), stat_recv.data());
-        PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
         for (int ir = 0; ir < nreg; ++ir)
         {
             const HaloRegion &r = pat_dst.regions[ir];
@@ -1053,8 +1051,7 @@ void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::str
         PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
     if (wait_send > 0)
         PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-    PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
@@ -1175,8 +1172,7 @@ void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::s
         PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
     if (wait_send > 0)
         PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-    PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
@@ -1290,8 +1286,7 @@ void Halo::exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::str
         PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
     if (wait_send > 0)
         PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-    PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
@@ -1410,8 +1405,7 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
         PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
     if (wait_send > 0)
         PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-    PARALLEL::mpi_barrier();
-
+        // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
 }
