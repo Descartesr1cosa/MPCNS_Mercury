@@ -254,13 +254,24 @@ namespace HALO_OWNER
         const TOPO::Topology &equiv,
         std::vector<TOPO::EntityKey> &owner_edges_sorted)
     {
+        int my_rank = 0;
+        PARALLEL::mpi_rank(&my_rank);
+
         owner_edges_sorted.clear();
         owner_edges_sorted.reserve(equiv.edges.n_local_owner);
 
         for (const auto &[e, gid] : equiv.edges.owner_to_gid)
         {
-            owner_edges_sorted.push_back(e);
+            // owner_to_gid is a globally replicated lookup table.  Only
+            // owners whose EntityKey belongs to this MPI rank may index the
+            // rank-local Field/Grid block arrays.
+            if (e.rank == my_rank)
+                owner_edges_sorted.push_back(e);
         }
+
+        if (static_cast<int>(owner_edges_sorted.size()) != equiv.edges.n_local_owner)
+            throw std::runtime_error(
+                "gather_local_owner_edges_sorted: local owner count does not match topology metadata.");
 
         std::sort(owner_edges_sorted.begin(), owner_edges_sorted.end(),
                   [&](const TOPO::EntityKey &a, const TOPO::EntityKey &b)

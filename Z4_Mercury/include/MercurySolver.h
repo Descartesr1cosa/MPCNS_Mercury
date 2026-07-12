@@ -181,6 +181,7 @@ private:
     Vec implicit_resistive_b_{nullptr};
     double implicit_resistive_dt_{0.0};
     bool implicit_resistive_ready_{false};
+    bool implicit_resistive_has_guess_{false};
 
     std::vector<HallFaceScratchBlock_> hall_face_scratch_;
     void SetupHallFaceScratch_();

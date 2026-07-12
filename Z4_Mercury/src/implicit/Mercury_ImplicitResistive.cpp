@@ -136,6 +136,7 @@ void MercurySolver::SetupImplicitResistiveDiffusion_()
     }
 
     implicit_resistive_ready_ = true;
+    implicit_resistive_has_guess_ = false;
 }
 
 void MercurySolver::DestroyImplicitResistiveDiffusion_()
@@ -161,6 +162,7 @@ void MercurySolver::DestroyImplicitResistiveDiffusion_()
         implicit_resistive_ksp_ = nullptr;
     }
     implicit_resistive_ready_ = false;
+    implicit_resistive_has_guess_ = false;
 }
 
 void MercurySolver::BuildImplicitResistiveEdgeDofMap_()
@@ -291,7 +293,7 @@ void MercurySolver::UnpackVecToImplicitEres_(Vec X)
     PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(X, &xarr));
 
     HALO_OWNER::sync_edge_1form(*fld_, fid_.fid_Eres, *edge_owner_pat_);
-    mercury_bound_.Sync("Eres1form");
+    mercury_bound_.Sync("Eres");
 }
 
 void MercurySolver::CalcImplicitDeltaJedgeFromDeltaB_()
@@ -466,14 +468,31 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
         /*x_shift=*/0.0,
         nullptr); // 求Ax=b中的b, 这是根据输入磁场求出的扩散电场eta.J_edge(Bface)
 
-    PetscCallAbort(PETSC_COMM_WORLD, VecSet(implicit_resistive_x_, 0.0));
-    PetscCallAbort(PETSC_COMM_WORLD, KSPSetInitialGuessNonzero(implicit_resistive_ksp_, PETSC_FALSE)); // 初始猜测非零，0.0不是有用的猜测
-    // VecCopy(implicit_resistive_b_, implicit_resistive_x_);
-    // KSPSetInitialGuessNonzero(implicit_resistive_ksp_, PETSC_TRUE);
+    if (implicit_resistive_has_guess_)
+    {
+        // Pseudo-time marching toward a steady state: the previous resistive
+        // electric field is normally the closest inexpensive initial guess.
+        PetscCallAbort(PETSC_COMM_WORLD,
+                       KSPSetInitialGuessNonzero(implicit_resistive_ksp_, PETSC_TRUE));
+    }
+    else
+    {
+        PetscCallAbort(PETSC_COMM_WORLD, VecSet(implicit_resistive_x_, 0.0));
+        PetscCallAbort(PETSC_COMM_WORLD,
+                       KSPSetInitialGuessNonzero(implicit_resistive_ksp_, PETSC_FALSE));
+    }
 
     PetscCallAbort(PETSC_COMM_WORLD, KSPSolve(implicit_resistive_ksp_,
                                               implicit_resistive_b_,
                                               implicit_resistive_x_)); // SOLVE
+
+    KSPConvergedReason solve_reason;
+    PetscCallAbort(PETSC_COMM_WORLD,
+                   KSPGetConvergedReason(implicit_resistive_ksp_, &solve_reason));
+    if (solve_reason < 0)
+        throw std::runtime_error("Implicit Mercury resistive KSP failed to converge, reason=" +
+                                 std::to_string(static_cast<int>(solve_reason)));
+    implicit_resistive_has_guess_ = true;
 
     if (control_.if_outres)
     {
@@ -481,14 +500,12 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
         VecNorm(implicit_resistive_b_, NORM_2, &bnorm);
         if (par_->GetInt("myid") == 0)
         {
-            KSPConvergedReason reason;
             PetscInt its = 0;
             PetscReal rnorm = 0.0;
 
-            KSPGetConvergedReason(implicit_resistive_ksp_, &reason);
             KSPGetIterationNumber(implicit_resistive_ksp_, &its);
             KSPGetResidualNorm(implicit_resistive_ksp_, &rnorm);
-            std::cout << "[ImplicitMercuryResistive] reason=" << reason
+            std::cout << "[ImplicitMercuryResistive] reason=" << solve_reason
                       << " its=" << its
                       << " rnorm=" << rnorm
                       << " rel=" << rnorm / std::max<PetscReal>(bnorm, 1e-300)
@@ -504,7 +521,7 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
 
 void MercurySolver::ApplyImplicitResistiveUpdate_(double dt_step)
 {
-    mercury_bound_.Sync("Eres1form");
+    mercury_bound_.Sync("Eres");
 
     clear_triplet(fld_, fid_.fid_RHS_b_res);
     for (int ib = 0; ib < fld_->num_blocks(); ++ib)
