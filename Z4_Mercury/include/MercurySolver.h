@@ -318,6 +318,7 @@ private:
     void AssembleEdgeEMF_FromFaceE_Ideal_();
     void AssembleSingularEdgeEMF_NonHall_();
     void AssembleSingularEdgeEMF_HallExplicit_();
+    void ApplyStationaryWallIdealEMF_();
     //---------------------------------------------------------------
     double ComputeMagEnergy_Cell_()
     {

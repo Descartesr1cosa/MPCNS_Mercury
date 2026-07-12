@@ -280,14 +280,17 @@ void GRID_TRANS::Parallel_recv_scalar(Parallel_Boundary *bound, int depth, doubl
     // 开始取出数据更新scalar
     int32_t ijk[3];
     index = 0;
-    // 两者相加除2 边界为平均
+    // The grid files already contain the owned interface nodes.  Do not
+    // overwrite them here: at an edge shared by several face messages the
+    // legacy receive ordering can pair an endpoint with a neighboring face
+    // endpoint.  Consume the boundary part of the buffer, then copy only the
+    // actual ghost layers below.
     for (ijk[out] = sub[out]; (ijk[out] - sup[out]) * dir[out] <= 0; ijk[out] += dir[out])
     {
         for (ijk[mid] = sub[mid]; (ijk[mid] - sup[mid]) * dir[mid] <= 0; ijk[mid] += dir[mid])
         {
             for (ijk[inner] = sub[inner]; (ijk[inner] - sup[inner]) * dir[inner] <= 0; ijk[inner] += dir[inner])
             {
-                scalar(ijk[0], ijk[1], ijk[2]) = 0.5 * (scalar(ijk[0], ijk[1], ijk[2]) + buf_recv[index]);
                 index++;
             }
         }
@@ -384,22 +387,8 @@ void GRID_TRANS::Inner_trans_scalar(Inner_Boundary *bound, int depth, double3D &
     }
     //============================================================================
     //-------------------------------------------------------------------------
-    // 然后处理将目标块的边界网格与本块的边界网格平均
-    double temp_data;
-    for (ijk[0] = sub[0]; (ijk[0] - sup[0]) * dir[0] <= 0; ijk[0] += dir[0])
-    {
-        for (ijk[1] = sub[1]; (ijk[1] - sup[1]) * dir[1] <= 0; ijk[1] += dir[1])
-        {
-            for (ijk[2] = sub[2]; (ijk[2] - sup[2]) * dir[2] <= 0; ijk[2] += dir[2])
-            {
-                for (int32_t l = 0; l < 3; l++)
-                    tar_ijk[my_to_tar[l]] = tar_sub[my_to_tar[l]] + (ijk[l] - sub[l]) * dir[l] * tar_dir[my_to_tar[l]];
-                temp_data = 0.5 * (scalar_tar(tar_ijk[0], tar_ijk[1], tar_ijk[2]) + scalar(ijk[0], ijk[1], ijk[2]));
-                scalar_tar(tar_ijk[0], tar_ijk[1], tar_ijk[2]) = temp_data;
-                scalar(ijk[0], ijk[1], ijk[2]) = temp_data;
-            }
-        }
-    }
+    // Owned interface nodes come directly from the conforming grid files.
+    // Only ghost nodes are exchanged above; no boundary averaging is needed.
 }
 
 //=============================================================================================
