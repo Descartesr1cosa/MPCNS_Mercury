@@ -85,10 +85,11 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
 
     for (const auto &cls : topology.edges.classes)
     {
-        // A regular multi-block interior edge has four block-local sectors.
-        // The registry is intentionally valence based, so future 5+ valence
-        // edges enter the same path without another special case.
-        if (cls.members.size() == 4 || cls.members.size() < 3 || cls.global_id < 0)
+        // members counts block-local aliases, not physical sectors.  A
+        // conforming block decomposition can give a regular four-cell edge
+        // three aliases.  Treat this as a candidate only; physical valence is
+        // classified below after gathering its real incident cells.
+        if (cls.members.size() < 3 || cls.global_id < 0)
             continue;
 
         SingularPhysicalEdge rec;
@@ -154,8 +155,22 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     MPI_Allreduce(local_cells.data(),gc.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_faces.data(),gf.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
 
-    for (auto &e : entries_)
+    // Alias valence belongs to the block decomposition.  The number of real
+    // incident cell sectors belongs to the physical mesh.  Keep ordinary
+    // four-sector edges on the structured path even when they have three (or
+    // more) block-local aliases.
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                  [&](const SingularPhysicalEdge &e)
+                                  {
+                                      return gc[e.global_id] == 4;
+                                  }),
+                   entries_.end());
+    gid_to_index_.clear();
+
+    for (std::size_t entry_index = 0; entry_index < entries_.size(); ++entry_index)
     {
+        auto &e = entries_[entry_index];
+        gid_to_index_[e.global_id] = entry_index;
         e.primal_length = gln[e.global_id] ? gl[e.global_id]/gln[e.global_id] : 0.0;
         // Incidence-built lumped dual measure.  Sum(V_cell / L_edge) over
         // the real sectors; this excludes collapsed ghost sectors and works
