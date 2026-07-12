@@ -48,6 +48,7 @@ void MercurySolver::AddIdealEdgeEMF_()
 void MercurySolver::AssembleSingularEdgeEMF_NonHall_()
 {
     if (!singular_edges_ || singular_edges_->empty()) return;
+    BuildStationaryWallSingularEdgeSet_();
 
     auto contribution = [this](const METRIC::SingularPhysicalEdge &edge,
                                const METRIC::WeightedIncidentEntity &inc) -> double
@@ -57,15 +58,23 @@ void MercurySolver::AssembleSingularEdgeEMF_NonHall_()
         FieldBlock &b=fld_->field(fid_.fid_Bcell,c.block);
         if (!u.is_allocated() || !b.is_allocated()) return 0.0;
 
-        const double ex=-(u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,2)-
-                          u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,1));
-        const double ey=-(u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,0)-
-                          u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
-        const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
-                          u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
-        double emf=ex*edge.canonical_edge_vector[0]+
-                   ey*edge.canonical_edge_vector[1]+
-                   ez*edge.canonical_edge_vector[2];
+        double emf=0.0;
+        // The singular owner assembly replaces the block-local candidate.
+        // Preserve a stationary-wall tangential Ideal constraint here rather
+        // than relying on call order; non-Ideal contributions below remain.
+        if (stationary_wall_singular_edge_gids_.find(edge.global_id) ==
+            stationary_wall_singular_edge_gids_.end())
+        {
+            const double ex=-(u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,2)-
+                              u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,1));
+            const double ey=-(u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,0)-
+                              u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
+            const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
+                              u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
+            emf=ex*edge.canonical_edge_vector[0]+
+                ey*edge.canonical_edge_vector[1]+
+                ez*edge.canonical_edge_vector[2];
+        }
 
         // Electron-pressure (ambipolar) contribution.  Along the singular
         // line only the edge-tangent derivative is needed; transverse

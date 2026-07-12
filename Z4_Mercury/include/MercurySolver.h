@@ -12,6 +12,7 @@
 #include "7_metric/SingularEdgeRegistry.h"
 
 #include <petscksp.h>
+#include <unordered_set>
 
 #if HALL_IMPLICIT == 1
 #include "4_Hall_Implicit.h"
@@ -104,6 +105,8 @@ private:
     TOPO::Topology *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
     METRIC::SingularEdgeRegistry *singular_edges_{nullptr};
+    std::unordered_set<int> stationary_wall_singular_edge_gids_;
+    bool stationary_wall_singular_edges_ready_{false};
 #if HALL_IMPLICIT == 1
     ImplicitHallSolver hall_implicit_;
 #endif
@@ -318,6 +321,7 @@ private:
     void AssembleEdgeEMF_FromFaceE_Ideal_();
     void AssembleSingularEdgeEMF_NonHall_();
     void AssembleSingularEdgeEMF_HallExplicit_();
+    void BuildStationaryWallSingularEdgeSet_();
     void ApplyStationaryWallIdealEMF_();
     //---------------------------------------------------------------
     double ComputeMagEnergy_Cell_()

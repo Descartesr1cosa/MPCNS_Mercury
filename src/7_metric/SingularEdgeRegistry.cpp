@@ -86,9 +86,9 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     for (const auto &cls : topology.edges.classes)
     {
         // members counts block-local aliases, not physical sectors.  A
-        // conforming block decomposition can give a regular four-cell edge
-        // three aliases.  Treat this as a candidate only; physical valence is
-        // classified below after gathering its real incident cells.
+        // conforming block decomposition can give a regular edge three
+        // aliases.  Treat this as a candidate only; physical valence is
+        // classified below from quotient-face incidence.
         if (cls.members.size() < 3 || cls.global_id < 0)
             continue;
 
@@ -132,6 +132,12 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
             for (const EntityKey &f : incident_faces(e))
                 if (seen_faces.insert(f).second)
                 {
+                    // Count and assemble each quotient (physical) face once.
+                    // Block-local aliases of the same interface face are not
+                    // distinct sectors around the physical edge.
+                    if (topology.faces.local_to_qkey.find(f) ==
+                        topology.faces.local_to_qkey.end()) continue;
+                    if (!topology.is_owner(f)) continue;
                     FieldBlock &area = fields.field(std::string("Area_") + axis_suffix(f.axis), f.block);
                     if (!contains_inner(area,f.i,f.j,f.k)) continue;
                     const double av = area(f.i,f.j,f.k,0);
@@ -155,14 +161,15 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     MPI_Allreduce(local_cells.data(),gc.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_faces.data(),gf.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
 
-    // Alias valence belongs to the block decomposition.  The number of real
-    // incident cell sectors belongs to the physical mesh.  Keep ordinary
-    // four-sector edges on the structured path even when they have three (or
-    // more) block-local aliases.
+    // Singularity is the valence of quotient faces incident on the physical
+    // edge, not the number of block-local edge aliases (or cells).  Three and
+    // greater-than-four face sectors use the variable-valence path.  Four is
+    // a regular interior edge; two is a regular physical-boundary edge.
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
                                   [&](const SingularPhysicalEdge &e)
                                   {
-                                      return gc[e.global_id] == 4;
+                                      const int physical_faces = gf[e.global_id];
+                                      return physical_faces != 3 && physical_faces <= 4;
                                   }),
                    entries_.end());
     gid_to_index_.clear();

@@ -1,7 +1,73 @@
 #include "MercurySolver.h"
 #include "0_basic/LayoutTraits.h"
 #include <algorithm>
+#include <cstdio>
 #include <vector>
+
+void MercurySolver::BuildStationaryWallSingularEdgeSet_()
+{
+    if (stationary_wall_singular_edges_ready_)
+        return;
+    stationary_wall_singular_edges_ready_ = true;
+    stationary_wall_singular_edge_gids_.clear();
+    if (!topo_ || !singular_edges_ || singular_edges_->empty())
+        return;
+
+    const int nglobal = topo_->edges.n_global_owner;
+    std::vector<int> local(nglobal, 0), global(nglobal, 0);
+    auto edge_on_face = [](const TOPO::EntityKey &e, int block,
+                           const Box3 &node_box, int direction)
+    {
+        if (e.block != block)
+            return false;
+        const int normal_axis = std::abs(direction) - 1;
+        const int edge_axis = static_cast<int>(e.axis);
+        if (normal_axis < 0 || normal_axis > 2 || edge_axis == normal_axis)
+            return false;
+        const StaggerLocation loc = edge_axis == 0 ? StaggerLocation::EdgeXi :
+                                    (edge_axis == 1 ? StaggerLocation::EdgeEt :
+                                                      StaggerLocation::EdgeZe);
+        const Box3 box = LAYOUT::node_box_to_dof_box(loc, node_box);
+        return e.i >= box.lo.i && e.i < box.hi.i &&
+               e.j >= box.lo.j && e.j < box.hi.j &&
+               e.k >= box.lo.k && e.k < box.hi.k;
+    };
+
+    for (const auto &entry : singular_edges_->entries())
+        for (const auto &alias : entry.aliases)
+        {
+            const auto &e = alias.edge;
+            if (e.rank != par_->GetInt("myid"))
+                continue;
+            bool constrained = false;
+            for (const auto &p : topo_->physical_patches)
+                if ((p.bc_name == "Solid_Surface" || p.bc_name == "Coupled-Solid" ||
+                     p.bc_name == "Coupled-Fluid") &&
+                    edge_on_face(e, p.this_block, p.this_box_node, p.direction))
+                    constrained = true;
+            for (const auto &p : topo_->inner_patches)
+                if (p.is_coupling &&
+                    (p.this_block_name == "Solid" || p.nb_block_name == "Solid") &&
+                    (edge_on_face(e, p.this_block, p.this_box_node, p.direction) ||
+                     edge_on_face(e, p.nb_block, p.nb_box_node, p.nb_direction)))
+                    constrained = true;
+            for (const auto &p : topo_->parallel_patches)
+                if (p.is_coupling &&
+                    (p.this_block_name == "Solid" || p.nb_block_name == "Solid") &&
+                    edge_on_face(e, p.this_block, p.this_box_node, p.direction))
+                    constrained = true;
+            if (constrained)
+                local[entry.global_id] = 1;
+        }
+
+    MPI_Allreduce(local.data(), global.data(), nglobal, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    for (int gid = 0; gid < nglobal; ++gid)
+        if (global[gid])
+            stationary_wall_singular_edge_gids_.insert(gid);
+    if (par_->GetInt("myid") == 0)
+        std::printf("[SingularEdgeRegistry] stationary-wall tangential singular edges=%zu\n",
+                    stationary_wall_singular_edge_gids_.size());
+}
 
 void MercurySolver::ApplyStationaryWallIdealEMF_()
 {
