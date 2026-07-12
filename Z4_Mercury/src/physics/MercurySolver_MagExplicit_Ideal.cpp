@@ -43,6 +43,35 @@ void MercurySolver::AddIdealEdgeEMF_()
     mercury_bound_.Sync("Eface");
 
     AssembleEdgeEMF_FromFaceE_Ideal_();
+    AssembleSingularEdgeEMF_Ideal_();
+}
+
+void MercurySolver::AssembleSingularEdgeEMF_Ideal_()
+{
+    if (!singular_edges_ || singular_edges_->empty()) return;
+
+    auto contribution = [this](const METRIC::SingularPhysicalEdge &edge,
+                               const METRIC::WeightedIncidentEntity &inc) -> double
+    {
+        const auto &c=inc.entity;
+        FieldBlock &u=fld_->field(fid_.fid_U_plus,c.block);
+        FieldBlock &b=fld_->field(fid_.fid_Bcell,c.block);
+        if (!u.is_allocated() || !b.is_allocated()) return 0.0;
+
+        const double ex=-(u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,2)-
+                          u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,1));
+        const double ey=-(u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,0)-
+                          u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
+        const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
+                          u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
+        return ex*edge.canonical_edge_vector[0]+
+               ey*edge.canonical_edge_vector[1]+
+               ez*edge.canonical_edge_vector[2];
+    };
+
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_xi",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_eta",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_zeta",contribution);
 }
 
 //=========================================================================

@@ -67,7 +67,6 @@ int main(int arg, char **argv)
         // Build Halo Communicator
         Halo *hal = new Halo(fld, &topology);
         hal->set_topology_equiv(&topology);
-        hal->set_singular_edge_registry(&singular_edges);
         MercurySolver::RegisterHaloFields(fld, hal);
         //--------------------------------------------------------------------------
         HALO_OWNER::EdgeOwnerSyncPattern edge_owner_pat;
@@ -77,7 +76,8 @@ int main(int arg, char **argv)
         //=============================================================================================
         MercurySolver solver(grd, &topology, fld, hal, par,
                              &topology,
-                             &edge_owner_pat);
+                             &edge_owner_pat,
+                             &singular_edges);
         solver.Advance();
         if (myid == 0)
             std::cout << "Program is finished normally ! !  ^_^\n"

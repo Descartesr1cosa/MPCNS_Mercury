@@ -11,14 +11,16 @@
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
                              TOPO::Topology *topo_equiv,
-                             HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat)
+                             HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat,
+                             METRIC::SingularEdgeRegistry *singular_edges)
     : grd_(grd),
       topo_(topo),
       fld_(fld),
       halo_(halo),
       par_(par),
       topo_equiv_(topo_equiv),
-      edge_owner_pat_(edge_owner_pat)
+      edge_owner_pat_(edge_owner_pat),
+      singular_edges_(singular_edges)
 {
     // ---- Cache field ids ----
     fid_.Init(fld_);

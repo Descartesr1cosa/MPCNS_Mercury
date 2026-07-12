@@ -79,6 +79,7 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     entries_.clear(); gid_to_index_.clear();
     const int nglobal = topology.edges.n_global_owner;
     std::vector<double> local_length(nglobal,0.0), local_dual(nglobal,0.0), local_cell_measure(nglobal,0.0);
+    std::vector<double> local_dr(3*nglobal,0.0);
     std::vector<int> local_length_n(nglobal,0), local_cells(nglobal,0), local_faces(nglobal,0);
 
     for (const auto &cls : topology.edges.classes)
@@ -107,6 +108,9 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
                 const double L = dl(e.i,e.j,e.k,0);
                 FieldBlock &as = fields.field(std::string("Astar_") + axis_suffix(e.axis), e.block);
                 if (std::isfinite(L) && L > 0.0) { local_length[rec.global_id] += L; ++local_length_n[rec.global_id]; }
+                FieldBlock &dr = fields.field(std::string("dr_") + axis_suffix(e.axis), e.block);
+                for (int q=0;q<3;++q)
+                    local_dr[3*rec.global_id+q] += a.orientation*dr(e.i,e.j,e.k,q);
                 const double A = as(e.i,e.j,e.k,0);
                 if (std::isfinite(A) && A > 0.0) local_dual[rec.global_id] += A;
             }
@@ -137,10 +141,12 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     }
 
     std::vector<double> gl(nglobal), ga(nglobal), gv(nglobal);
+    std::vector<double> gdr(3*nglobal);
     std::vector<int> gln(nglobal), gc(nglobal), gf(nglobal);
     MPI_Allreduce(local_length.data(),gl.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_dual.data(),ga.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_cell_measure.data(),gv.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(local_dr.data(),gdr.data(),3*nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_length_n.data(),gln.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_cells.data(),gc.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_faces.data(),gf.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
@@ -151,6 +157,8 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         // Each alias constructs the same complete dual polygon; average it.
         e.dual_area = gln[e.global_id] ? ga[e.global_id]/gln[e.global_id] : 0.0;
         e.inverse_hodge = e.dual_area > 0.0 ? e.primal_length/e.dual_area : 0.0;
+        if (gln[e.global_id] > 0)
+            for (int q=0;q<3;++q) e.canonical_edge_vector[q]=gdr[3*e.global_id+q]/gln[e.global_id];
         e.global_valid_cell_count=gc[e.global_id]; e.global_valid_face_count=gf[e.global_id];
         for (auto &c : e.local_incident_cells) c.weight = gv[e.global_id] > 0.0 ? c.measure/gv[e.global_id] : 0.0;
         double face_sum=0.0; for (const auto &f:e.local_incident_faces) face_sum += f.measure;
@@ -176,8 +184,9 @@ const SingularPhysicalEdge *SingularEdgeRegistry::find(int gid) const
     auto it=gid_to_index_.find(gid); return it==gid_to_index_.end()?nullptr:&entries_[it->second];
 }
 
-void SingularEdgeRegistry::reduce_field_to_local_owners(Field &fields,
-                                                         const std::string &field_name) const
+void SingularEdgeRegistry::assemble_cell_field_to_local_owners(
+    Field &fields, const std::string &field_name,
+    const CellContribution &contribution) const
 {
     if (entries_.empty()) return;
     const int fid = fields.field_id(field_name);
@@ -185,27 +194,17 @@ void SingularEdgeRegistry::reduce_field_to_local_owners(Field &fields,
     const EntityAxis expected = loc == StaggerLocation::EdgeXi ? EntityAxis::Xi :
                                 (loc == StaggerLocation::EdgeEt ? EntityAxis::Eta : EntityAxis::Zeta);
     std::vector<double> lsum(entries_.size(),0.0), gsum(entries_.size(),0.0);
-    std::vector<double> ln(entries_.size(),0.0), gn(entries_.size(),0.0);
     for (std::size_t n=0; n<entries_.size(); ++n)
-        for (const auto &a : entries_[n].aliases)
-        {
-            const EntityKey &e=a.edge;
-            if (e.rank!=rank_ || e.axis!=expected || e.block<0 || e.block>=fields.num_blocks()) continue;
-            FieldBlock &f=fields.field(fid,e.block);
-            if (!f.is_allocated() || !contains_inner(f,e.i,e.j,e.k)) continue;
-            const double v=f(e.i,e.j,e.k,0);
-            if (!std::isfinite(v)) continue;
-            lsum[n] += a.orientation*v; ln[n] += 1.0;
-        }
+        for (const auto &c : entries_[n].local_incident_cells)
+            lsum[n] += c.weight*contribution(entries_[n],c);
     MPI_Allreduce(lsum.data(),gsum.data(),static_cast<int>(entries_.size()),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-    MPI_Allreduce(ln.data(),gn.data(),static_cast<int>(entries_.size()),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     for (std::size_t n=0; n<entries_.size(); ++n)
     {
         const auto &e=entries_[n];
-        if (e.owner.rank!=rank_ || e.owner.axis!=expected || gn[n]<=0.0) continue;
+        if (e.owner.rank!=rank_ || e.owner.axis!=expected) continue;
         int owner_sign=+1;
         for (const auto &a:e.aliases) if (a.owner) { owner_sign=a.orientation; break; }
-        fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n]/gn[n];
+        fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n];
     }
 }
 } // namespace METRIC

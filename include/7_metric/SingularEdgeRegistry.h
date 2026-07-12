@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <array>
+#include <functional>
 
 class Field;
 
@@ -38,6 +40,7 @@ struct SingularPhysicalEdge
     double primal_length = 0.0;
     double dual_area = 0.0;
     double inverse_hodge = 0.0; // |edge| / |dual face|
+    std::array<double,3> canonical_edge_vector{{0.0,0.0,0.0}};
     int global_valid_cell_count = 0;
     int global_valid_face_count = 0;
 };
@@ -50,7 +53,11 @@ public:
 
     const std::vector<SingularPhysicalEdge> &entries() const { return entries_; }
     const SingularPhysicalEdge *find(int global_edge_id) const;
-    void reduce_field_to_local_owners(Field &fields, const std::string &field_name) const;
+    using CellContribution = std::function<double(const SingularPhysicalEdge &,
+                                                   const WeightedIncidentEntity &)>;
+    void assemble_cell_field_to_local_owners(Field &fields,
+                                             const std::string &field_name,
+                                             const CellContribution &contribution) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 

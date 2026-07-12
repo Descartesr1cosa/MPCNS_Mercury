@@ -9,6 +9,7 @@
 #include "3_Control.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "4_Hall_Implicit_Type.h"
+#include "7_metric/SingularEdgeRegistry.h"
 
 #include <petscksp.h>
 
@@ -82,7 +83,8 @@ class MercurySolver
 public:
     MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
                   TOPO::Topology *topo_equiv = nullptr,
-                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr);
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
+                  METRIC::SingularEdgeRegistry *singular_edges = nullptr);
     ~MercurySolver();
 
     static void RegisterFields(Field *fld, int ngg);
@@ -101,6 +103,7 @@ private:
 
     TOPO::Topology *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
+    METRIC::SingularEdgeRegistry *singular_edges_{nullptr};
 #if HALL_IMPLICIT == 1
     ImplicitHallSolver hall_implicit_;
 #endif
@@ -312,6 +315,7 @@ private:
                                   FieldBlock &JDxi, FieldBlock &JDet, FieldBlock &JDze,
                                   FieldBlock &Uplus);
     void AssembleEdgeEMF_FromFaceE_Ideal_();
+    void AssembleSingularEdgeEMF_Ideal_();
     //---------------------------------------------------------------
     double ComputeMagEnergy_Cell_()
     {
