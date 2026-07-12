@@ -290,6 +290,7 @@ private:
     void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
     void Calc_J_Edge();
+    void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);
 
     // 只更新 Bface: Bface += dt_sub * RHS_b
     void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);

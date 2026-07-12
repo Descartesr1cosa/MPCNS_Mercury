@@ -913,6 +913,42 @@ void MercurySolver::calc_divB()
     }
 }
 
+void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
+{
+    if(!topo_) return;
+    std::vector<const TOPO::EquivClass *> classes;
+    classes.reserve(topo_->edges.classes.size());
+    for(const auto &cls:topo_->edges.classes)
+        if(cls.global_id>=0 && cls.members.size()>1) classes.push_back(&cls);
+    std::sort(classes.begin(),classes.end(),[](const auto *a,const auto *b)
+    { return a->global_id<b->global_id; });
+    const std::size_t nclass=classes.size();
+    std::vector<double> local_sum(nclass,0.0),global_sum(nclass,0.0);
+    const int myid=par_->GetInt("myid");
+    for(std::size_t n=0;n<nclass;++n)
+    {
+        const auto &cls=*classes[n];
+        for(const auto &m:cls.members) if(m.entity.rank==myid)
+            {
+                const auto &e=m.entity;
+                FieldBlock &value=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
+                local_sum[n]+=m.orient_sign*value(e.i,e.j,e.k,0);
+            }
+    }
+    MPI_Allreduce(local_sum.data(),global_sum.data(),static_cast<int>(nclass),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    for(std::size_t n=0;n<nclass;++n)
+    {
+        const auto &cls=*classes[n];
+        if(cls.owner.entity.rank==myid)
+        {
+            const auto &e=cls.owner.entity;
+            FieldBlock &owner=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
+            owner(e.i,e.j,e.k,0)=cls.owner.orient_sign*
+                global_sum[n]/static_cast<double>(cls.members.size());
+        }
+    }
+}
+
 void MercurySolver::Calc_J_Edge()
 {
     //  ComputeJ_AtEdges_Inner_();
@@ -970,6 +1006,7 @@ void MercurySolver::Calc_J_Edge()
         }
     }
 
+    ReduceEdgeAliasCandidatesToOwners_(fid_.fid_J);
     mercury_bound_.Sync("Jedge"); // ApplyBC_EdgeJ_();
 }
 

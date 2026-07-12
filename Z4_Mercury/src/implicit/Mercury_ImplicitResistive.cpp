@@ -353,6 +353,7 @@ void MercurySolver::CalcImplicitDeltaJedgeFromDeltaB_()
         }
     }
 
+    ReduceEdgeAliasCandidatesToOwners_(fid_.fid_dJ);
     HALO_OWNER::sync_edge_1form(*fld_, fid_.fid_dJ, *edge_owner_pat_);
     mercury_bound_.Sync("dJ");
 }

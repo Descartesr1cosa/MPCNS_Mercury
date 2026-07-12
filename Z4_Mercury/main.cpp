@@ -58,7 +58,7 @@ int main(int arg, char **argv)
         MercurySolver::RegisterFields(fld, ngg);
         MercurySolver::RegisterCouplingChannels(fld, topology, par->GetInt("dimension"), ngg);
         METRIC::SingularEdgeRegistry singular_edges;
-        singular_edges.build(topology, *fld, myid);
+        singular_edges.build(topology, *fld, *grd, myid);
         singular_edges.validate_or_abort();
         if (myid == 0)
             std::cout << "[SingularEdgeRegistry] physical singular edges="

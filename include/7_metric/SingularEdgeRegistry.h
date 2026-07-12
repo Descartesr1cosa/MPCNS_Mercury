@@ -10,6 +10,7 @@
 #include <functional>
 
 class Field;
+class Grid;
 
 namespace METRIC
 {
@@ -50,7 +51,7 @@ struct SingularPhysicalEdge
 class SingularEdgeRegistry
 {
 public:
-    void build(const TOPO::Topology &topology, Field &fields, int rank);
+    void build(const TOPO::Topology &topology, Field &fields, Grid &grid, int rank);
     void validate_or_abort() const;
 
     const std::vector<SingularPhysicalEdge> &entries() const { return entries_; }
