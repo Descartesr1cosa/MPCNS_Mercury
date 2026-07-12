@@ -25,6 +25,8 @@ struct WeightedIncidentEntity
     TOPO::EntityKey entity;
     double measure = 0.0;
     double weight = 0.0;
+    TOPO::EntityKey source_alias{TOPO::EntityDim::Edge,0,0,0,0,0,TOPO::EntityAxis::Xi};
+    int source_orientation = +1;
 };
 
 // One record represents one edge of the quotient (physical) mesh.  Records

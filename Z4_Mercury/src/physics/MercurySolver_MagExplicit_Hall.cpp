@@ -48,6 +48,35 @@ void MercurySolver::AddHallEdgeEMF_()
 #endif
 
     BuildHallFaceEMF_Rusanov_diff_();
+#if HALL_IMPLICIT == 0
+    AssembleSingularEdgeEMF_HallExplicit_();
+#endif
+}
+
+void MercurySolver::AssembleSingularEdgeEMF_HallExplicit_()
+{
+    if (!singular_edges_ || singular_edges_->empty()) return;
+    auto contribution=[this](const METRIC::SingularPhysicalEdge &edge,
+                             const METRIC::WeightedIncidentEntity &inc)->double
+    {
+        const auto &c=inc.entity;
+        FieldBlock &bc=fld_->field(fid_.fid_Bcell,c.block);
+        FieldBlock &jc=fld_->field(fid_.fid_Jcell,c.block);
+        FieldBlock &uh=fld_->field(fid_.fid_U_H,c.block);
+        FieldBlock &un=fld_->field(fid_.fid_U_Na,c.block);
+        if(!bc.is_allocated()||!jc.is_allocated()||!uh.is_allocated()||!un.is_allocated()) return 0.0;
+        const NumInfo num=Hall_Num_Limiter(uh(c.i,c.j,c.k,0),un(c.i,c.j,c.k,0));
+        const double alpha=hall_coef/num.ne_eff;
+        const double ex=alpha*(jc(c.i,c.j,c.k,1)*bc(c.i,c.j,c.k,2)-jc(c.i,c.j,c.k,2)*bc(c.i,c.j,c.k,1));
+        const double ey=alpha*(jc(c.i,c.j,c.k,2)*bc(c.i,c.j,c.k,0)-jc(c.i,c.j,c.k,0)*bc(c.i,c.j,c.k,2));
+        const double ez=alpha*(jc(c.i,c.j,c.k,0)*bc(c.i,c.j,c.k,1)-jc(c.i,c.j,c.k,1)*bc(c.i,c.j,c.k,0));
+        auto &cx=grd_->grids(c.block).dual_x; auto &cy=grd_->grids(c.block).dual_y; auto &cz=grd_->grids(c.block).dual_z;
+        const double taper=HallRadialTaper_(cx(c.i+1,c.j+1,c.k+1),cy(c.i+1,c.j+1,c.k+1),cz(c.i+1,c.j+1,c.k+1));
+        return taper*(ex*edge.canonical_edge_vector[0]+ey*edge.canonical_edge_vector[1]+ez*edge.canonical_edge_vector[2]);
+    };
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_xi",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_eta",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_zeta",contribution);
 }
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()

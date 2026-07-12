@@ -79,6 +79,7 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     entries_.clear(); gid_to_index_.clear();
     const int nglobal = topology.edges.n_global_owner;
     std::vector<double> local_length(nglobal,0.0), local_dual(nglobal,0.0), local_cell_measure(nglobal,0.0);
+    std::vector<double> local_face_measure(nglobal,0.0);
     std::vector<double> local_dr(3*nglobal,0.0);
     std::vector<int> local_length_n(nglobal,0), local_cells(nglobal,0), local_faces(nglobal,0);
 
@@ -122,7 +123,7 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
                     const double v = std::abs(jac(c.i,c.j,c.k,0));
                     if (std::isfinite(v) && v > 1.e-30)
                     {
-                        rec.local_incident_cells.push_back({c,v,0.0});
+                        rec.local_incident_cells.push_back({c,v,0.0,e,a.orientation});
                         local_cell_measure[rec.global_id] += v; ++local_cells[rec.global_id];
                     }
                 }
@@ -134,18 +135,20 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
                     if (!contains_inner(area,f.i,f.j,f.k)) continue;
                     const double av = area(f.i,f.j,f.k,0);
                     if (std::isfinite(av) && av > 1.e-30)
-                    { rec.local_incident_faces.push_back({f,av,0.0}); ++local_faces[rec.global_id]; }
+                    { rec.local_incident_faces.push_back({f,av,0.0,e,a.orientation}); local_face_measure[rec.global_id]+=av; ++local_faces[rec.global_id]; }
                 }
         }
         gid_to_index_[rec.global_id] = entries_.size(); entries_.push_back(std::move(rec));
     }
 
     std::vector<double> gl(nglobal), ga(nglobal), gv(nglobal);
+    std::vector<double> gfm(nglobal);
     std::vector<double> gdr(3*nglobal);
     std::vector<int> gln(nglobal), gc(nglobal), gf(nglobal);
     MPI_Allreduce(local_length.data(),gl.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_dual.data(),ga.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_cell_measure.data(),gv.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(local_face_measure.data(),gfm.data(),nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_dr.data(),gdr.data(),3*nglobal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_length_n.data(),gln.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_cells.data(),gc.data(),nglobal,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
@@ -154,15 +157,29 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     for (auto &e : entries_)
     {
         e.primal_length = gln[e.global_id] ? gl[e.global_id]/gln[e.global_id] : 0.0;
-        // Each alias constructs the same complete dual polygon; average it.
-        e.dual_area = gln[e.global_id] ? ga[e.global_id]/gln[e.global_id] : 0.0;
+        // Incidence-built lumped dual measure.  Sum(V_cell / L_edge) over
+        // the real sectors; this excludes collapsed ghost sectors and works
+        // for arbitrary edge valence.
+        e.dual_area = e.primal_length > 0.0 ? gv[e.global_id]/e.primal_length : 0.0;
         e.inverse_hodge = e.dual_area > 0.0 ? e.primal_length/e.dual_area : 0.0;
         if (gln[e.global_id] > 0)
             for (int q=0;q<3;++q) e.canonical_edge_vector[q]=gdr[3*e.global_id+q]/gln[e.global_id];
         e.global_valid_cell_count=gc[e.global_id]; e.global_valid_face_count=gf[e.global_id];
         for (auto &c : e.local_incident_cells) c.weight = gv[e.global_id] > 0.0 ? c.measure/gv[e.global_id] : 0.0;
-        double face_sum=0.0; for (const auto &f:e.local_incident_faces) face_sum += f.measure;
-        for (auto &f:e.local_incident_faces) f.weight = face_sum > 0.0 ? f.measure/face_sum : 0.0;
+        for (auto &f:e.local_incident_faces) f.weight = gfm[e.global_id] > 0.0 ? f.measure/gfm[e.global_id] : 0.0;
+
+        // Publish the corrected scalar Hodge data to every local alias.  The
+        // vector-valued Sstar remains untouched until a dual-polygon vector
+        // reconstruction is requested by an operator.
+        for (const auto &a:e.aliases)
+        {
+            const auto &x=a.edge;
+            if (x.rank!=rank_ || x.block<0 || x.block>=fields.num_blocks()) continue;
+            FieldBlock &astar=fields.field(std::string("Astar_")+axis_suffix(x.axis),x.block);
+            FieldBlock &hinv=fields.field(std::string("Hodge_star_inverse_2form_to_1form_edge_")+axis_suffix(x.axis)+"_lumped",x.block);
+            if (contains_inner(astar,x.i,x.j,x.k)) astar(x.i,x.j,x.k,0)=e.dual_area;
+            if (contains_inner(hinv,x.i,x.j,x.k)) hinv(x.i,x.j,x.k,0)=e.inverse_hodge;
+        }
     }
 }
 

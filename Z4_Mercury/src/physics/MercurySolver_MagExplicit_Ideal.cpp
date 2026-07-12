@@ -43,10 +43,9 @@ void MercurySolver::AddIdealEdgeEMF_()
     mercury_bound_.Sync("Eface");
 
     AssembleEdgeEMF_FromFaceE_Ideal_();
-    AssembleSingularEdgeEMF_Ideal_();
 }
 
-void MercurySolver::AssembleSingularEdgeEMF_Ideal_()
+void MercurySolver::AssembleSingularEdgeEMF_NonHall_()
 {
     if (!singular_edges_ || singular_edges_->empty()) return;
 
@@ -64,9 +63,56 @@ void MercurySolver::AssembleSingularEdgeEMF_Ideal_()
                           u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
         const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
                           u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
-        return ex*edge.canonical_edge_vector[0]+
-               ey*edge.canonical_edge_vector[1]+
-               ez*edge.canonical_edge_vector[2];
+        double emf=ex*edge.canonical_edge_vector[0]+
+                   ey*edge.canonical_edge_vector[1]+
+                   ez*edge.canonical_edge_vector[2];
+
+        // Electron-pressure (ambipolar) contribution.  Along the singular
+        // line only the edge-tangent derivative is needed; transverse
+        // collapsed ghosts never enter this centered cell derivative.
+        if (ambipolar_control.enabled)
+        {
+            FieldBlock &pH=fld_->field(fid_.fid_PV_H,c.block);
+            FieldBlock &pN=fld_->field(fid_.fid_PV_Na,c.block);
+            FieldBlock &uH=fld_->field(fid_.fid_U_H,c.block);
+            FieldBlock &uN=fld_->field(fid_.fid_U_Na,c.block);
+            int im=c.i,jm=c.j,km=c.k, ip=c.i,jp=c.j,kp=c.k;
+            const int ax=static_cast<int>(inc.source_alias.axis);
+            if (ax==0) { --im; ++ip; } else if (ax==1) { --jm; ++jp; } else { --km; ++kp; }
+            const double dp=0.5*((pH(ip,jp,kp,3)+pN(ip,jp,kp,3))-
+                                 (pH(im,jm,km,3)+pN(im,jm,km,3)));
+            const NumInfo num=Hall_Num_Limiter(uH(c.i,c.j,c.k,0),uN(c.i,c.j,c.k,0));
+            const double pressure_coef=(rho_ref*U_ref)/(q_e*L_ref*B_ref*n_ref);
+            emf -= pressure_coef*inc.source_orientation*dp/num.ne_eff;
+        }
+
+        // Artificial resistivity is reconstructed from physical cell J and
+        // the canonical edge vector, rather than a block-local edge alias.
+        FieldBlock &jc=fld_->field(fid_.fid_Jcell,c.block);
+        const double jedge=jc(c.i,c.j,c.k,0)*edge.canonical_edge_vector[0]+
+                           jc(c.i,c.j,c.k,1)*edge.canonical_edge_vector[1]+
+                           jc(c.i,c.j,c.k,2)*edge.canonical_edge_vector[2];
+        const double jmag=std::sqrt(jc(c.i,c.j,c.k,0)*jc(c.i,c.j,c.k,0)+
+                                    jc(c.i,c.j,c.k,1)*jc(c.i,c.j,c.k,1)+
+                                    jc(c.i,c.j,c.k,2)*jc(c.i,c.j,c.k,2));
+        if (arti_resist_control.eta_max>0.0)
+        {
+            double q=(jmag-arti_resist_control.J_range_start)/
+                     std::max(arti_resist_control.J_range_on-arti_resist_control.J_range_start,1.e-30);
+            q=std::max(0.0,std::min(1.0,q));
+            emf += arti_resist_control.eta_max*q*q*(3.0-2.0*q)*jedge;
+        }
+        if (arti_resist_control.local_enabled && arti_resist_control.local_eta_max>0.0)
+        {
+            auto &cx=grd_->grids(c.block).dual_x; auto &cy=grd_->grids(c.block).dual_y; auto &cz=grd_->grids(c.block).dual_z;
+            const double dx=cx(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[0];
+            const double dy=cy(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[1];
+            const double dz=cz(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[2];
+            const double rr=std::sqrt(dx*dx+dy*dy+dz*dz);
+            if (arti_resist_control.local_r_cutoff<=0.0 || rr<arti_resist_control.local_r_cutoff)
+                emf += arti_resist_control.local_eta_max*std::exp(-rr/arti_resist_control.local_r_decay)*jedge;
+        }
+        return emf;
     };
 
     singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_xi",contribution);

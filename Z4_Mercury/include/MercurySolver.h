@@ -315,7 +315,8 @@ private:
                                   FieldBlock &JDxi, FieldBlock &JDet, FieldBlock &JDze,
                                   FieldBlock &Uplus);
     void AssembleEdgeEMF_FromFaceE_Ideal_();
-    void AssembleSingularEdgeEMF_Ideal_();
+    void AssembleSingularEdgeEMF_NonHall_();
+    void AssembleSingularEdgeEMF_HallExplicit_();
     //---------------------------------------------------------------
     double ComputeMagEnergy_Cell_()
     {

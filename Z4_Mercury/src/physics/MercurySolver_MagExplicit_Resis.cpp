@@ -327,4 +327,25 @@ void MercurySolver::AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget)
             add_one_edge(Eze, dr_zeta, 2, 0, 0, 1);
         }
     }
+
+    if (singular_edges_ && !singular_edges_->empty())
+    {
+        auto contribution=[&](const METRIC::SingularPhysicalEdge &edge,
+                              const METRIC::WeightedIncidentEntity &inc)->double
+        {
+            const auto &c=inc.entity;
+            FieldBlock &jc=fld_->field(fid_.fid_Jcell,c.block);
+            if(!jc.is_allocated()) return 0.0;
+            auto &cx=grd_->grids(c.block).dual_x; auto &cy=grd_->grids(c.block).dual_y; auto &cz=grd_->grids(c.block).dual_z;
+            const double x=cx(c.i+1,c.j+1,c.k+1), y=cy(c.i+1,c.j+1,c.k+1), z=cz(c.i+1,c.j+1,c.k+1);
+            const double eta=yita0_of_r(std::sqrt(x*x+y*y+z*z));
+            const double jedge=jc(c.i,c.j,c.k,0)*edge.canonical_edge_vector[0]+
+                               jc(c.i,c.j,c.k,1)*edge.canonical_edge_vector[1]+
+                               jc(c.i,c.j,c.k,2)*edge.canonical_edge_vector[2];
+            return inver_Rem*eta*jedge;
+        };
+        singular_edges_->assemble_cell_field_to_local_owners(*fld_,fld_->descriptor(fid_Etarget.xi).name,contribution);
+        singular_edges_->assemble_cell_field_to_local_owners(*fld_,fld_->descriptor(fid_Etarget.eta).name,contribution);
+        singular_edges_->assemble_cell_field_to_local_owners(*fld_,fld_->descriptor(fid_Etarget.zeta).name,contribution);
+    }
 }
