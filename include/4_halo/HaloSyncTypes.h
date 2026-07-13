@@ -127,6 +127,11 @@ namespace HALO_SYNC
 
         std::vector<double> send_buffer;
         std::vector<double> recv_buffer;
+
+        // Pattern sizes are immutable after build.  The cross-rank length
+        // handshake is a construction-time invariant and only needs to pass
+        // once, not on every field synchronization.
+        bool mpi_lengths_validated = false;
     };
 
     struct CouplingPatternKey

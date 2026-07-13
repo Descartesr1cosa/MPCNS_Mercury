@@ -153,6 +153,13 @@ private:
 
     std::unordered_map<std::string, OwnerSyncPattern> owner_sync_patterns_;
 
+    // Reused by owner synchronization; MPI requests are overwritten on every
+    // call, while vector capacity remains available.
+    std::vector<MPI_Request> owner_recv_requests_;
+    std::vector<MPI_Request> owner_send_requests_;
+    std::vector<MPI_Status> owner_recv_statuses_;
+    std::vector<MPI_Status> owner_send_statuses_;
+
     int owner_sync_tag_base_ = 2100;
 
     // Sync registry helpers.

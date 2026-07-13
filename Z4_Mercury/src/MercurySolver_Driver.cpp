@@ -81,7 +81,10 @@ bool MercurySolver::StepOnce()
     // Add Boundary Condition And Prepare for Next Step
     {
         mercury_bound_.Sync("Ucell");
-        mercury_bound_.Sync("Bface");
+        // The implicit update already finishes with a full Bface sync.  Avoid
+        // immediately repeating the identical halo/owner exchange.
+        if (!resist_control.use_implicit_mercury_resistance)
+            mercury_bound_.Sync("Bface");
 
         UpdateDerivedFields_();
     }

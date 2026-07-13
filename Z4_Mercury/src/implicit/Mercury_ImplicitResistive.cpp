@@ -450,7 +450,7 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
     if (!implicit_resistive_ready_)
         SetupImplicitResistiveDiffusion_();
 
-    mercury_bound_.Sync("Bface");
+    // StepOnce() synchronizes Bface immediately before entering this solve.
     SnapshotImplicitResistiveBstar_(); // 把B_xi/eta/zeta存入resist_Bstar_xi_/eta/zeta
 
     // if (implicit_resistive_dofs_.empty())
@@ -522,7 +522,8 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
 
 void MercurySolver::ApplyImplicitResistiveUpdate_(double dt_step)
 {
-    mercury_bound_.Sync("Eres");
+    // UnpackVecToImplicitEres_() has just completed the full Eres sync and no
+    // Eres value changes between that call and this update.
 
     clear_triplet(fld_, fid_.fid_RHS_b_res);
     for (int ib = 0; ib < fld_->num_blocks(); ++ib)

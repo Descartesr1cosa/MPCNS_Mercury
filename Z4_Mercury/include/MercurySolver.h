@@ -178,6 +178,29 @@ private:
     std::vector<Scalar> local_arti_eta_xi_, local_arti_eta_eta_, local_arti_eta_ze_;
     bool local_arti_eta_ready_{false};
 
+    // Topology is immutable after solver setup.  Reuse the sorted shared-edge
+    // view and collective work arrays in every explicit/implicit alias
+    // reduction instead of rebuilding and allocating them in each RHS call.
+    bool edge_alias_reduce_cache_ready_{false};
+    std::vector<const TOPO::EquivClass *> edge_alias_reduce_classes_;
+    struct EdgeAliasReduceLocalTerm_
+    {
+        std::size_t class_index=0;
+        TOPO::EntityKey edge;
+        int orient_sign=1;
+    };
+    struct EdgeAliasReduceOwnerWrite_
+    {
+        std::size_t class_index=0;
+        TOPO::EntityKey edge;
+        int orient_sign=1;
+        double member_count=1.0;
+    };
+    std::vector<EdgeAliasReduceLocalTerm_> edge_alias_reduce_local_terms_;
+    std::vector<EdgeAliasReduceOwnerWrite_> edge_alias_reduce_owner_writes_;
+    std::vector<double> edge_alias_reduce_local_sum_;
+    std::vector<double> edge_alias_reduce_global_sum_;
+
     KSP implicit_resistive_ksp_{nullptr};
     Mat implicit_resistive_A_{nullptr};
     Vec implicit_resistive_x_{nullptr};

@@ -57,8 +57,30 @@ namespace
         int i = 0;
         int j = 0;
         int k = 0;
-        std::vector<double> value;
+        std::size_t value_offset = 0;
     };
+
+    struct PendingCopyScratch
+    {
+        std::vector<PendingCopy> ops;
+        std::vector<double> values;
+
+        void clear()
+        {
+            ops.clear();
+            values.clear();
+        }
+    };
+
+    PendingCopyScratch &pending_copy_scratch()
+    {
+        // Halo exchange is executed serially by each MPI rank.  Retaining
+        // capacity removes both the per-call arrays and the former per-point
+        // heap allocation without changing pack/apply ordering.
+        static thread_local PendingCopyScratch scratch;
+        scratch.clear();
+        return scratch;
+    }
 
     bool inside_field_block(const FieldBlock &fb, int i, int j, int k)
     {
@@ -73,7 +95,7 @@ namespace
                                            int recv_block,
                                            const HaloRegion &region,
                                            int ncomp,
-                                           std::vector<PendingCopy> &pending)
+                                           PendingCopyScratch &pending)
     {
         const Box3 &recv_box = region.recv_box;
 
@@ -91,10 +113,10 @@ namespace
                     op.i = i;
                     op.j = j;
                     op.k = k;
-                    op.value.resize(ncomp);
+                    op.value_offset = pending.values.size();
                     for (int m = 0; m < ncomp; ++m)
-                        op.value[m] = send(send_i, send_j, send_k, m);
-                    pending.push_back(std::move(op));
+                        pending.values.push_back(send(send_i, send_j, send_k, m));
+                    pending.ops.push_back(op);
                 }
     }
 
@@ -102,7 +124,7 @@ namespace
                                            int recv_block,
                                            const HaloRegion &region,
                                            int ncomp,
-                                           std::vector<PendingCopy> &pending)
+                                           PendingCopyScratch &pending)
     {
         const Box3 &recv_box = region.recv_box;
 
@@ -120,19 +142,19 @@ namespace
                     op.i = i;
                     op.j = j;
                     op.k = k;
-                    op.value.resize(ncomp);
+                    op.value_offset = pending.values.size();
                     for (int m = 0; m < ncomp; ++m)
-                        op.value[m] = send(send_i, send_j, send_k, m);
-                    pending.push_back(std::move(op));
+                        pending.values.push_back(send(send_i, send_j, send_k, m));
+                    pending.ops.push_back(op);
                 }
     }
 
     void apply_pending_copies(Field *field,
                               int fid,
                               int ncomp,
-                              const std::vector<PendingCopy> &pending)
+                              const PendingCopyScratch &pending)
     {
-        for (const PendingCopy &op : pending)
+        for (const PendingCopy &op : pending.ops)
         {
             if (op.recv_block < 0 || op.recv_block >= field->num_blocks())
                 continue;
@@ -141,7 +163,7 @@ namespace
                 !inside_field_block(recv, op.i, op.j, op.k))
                 continue;
             for (int m = 0; m < ncomp; ++m)
-                recv(op.i, op.j, op.k, m) = op.value[m];
+                recv(op.i, op.j, op.k, m) = pending.values[op.value_offset + m];
         }
     }
 }
@@ -158,7 +180,7 @@ void Halo::exchange_inner(const std::string &field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
-    std::vector<PendingCopy> pending;
+    PendingCopyScratch &pending = pending_copy_scratch();
 
     for (const HaloRegion &r : pat.regions)
     {
@@ -184,7 +206,7 @@ void Halo::exchange_inner_edge(const std::string &field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
-    std::vector<PendingCopy> pending;
+    PendingCopyScratch &pending = pending_copy_scratch();
 
     for (const HaloRegion &r : pat.regions)
     {
@@ -210,7 +232,7 @@ void Halo::exchange_inner_vertex(const std::string &field_name)
 
     const HaloPattern &pat = it->second;
     const int ncomp = desc.ncomp;
-    std::vector<PendingCopy> pending;
+    PendingCopyScratch &pending = pending_copy_scratch();
 
     for (const HaloRegion &r : pat.regions)
     {

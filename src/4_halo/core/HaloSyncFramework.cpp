@@ -750,44 +750,50 @@ void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
 {
     pack_owner_sync_send_buffer_(pat);
 
-    int nrank = 1;
-    PARALLEL::mpi_size(&nrank);
-    std::vector<int> send_lengths_by_rank(nrank, 0);
-    std::vector<int> recv_lengths_by_rank(nrank, 0);
-    std::vector<int> expected_recv_lengths_by_rank(nrank, 0);
-
-    for (const auto &op : pat.send_ops)
-        send_lengths_by_rank[op.dst_rank] += op.ncomp;
-    for (const auto &op : pat.recv_ops)
-        recv_lengths_by_rank[op.src_rank] += op.ncomp;
-
-    PARALLEL::mpi_alltoall(send_lengths_by_rank.data(), 1,
-                           expected_recv_lengths_by_rank.data(), 1);
-
-    for (int r = 0; r < nrank; ++r)
+    if(!pat.mpi_lengths_validated)
     {
-        if (recv_lengths_by_rank[r] != expected_recv_lengths_by_rank[r])
+        int nrank = 1;
+        PARALLEL::mpi_size(&nrank);
+        std::vector<int> send_lengths_by_rank(nrank, 0);
+        std::vector<int> recv_lengths_by_rank(nrank, 0);
+        std::vector<int> expected_recv_lengths_by_rank(nrank, 0);
+
+        for (const auto &op : pat.send_ops)
+            send_lengths_by_rank[op.dst_rank] += op.ncomp;
+        for (const auto &op : pat.recv_ops)
+            recv_lengths_by_rank[op.src_rank] += op.ncomp;
+
+        PARALLEL::mpi_alltoall(send_lengths_by_rank.data(), 1,
+                               expected_recv_lengths_by_rank.data(), 1);
+
+        for (int r = 0; r < nrank; ++r)
         {
-            int my_rank = 0;
-            PARALLEL::mpi_rank(&my_rank);
-            std::ostringstream oss;
-            oss << "[Halo] owner sync length mismatch field=" << pat.field_name
-                << " policy=" << owner_sync_policy_name(pat.policy)
-                << " rank=" << my_rank
-                << " peer_rank=" << r
-                << " posted_recv_len=" << recv_lengths_by_rank[r]
-                << " expected_from_peer_send_len=" << expected_recv_lengths_by_rank[r];
-            ERROR::Abort(oss.str());
+            if (recv_lengths_by_rank[r] != expected_recv_lengths_by_rank[r])
+            {
+                int my_rank = 0;
+                PARALLEL::mpi_rank(&my_rank);
+                std::ostringstream oss;
+                oss << "[Halo] owner sync length mismatch field=" << pat.field_name
+                    << " policy=" << owner_sync_policy_name(pat.policy)
+                    << " rank=" << my_rank
+                    << " peer_rank=" << r
+                    << " posted_recv_len=" << recv_lengths_by_rank[r]
+                    << " expected_from_peer_send_len=" << expected_recv_lengths_by_rank[r];
+                ERROR::Abort(oss.str());
+            }
         }
+        pat.mpi_lengths_validated=true;
     }
 
     if (pat.send_ops.empty() && pat.recv_ops.empty())
         return;
 
-    std::vector<MPI_Request> recv_requests;
-    std::vector<MPI_Request> send_requests;
-    std::vector<MPI_Status> recv_statuses;
-    std::vector<MPI_Status> send_statuses;
+    auto &recv_requests=owner_recv_requests_;
+    auto &send_requests=owner_send_requests_;
+    auto &recv_statuses=owner_recv_statuses_;
+    auto &send_statuses=owner_send_statuses_;
+    recv_requests.clear();
+    send_requests.clear();
 
     recv_requests.reserve(pat.recv_ops.size());
     send_requests.reserve(pat.send_ops.size());
