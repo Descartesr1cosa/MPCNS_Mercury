@@ -40,7 +40,16 @@ void MercurySolver::AddIdealEdgeEMF_()
                                  Jac, JDxi, JDet, JDze, Uplus);
     }
 
-    mercury_bound_.Sync("Eface");
+    // Eface is a block-local work tensor: the field location is a face 2-form
+    // axis, while its three stored components are covariant EMF components in
+    // that block's computational basis.  A face-triplet halo exchange can
+    // transform the outer face axis, but it cannot also transform those three
+    // inner components correctly.  In particular, copying the component index
+    // unchanged across a cubic-sphere panel seam corrupts the edge candidate.
+    //
+    // AssembleOneDirectionEMF_ therefore fills the one ghost layer consumed by
+    // AssembleEdgeEMF_FromFaceE_Ideal_ from the already-synchronised U/B fields
+    // and the receiver block's own metrics.  Do not exchange Eface itself.
 
     AssembleEdgeEMF_FromFaceE_Ideal_();
 }
@@ -540,6 +549,19 @@ void MercurySolver::AssembleOneDirectionEMF_(
 
     Int3 sub = E_face.inner_lo();
     Int3 sup = E_face.inner_hi();
+
+    // Edge assembly reads the two face candidates adjacent to an inner edge,
+    // hence it needs one locally evaluated Eface ghost layer.  The primary
+    // state and geometry fields carry a wider runtime halo (normally four), so
+    // this expansion leaves the flux stencil inside their allocated ranges.
+    const Int3 alloc_lo = E_face.get_lo();
+    const Int3 alloc_hi = E_face.get_hi();
+    sub.i = std::max(sub.i - 1, alloc_lo.i + 1);
+    sub.j = std::max(sub.j - 1, alloc_lo.j + 1);
+    sub.k = std::max(sub.k - 1, alloc_lo.k + 1);
+    sup.i = std::min(sup.i + 1, alloc_hi.i - 1);
+    sup.j = std::min(sup.j + 1, alloc_hi.j - 1);
+    sup.k = std::min(sup.k + 1, alloc_hi.k - 1);
 
     for (int i = sub.i; i < sup.i; ++i)
         for (int j = sub.j; j < sup.j; ++j)
