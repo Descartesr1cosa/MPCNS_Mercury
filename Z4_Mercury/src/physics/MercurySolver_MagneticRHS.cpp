@@ -181,6 +181,17 @@ void MercurySolver::AssembleRHS_Induction_CT_()
     AddAmbipolarEdgeEMF_();
     AddArtificialResistivityToEdgeEMF_();
     AddLocalArtificialResistivityToEdgeEMF_();
+
+    // A regular physical edge on a rotated block interface has one complete
+    // block-local UCT candidate per alias.  Those candidates use different
+    // computational bases and are not bitwise identical even when U, B and
+    // the interface geometry are conformal.  Owner-only synchronization would
+    // arbitrarily keep one panel's candidate and creates an antisymmetric seam
+    // forcing.  Reconcile all oriented alias candidates first, just as for
+    // Jedge.  Singular physical edges are overwritten immediately below from
+    // their variable incident-entity assembly, so they do not use this regular
+    // edge average.
+    ReduceEdgeAliasCandidatesToOwners_(fid_.fid_E);
     AssembleSingularEdgeEMF_NonHall_();
 
 #if HALL_EXPLICIT == 1
