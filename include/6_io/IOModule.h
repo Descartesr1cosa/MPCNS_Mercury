@@ -8,6 +8,7 @@
 #include "6_io/RunData.h"
 #include "6_io/RuntimeMonitor.h"
 #include "7_metric/SingularEdgeRegistry.h"
+#include "6_io/PostDataWriter.h"
 
 #include <string>
 #include <unordered_map>
@@ -89,6 +90,7 @@ public:
     //=========================================================================
     // 4) Run info / diagnostics
     RunData &Run() { return run_; }
+    const RunData &Run() const { return run_; }
     RuntimeMonitor &Runtime() { return runtime_; }
     // 所有进程读同一个文件
     void ReadRunDataFile();
@@ -100,6 +102,17 @@ public:
     // 5) Output Checkpoint protection and archive
     void BackupDataDirectory(const std::string &backup_dir = "./DATA_backup");
     void MaybeArchiveDataDirectory(int step, double time);
+
+    // 6) On-demand offline post-data export. No output occurs until one of
+    // these methods is called explicitly.
+    void SetPostDataContext(const TOPO::Topology *topology,
+                            const METRIC::SingularEdgeRegistry *singular_edges = nullptr)
+    {
+        post_topology_ = topology;
+        post_singular_edges_ = singular_edges;
+    }
+    void WritePostStaticData(const std::string &output_directory,
+                             POST::WriteOptions options = {}) const;
     //=========================================================================
 
 private:
@@ -236,4 +249,6 @@ private:
     Param *par_{};
     Grid *grd_{};
     Field *fld_{};
+    const TOPO::Topology *post_topology_ = nullptr;
+    const METRIC::SingularEdgeRegistry *post_singular_edges_ = nullptr;
 };

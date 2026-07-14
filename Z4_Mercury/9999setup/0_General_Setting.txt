@@ -4,6 +4,10 @@ double  max_Time                20.0
 int     output_step             1000
 int     output_residual         50
 double  Archive_Output_Time     0.5
+
+// Offline static post-data output.
+bool    post_static_output      1
+
 int     dimension               3
 
 // cubic-sphere panel coupling needs enough non-degenerate ghost layers for

@@ -41,6 +41,10 @@ public:
     static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
     static void RegisterHaloFields(Field *fld, Halo *halo);
 
+    // Explicit, opt-in post-processing export interface.
+    void WritePostStaticData(const std::string &output_directory,
+                             POST::WriteOptions options = {}) const;
+
     void Advance();
 
 private:
@@ -61,6 +65,12 @@ private:
     Mercury_Initial initial_;
     RunData *run_data_;
     RuntimeMonitor *runtime_data_;
+
+    // Optional post-data hooks. They are controlled by setup parameters and
+    // remain disabled when those parameters are absent.
+    bool post_static_output_enabled_{false};
+    std::string post_output_path_{"./DATA_bin"};
+    POST::WriteOptions post_write_options_;
 
     // --- cached field ids  ---
     SolverFields fid_;

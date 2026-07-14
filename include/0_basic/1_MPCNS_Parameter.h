@@ -71,6 +71,11 @@ private:
     std::map<std::string, List<double>> List_DouParam;
 
 public:
+    bool HasStr(const std::string &name) const { return StrParam.count(name) != 0; }
+    bool HasInt(const std::string &name) const { return IntParam.count(name) != 0; }
+    bool HasDou(const std::string &name) const { return DouParam.count(name) != 0; }
+    bool HasBoo(const std::string &name) const { return BooParam.count(name) != 0; }
+
     /**
      * @brief	更新参数，重载4次，分别对应四种参数
      * @param name_in 通过字符串索引参数，再对参数更新

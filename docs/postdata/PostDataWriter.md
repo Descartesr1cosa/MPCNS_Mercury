@@ -1,0 +1,77 @@
+# MPCNS offline post-data interface
+
+The exporter is opt-in and is connected to the Z4 solver lifecycle. It does
+not change the existing restart/Tecplot/VTK cadence.
+
+The normal CASE interface is:
+
+```text
+bool    post_static_output      1
+string  post_output_path        ./DATA_bin
+```
+
+`post_static_output` writes the static files once at the end of solver setup,
+after initialization, field synchronization, and reconstruction-weight setup.
+It defaults to disabled when absent, preserving older CASE files. There is no
+post-data call in the timestep/checkpoint output path.
+
+## Solver-facing API
+
+The following explicit API remains available for custom profiles or call sites:
+
+```cpp
+POST::WriteOptions options;
+options.constant_fields = {"Badd_xi", "Badd_eta", "Badd_zeta",
+                           "Na", "Photo_rate"};
+options.normalization = {
+    {"length_ref", L_ref},
+    {"time_ref", time_ref},
+    {"density_ref", density_ref},
+    {"velocity_ref", U_ref},
+    {"magnetic_field_ref", B_ref}
+};
+options.physical_constants = {{"gamma", gamma}};
+options.species = {"H", "Na"};
+
+solver.WritePostStaticData("./DATA_bin", options);
+```
+
+Lower-level users can call `IOModule::SetPostDataContext`,
+`IOModule::WritePostStaticData` directly, or construct
+`POST::PostDataWriter` over existing read-only objects.
+
+Dynamic data is not duplicated. `manifest.json` describes the existing
+`DATA/flow_fieldNNNN.bin` checkpoint format (`MPCNSRST`), including its header,
+field/block records, ghost-layer behavior, value loop order, field descriptors,
+and the relation to the block-local topology maps.
+
+## MPI and files
+
+Every rank writes `geometry_NNNN.bin`, `topology_NNNN.bin`,
+`reconstruction_NNNN.bin`, and `constant_field_NNNN.bin`. Rank 0 writes the
+single `manifest.json` after a barrier. A serial reader merges chunks by the
+global int64 IDs. No field or geometry gather is performed.
+
+Every binary file starts with the 80-byte `MPCNSBIN` v1 header. It is followed
+by 56-byte section headers and tightly packed little-endian payloads. Section
+headers contain name, scalar type, component count, item count, and byte count.
+
+Block-local map sections use the prefix `bRRRR_L`, where `RRRR` is the
+rank-local block index and `L` is the entity location number:
+
+| L | entity location |
+|---:|---|
+| 0 | Node |
+| 1 | Cell |
+| 2–4 | Edge Xi/Eta/Zeta |
+| 5–7 | Face Xi/Eta/Zeta |
+
+Each prefix has `_shape`, `_gid`, `_sign`, and `_owner` sections. Values are
+linearized with `i + ni * (j + nj * k)`.
+
+`Bcell_weights` already includes both the cell-outward sign and the local to
+global face-orientation sign. Consequently a reader only performs the CSR
+multiply-add against global owner-oriented face values.
+
+Long field names are represented by stable per-file section prefixes
+`field_NNNN`; `manifest.json` maps constant-field names to these prefixes.

@@ -43,6 +43,11 @@ public:
         return data(i, j, k, m);
     }
 
+    inline double operator()(int i, int j, int k, int m) const
+    {
+        return const_cast<Vector &>(data)(i, j, k, m);
+    }
+
     // 底层数据（如果某些老代码想直接操作数组也可以拿到）
     Vector &raw_data() { return data; }
 

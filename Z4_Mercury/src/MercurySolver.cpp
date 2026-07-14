@@ -41,6 +41,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         // for applications that need Tecplot's mixed variable locations.
         io_.SetTecplotOutputMode(IOModule::TecplotMode::AllNode);
         io_.SetTecplotSingularNodeContext(topo_, singular_edges_);
+        io_.SetPostDataContext(topo_equiv_, singular_edges_);
         std::vector<std::string> tec_block_name = {}; // 全部物理块输出
         io_.SetTecplotBlocks(tec_block_name);
 
@@ -191,9 +192,40 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     if (resist_control.is_Mercury_resistance)
         SetupImplicitResistiveDiffusion_();
 
+    // ---- Optional offline post-data output ----
+    // Missing keys deliberately mean disabled, preserving older CASE files.
+    post_static_output_enabled_ = par_->GetBoo("post_static_output");
+    post_output_path_ = "./DATA_bin";
+
+    post_write_options_.constant_fields = {
+        "Badd_xi", "Badd_eta", "Badd_zeta", "Photo_rate"};
+    post_write_options_.normalization = {
+        {"length_ref", L_ref},
+        {"time_ref", L_ref / U_ref},
+        {"density_ref", rho_ref},
+        {"velocity_ref", U_ref},
+        {"pressure_ref", rho_ref * U_ref * U_ref},
+        {"magnetic_field_ref", B_ref},
+        {"electric_field_ref", U_ref * B_ref},
+        {"current_density_ref", B_ref / (mu0 * L_ref)},
+        {"temperature_ref", T_ref}};
+    post_write_options_.physical_constants = {
+        {"gamma", gamma_}, {"mu0", mu0}, {"molar_mass_H", M_H}, {"molar_mass_Na", M_Na}, {"particle_mass_H", m_H}, {"particle_mass_Na", m_Na}};
+    post_write_options_.species = {"H", "Na"};
+    post_write_options_.existing_flow_fields = {
+        "U_H", "U_Na", "B_xi", "B_eta", "B_zeta"};
+
+    if (post_static_output_enabled_)
+        io_.WritePostStaticData(post_output_path_, post_write_options_);
 }
 
 MercurySolver::~MercurySolver()
 {
     DestroyImplicitResistiveDiffusion_();
+}
+
+void MercurySolver::WritePostStaticData(const std::string &output_directory,
+                                        POST::WriteOptions options) const
+{
+    io_.WritePostStaticData(output_directory, std::move(options));
 }
