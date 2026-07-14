@@ -92,7 +92,10 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
             // edge 1-form debug output
             "E_xi",
             "E_eta",
-            "E_zeta"};
+            "E_zeta",
+            "J_xi",
+            "J_eta",
+            "J_zeta"};
 
         io_.SetParaViewFields(vtk_name);
         io_.SetParaViewPath("./DATA/VTK");
@@ -147,6 +150,14 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     resist_control.is_Mercury_resistance = par_->GetBoo("is_Mercury_resistance");
     resist_control.use_implicit_mercury_resistance = par_->GetBoo("use_implicit_mercury_resistance");
     resist_control.n_subcycles = std::max(1, par_->GetInt("n_resistive_subcycles"));
+    resist_control.radial_inner = par_->GetDou("mercury_eta_r_inner");
+    resist_control.radial_outer = par_->GetDou("mercury_eta_r_outer");
+    resist_control.radial_width = par_->GetDou("mercury_eta_width");
+    if (!(resist_control.radial_width > 0.0) ||
+        !(resist_control.radial_outer > resist_control.radial_inner))
+        throw std::runtime_error(
+            "Mercury resistivity profile requires mercury_eta_width > 0 and "
+            "mercury_eta_r_outer > mercury_eta_r_inner.");
     resist_control.implicit_ksp_rtol = par_->GetDou("implicit_resistive_ksp_rtol");
     resist_control.implicit_ksp_atol = par_->GetDou("implicit_resistive_ksp_atol");
     resist_control.implicit_ksp_max_it = par_->GetInt("implicit_resistive_ksp_max_it");

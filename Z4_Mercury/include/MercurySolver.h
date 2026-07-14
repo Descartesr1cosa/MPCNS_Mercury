@@ -43,6 +43,9 @@ struct ResistiveEdgeEMFControl
     bool is_Mercury_resistance = false;
     bool use_implicit_mercury_resistance = false;
     int n_subcycles = 1;
+    double radial_inner = 0.84;
+    double radial_outer = 1.04;
+    double radial_width = 0.02;
 
     double implicit_ksp_rtol = 1.0e-8;
     double implicit_ksp_atol = 1.0e-12;
@@ -304,12 +307,15 @@ private:
     //---------------------------------------------------------------
     // For Magnetic
     void AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget);
+    double MercuryResistivityShape_(double radius) const;
     void AddArtificialResistivityToEdgeEMF_();
     void AddLocalArtificialResistivityToEdgeEMF_();
     void AddIdealEdgeEMF_();
     void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
     void Calc_J_Edge();
+    void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
+                                      const IdTriplet &fid_Jedge);
     void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);
 
     // 只更新 Bface: Bface += dt_sub * RHS_b

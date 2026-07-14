@@ -192,26 +192,9 @@ void MercurySolver::AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget)
 
     const int nb = fld_->num_blocks();
 
-    const double r_cut_in = 0.84;
-    const double r_cut_out = 1.04;
-    const double r0 = 0.84;
-    const double r1 = 1.04;
-    const double w = 0.02;
-
-    auto yita0_of_r = [&](double r) -> double
-    {
-        if (r <= r_cut_in || r >= r_cut_out)
-            return 0.0;
-        return 0.5 * (std::tanh((r - r0) / w) - std::tanh((r - r1) / w));
-    };
-
-    // ----  add resistive E on solid blocks: E += invRem8 * yita0_edge * J ----
+    // Add the radially windowed Mercury resistive EMF: E += invRem*yita0*J.
     for (int ib = 0; ib < nb; ++ib)
     {
-        Block &blk = fld_->grd->grids(ib);
-        // if (blk.block_name != "Solid")
-        //     continue;
-
         auto &Exi = fld_->field(fid_Etarget.xi, ib);
         auto &Eeta = fld_->field(fid_Etarget.eta, ib);
         auto &Eze = fld_->field(fid_Etarget.zeta, ib);
@@ -280,7 +263,7 @@ void MercurySolver::AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget)
                         const double zm = 0.5 * (z(i, j, k) + z(i + di, j + dj, k + dk));
                         const double r = std::sqrt(xm * xm + ym * ym + zm * zm);
 
-                        const double yita0 = yita0_of_r(r);
+                        const double yita0 = MercuryResistivityShape_(r);
                         if (yita0 == 0.0)
                             continue;
 
@@ -338,7 +321,7 @@ void MercurySolver::AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget)
             if(!jc.is_allocated()) return 0.0;
             auto &cx=grd_->grids(c.block).dual_x; auto &cy=grd_->grids(c.block).dual_y; auto &cz=grd_->grids(c.block).dual_z;
             const double x=cx(c.i+1,c.j+1,c.k+1), y=cy(c.i+1,c.j+1,c.k+1), z=cz(c.i+1,c.j+1,c.k+1);
-            const double eta=yita0_of_r(std::sqrt(x*x+y*y+z*z));
+            const double eta=MercuryResistivityShape_(std::sqrt(x*x+y*y+z*z));
             const double jedge=jc(c.i,c.j,c.k,0)*edge.canonical_edge_vector[0]+
                                jc(c.i,c.j,c.k,1)*edge.canonical_edge_vector[1]+
                                jc(c.i,c.j,c.k,2)*edge.canonical_edge_vector[2];

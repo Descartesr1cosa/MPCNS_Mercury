@@ -58,9 +58,14 @@ public:
     const SingularPhysicalEdge *find(int global_edge_id) const;
     using CellContribution = std::function<double(const SingularPhysicalEdge &,
                                                    const WeightedIncidentEntity &)>;
+    using FaceContribution = std::function<double(const SingularPhysicalEdge &,
+                                                   const WeightedIncidentEntity &)>;
     void assemble_cell_field_to_local_owners(Field &fields,
                                              const std::string &field_name,
                                              const CellContribution &contribution) const;
+    void assemble_face_triplet_to_local_owners(Field &fields,
+                                               const std::array<std::string,3> &field_names,
+                                               const FaceContribution &contribution) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 

@@ -214,17 +214,7 @@ double MercurySolver::ImplicitResistiveEtaAtEdge_(const TOPO::EntityKey &e) cons
     const double zm = 0.5 * (z(e.i, e.j, e.k) + z(e.i + di, e.j + dj, e.k + dk));
     const double r = std::sqrt(xm * xm + ym * ym + zm * zm);
 
-    constexpr double r_cut_in = 0.84;
-    constexpr double r_cut_out = 1.04;
-    constexpr double r0 = 0.84;
-    constexpr double r1 = 1.04;
-    constexpr double w = 0.02;
-
-    if (r <= r_cut_in || r >= r_cut_out)
-        return 0.0;
-
-    const double yita0 = 0.5 * (std::tanh((r - r0) / w) - std::tanh((r - r1) / w));
-    return inver_Rem * yita0;
+    return inver_Rem * MercuryResistivityShape_(r);
 }
 
 void MercurySolver::SnapshotImplicitResistiveBstar_()
@@ -354,6 +344,7 @@ void MercurySolver::CalcImplicitDeltaJedgeFromDeltaB_()
     }
 
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_dJ);
+    AssembleSingularEdgeCurrent_(fid_.fid_dB, fid_.fid_dJ);
     HALO_OWNER::sync_edge_1form(*fld_, fid_.fid_dJ, *edge_owner_pat_);
     mercury_bound_.Sync("dJ");
 }

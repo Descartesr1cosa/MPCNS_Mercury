@@ -308,4 +308,25 @@ void SingularEdgeRegistry::assemble_cell_field_to_local_owners(
         fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n];
     }
 }
+
+void SingularEdgeRegistry::assemble_face_triplet_to_local_owners(
+    Field &fields, const std::array<std::string,3> &field_names,
+    const FaceContribution &contribution) const
+{
+    if (entries_.empty()) return;
+    std::vector<double> lsum(entries_.size(),0.0), gsum(entries_.size(),0.0);
+    for (std::size_t n=0; n<entries_.size(); ++n)
+        for (const auto &f : entries_[n].local_incident_faces)
+            lsum[n] += contribution(entries_[n],f);
+    MPI_Allreduce(lsum.data(),gsum.data(),static_cast<int>(entries_.size()),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    for (std::size_t n=0; n<entries_.size(); ++n)
+    {
+        const auto &e=entries_[n];
+        if (e.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for (const auto &a:e.aliases) if (a.owner) { owner_sign=a.orientation; break; }
+        const int fid=fields.field_id(field_names[static_cast<int>(e.owner.axis)]);
+        fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n];
+    }
+}
 } // namespace METRIC

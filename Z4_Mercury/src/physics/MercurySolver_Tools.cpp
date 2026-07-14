@@ -47,6 +47,27 @@ void MercurySolver::calc_physical_constant(Param *par)
     ne_hall_floor_dimensional = ne_hall_floor * n_ref; // dimension
 }
 
+double MercurySolver::MercuryResistivityShape_(double radius) const
+{
+    const double r0 = resist_control.radial_inner;
+    const double r1 = resist_control.radial_outer;
+    const double width = resist_control.radial_width;
+
+    // Do not truncate at r0/r1: those are the tanh transition centers, where
+    // the window is approximately 1/2.  The previous hard cutoff therefore
+    // introduced two O(eta_max) coefficient jumps and circular current sheets.
+    const double shape = 0.5 *
+        (std::tanh((radius - r0) / width) -
+         std::tanh((radius - r1) / width));
+
+    // Keep the implicit unknown set compact, but truncate only in the
+    // numerically negligible tail rather than at the transition center.
+    constexpr double tail_floor = 1.0e-10;
+    if (!std::isfinite(shape) || shape <= tail_floor)
+        return 0.0;
+    return std::min(1.0, shape);
+}
+
 // void MercurySolver::Hall_Num_Limiter(double rhoH, double rhoNa, double *num)
 // {
 //     // const double nH_m = (rho_ref * rhoH) / m_H;    // #/m^3
@@ -969,6 +990,87 @@ void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge
     }
 }
 
+void MercurySolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
+                                                 const IdTriplet &fid_Jedge)
+{
+    if (!singular_edges_ || singular_edges_->empty()) return;
+
+    auto incidence_sign = [](const TOPO::EntityKey &edge,
+                             const TOPO::EntityKey &face) -> int
+    {
+        using TOPO::EntityAxis;
+        if (edge.rank != face.rank || edge.block != face.block)
+            return 0;
+
+        if (edge.axis == EntityAxis::Xi)
+        {
+            if (face.axis == EntityAxis::Eta && face.i == edge.i && face.j == edge.j)
+            {
+                if (face.k == edge.k - 1) return +1;
+                if (face.k == edge.k) return -1;
+            }
+            if (face.axis == EntityAxis::Zeta && face.i == edge.i && face.k == edge.k)
+            {
+                if (face.j == edge.j) return +1;
+                if (face.j == edge.j - 1) return -1;
+            }
+        }
+        else if (edge.axis == EntityAxis::Eta)
+        {
+            if (face.axis == EntityAxis::Xi && face.i == edge.i && face.j == edge.j)
+            {
+                if (face.k == edge.k) return +1;
+                if (face.k == edge.k - 1) return -1;
+            }
+            if (face.axis == EntityAxis::Zeta && face.j == edge.j && face.k == edge.k)
+            {
+                if (face.i == edge.i - 1) return +1;
+                if (face.i == edge.i) return -1;
+            }
+        }
+        else if (edge.axis == EntityAxis::Zeta)
+        {
+            if (face.axis == EntityAxis::Xi && face.i == edge.i && face.k == edge.k)
+            {
+                if (face.j == edge.j - 1) return +1;
+                if (face.j == edge.j) return -1;
+            }
+            if (face.axis == EntityAxis::Eta && face.j == edge.j && face.k == edge.k)
+            {
+                if (face.i == edge.i) return +1;
+                if (face.i == edge.i - 1) return -1;
+            }
+        }
+        return 0;
+    };
+
+    auto contribution = [&](const METRIC::SingularPhysicalEdge &edge,
+                            const METRIC::WeightedIncidentEntity &inc) -> double
+    {
+        const auto &face = inc.entity;
+        const int sign = incidence_sign(inc.source_alias, face);
+        if (sign == 0) return 0.0;
+
+        const int dir = static_cast<int>(face.axis) + 1;
+        FieldBlock &B = fld_->field(fid_Bface.at(dir), face.block);
+        FieldBlock &beta = fld_->field(fid_.Face_beta.at(dir), face.block);
+        if (!B.is_allocated() || !beta.is_allocated()) return 0.0;
+
+        // source_orientation maps the local positive edge direction to the
+        // canonical physical-edge direction.  local_incident_faces contains
+        // each quotient face exactly once, so this is a sum, not an average.
+        return edge.inverse_hodge * inc.source_orientation * sign *
+               beta(face.i, face.j, face.k, 0) * B(face.i, face.j, face.k, 0);
+    };
+
+    singular_edges_->assemble_face_triplet_to_local_owners(
+        *fld_,
+        {fld_->descriptor(fid_Jedge.xi).name,
+         fld_->descriptor(fid_Jedge.eta).name,
+         fld_->descriptor(fid_Jedge.zeta).name},
+        contribution);
+}
+
 void MercurySolver::Calc_J_Edge()
 {
     //  ComputeJ_AtEdges_Inner_();
@@ -1027,6 +1129,7 @@ void MercurySolver::Calc_J_Edge()
     }
 
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_J);
+    AssembleSingularEdgeCurrent_(fid_.fid_B, fid_.fid_J);
     mercury_bound_.Sync("Jedge"); // ApplyBC_EdgeJ_();
 }
 
