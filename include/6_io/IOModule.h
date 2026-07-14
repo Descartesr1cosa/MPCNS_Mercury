@@ -2,10 +2,12 @@
 
 #include "0_basic/MPI_WRAPPER.h"
 #include "1_grid/1_MPCNS_Grid.h"
+#include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
 #include "6_io/RunData.h"
 #include "6_io/RuntimeMonitor.h"
+#include "7_metric/SingularEdgeRegistry.h"
 
 #include <string>
 #include <unordered_map>
@@ -64,6 +66,13 @@ public:
     void SetTecplotBlock(const std::vector<std::string> &bn) { tec_block_ = bn; }
     void SetTecplotBlocks(const std::vector<std::string> &bn) { SetTecplotBlock(bn); }
     void SetTecplotFormReconstruction(TecplotFormReconstruction mode) { tec_form_reconstruction_ = mode; }
+    void SetTecplotSingularNodeContext(const TOPO::Topology *topology,
+                                       const METRIC::SingularEdgeRegistry *singular_edges)
+    {
+        tec_topology_ = topology;
+        tec_singular_edges_ = singular_edges;
+        tec_singular_stencil_ready_ = false;
+    }
     //=========================================================================
 
     //=========================================================================
@@ -153,6 +162,11 @@ private:
         bool form_is_face = false;
         std::string name;
     };
+    struct TecSingularNodeStencil
+    {
+        int node_gid = -1;
+        std::vector<TOPO::EntityKey> local_cells;
+    };
     std::vector<TecVar> BuildTecVars_() const; // Build variable list from Field descriptors
     TecplotMode NormalizedTecplotMode_() const;
     bool TecplotBlockSelected_(const std::string &block_name) const;
@@ -175,6 +189,21 @@ private:
     double EvalValue_CellAsNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, int k) const;
     double EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k) const;
+    void BuildTecplotSingularNodeStencils_();
+    void PrepareTecplotSingularNodeAverages_(const std::vector<TecVar> &vars);
+    bool EvalTecplotSingularNodeAverage_(const TecVar &tv,
+                                         int ib, int i, int j, int k,
+                                         double &value) const;
+    static std::uint64_t TecplotFieldComponentKey_(int fid, int comp);
+
+    const TOPO::Topology *tec_topology_ = nullptr;
+    const METRIC::SingularEdgeRegistry *tec_singular_edges_ = nullptr;
+    bool tec_singular_stencil_ready_ = false;
+    std::vector<TecSingularNodeStencil> tec_singular_node_stencils_;
+    std::unordered_map<TOPO::EntityKey, std::size_t, TOPO::EntityKey::Hash>
+        tec_singular_node_alias_to_stencil_;
+    std::unordered_map<std::uint64_t, std::vector<double>>
+        tec_singular_node_averages_;
     //=========================================================================
 
     //=========================================================================

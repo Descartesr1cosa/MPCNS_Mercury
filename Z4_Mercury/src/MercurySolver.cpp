@@ -34,7 +34,13 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         io_.ClearRestartFields();
         io_.SetRestartFields(bin_name);
 
-        io_.SetTecplotOutputMode(IOModule::TecplotMode::CellAndNode);
+        // Visualization output: write every variable at grid nodes.  Cell
+        // fields are averaged to nodes by IOModule using the synchronized
+        // ghost-cell stencil, so duplicated nodes on adjacent block zones see
+        // the same two-sided data.  CellAndNode remains available in IOModule
+        // for applications that need Tecplot's mixed variable locations.
+        io_.SetTecplotOutputMode(IOModule::TecplotMode::AllNode);
+        io_.SetTecplotSingularNodeContext(topo_, singular_edges_);
         std::vector<std::string> tec_block_name = {}; // 全部物理块输出
         io_.SetTecplotBlocks(tec_block_name);
 

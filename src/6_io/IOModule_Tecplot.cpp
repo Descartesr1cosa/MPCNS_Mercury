@@ -2,11 +2,14 @@
 #include "7_metric/Metric.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <set>
+#include <stdexcept>
 #include <unordered_set>
 
 void IOModule::TecWriteI32_(FILE *fp, int32_t v) { std::fwrite(&v, 4, 1, fp); }
@@ -354,27 +357,45 @@ double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, i
     if (d.location == StaggerLocation::Node)
         return fb(i, j, k, tv.comp);
 
-    // Cell -> Node 平均（相邻 cell: (i-1,i)*(j-1,j)*(k-1,k)，裁剪到有效 cell 范围）
+    // Singular nodes must be reconstructed from the quotient-mesh incident
+    // cells.  Their block-local ghost cells are degenerate aliases and are not
+    // trustworthy interpolation samples.
+    double singular_value = 0.0;
+    if (EvalTecplotSingularNodeAverage_(tv, ib, i, j, k, singular_value))
+        return singular_value;
+
+    // Cell -> Node volume-weighted average over the complete 2^dim cell
+    // stencil around the node.  |Jac| is the physical cell-volume weight.
+    // node.  At a block interface the cells on the other side are available
+    // through the synchronized ghost layers.  Using them here is essential:
+    // clipping to the block-interior range turns an interface-node value into
+    // two unrelated one-sided averages, one in each Tecplot zone, and creates
+    // an artificial jump even when the cell data are continuous.
     const Block &blk = grd_->grids(ib);
     const int dim = blk.dimension;
 
-    const int NiC = blk.mx;
-    const int NjC = blk.my;
-    const int NkC = (dim == 2) ? 1 : blk.mz;
+    const Int3 cell_lo = fb.get_lo();
+    const Int3 cell_hi = fb.get_hi();
+    FieldBlock &jac = fld_->field("Jac", ib);
 
-    double sum = 0.0;
-    int cnt = 0;
+    double weighted_sum = 0.0;
+    double weight_sum = 0.0;
 
     auto add_cell = [&](int ii, int jj, int kk)
     {
-        if (ii < 0 || ii >= NiC)
+        if (ii < cell_lo.i || ii >= cell_hi.i)
             return;
-        if (jj < 0 || jj >= NjC)
+        if (jj < cell_lo.j || jj >= cell_hi.j)
             return;
-        if (kk < 0 || kk >= NkC)
+        if (kk < cell_lo.k || kk >= cell_hi.k)
             return;
-        sum += fb(ii, jj, kk, tv.comp);
-        cnt += 1;
+        if (!jac.is_allocated())
+            return;
+        const double weight = std::abs(jac(ii, jj, kk, 0));
+        if (!std::isfinite(weight) || weight <= 0.0)
+            return;
+        weighted_sum += weight * fb(ii, jj, kk, tv.comp);
+        weight_sum += weight;
     };
 
     add_cell(i - 1, j - 1, k - 1);
@@ -392,15 +413,221 @@ double IOModule::EvalValue_CellToNode_(const TecVar &tv, int ib, int i, int j, i
     else
     {
         // 2D: k 固定 0
-        sum = 0.0;
-        cnt = 0;
+        weighted_sum = 0.0;
+        weight_sum = 0.0;
         add_cell(i - 1, j - 1, 0);
         add_cell(i, j - 1, 0);
         add_cell(i - 1, j, 0);
         add_cell(i, j, 0);
     }
 
-    return (cnt > 0) ? (sum / cnt) : 0.0;
+    return (weight_sum > 0.0) ? (weighted_sum / weight_sum) : 0.0;
+}
+
+std::uint64_t IOModule::TecplotFieldComponentKey_(int fid, int comp)
+{
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(fid)) << 32) |
+           static_cast<std::uint32_t>(comp);
+}
+
+void IOModule::BuildTecplotSingularNodeStencils_()
+{
+    tec_singular_node_stencils_.clear();
+    tec_singular_node_alias_to_stencil_.clear();
+    tec_singular_node_averages_.clear();
+
+    if (!tec_topology_ || !tec_singular_edges_ || tec_singular_edges_->empty())
+    {
+        tec_singular_stencil_ready_ = true;
+        return;
+    }
+
+    const auto &topology = *tec_topology_;
+
+    // Node classes are globally gathered.  Build a lookup for both local and
+    // remote aliases so endpoints of every singular-edge alias resolve to the
+    // same quotient-node id.
+    std::unordered_map<TOPO::EntityKey, int, TOPO::EntityKey::Hash> node_gid;
+    for (const auto &cls : topology.nodes.classes)
+    {
+        if (cls.global_id < 0)
+            continue;
+        node_gid[cls.owner.entity] = cls.global_id;
+        for (const auto &member : cls.members)
+            node_gid[member.entity] = cls.global_id;
+    }
+    for (const auto &[node, rep] : topology.nodes.local_to_rep)
+    {
+        const auto gid_it = topology.nodes.rep_to_qid.find(rep);
+        if (gid_it != topology.nodes.rep_to_qid.end())
+            node_gid[node] = gid_it->second;
+    }
+
+    std::set<int> singular_gids;
+    std::unordered_map<int,
+                       std::set<TOPO::EntityKey>,
+                       std::hash<int>> local_cells_by_gid;
+
+    for (const auto &edge : tec_singular_edges_->entries())
+    {
+        std::set<int> endpoint_gids;
+        for (const auto &alias : edge.aliases)
+        {
+            const auto endpoints = TOPO::endpoints(alias.edge);
+            for (const TOPO::EntityKey *endpoint : {&endpoints.first, &endpoints.second})
+            {
+                const auto gid_it = node_gid.find(*endpoint);
+                if (gid_it != node_gid.end())
+                    endpoint_gids.insert(gid_it->second);
+            }
+        }
+
+        if (endpoint_gids.size() != 2)
+        {
+            throw std::runtime_error(
+                "[IOModule][Tecplot] singular edge does not resolve to exactly two quotient nodes: gid=" +
+                std::to_string(edge.global_id));
+        }
+
+        for (const int gid : endpoint_gids)
+        {
+            singular_gids.insert(gid);
+            auto &cells = local_cells_by_gid[gid];
+            for (const auto &incident : edge.local_incident_cells)
+                cells.insert(incident.entity);
+        }
+    }
+
+    tec_singular_node_stencils_.reserve(singular_gids.size());
+    std::unordered_map<int, std::size_t> gid_to_stencil;
+    for (const int gid : singular_gids)
+    {
+        TecSingularNodeStencil stencil;
+        stencil.node_gid = gid;
+        const auto cells_it = local_cells_by_gid.find(gid);
+        if (cells_it != local_cells_by_gid.end())
+            stencil.local_cells.assign(cells_it->second.begin(), cells_it->second.end());
+        gid_to_stencil[gid] = tec_singular_node_stencils_.size();
+        tec_singular_node_stencils_.push_back(std::move(stencil));
+    }
+
+    // Every local Tecplot node alias points at the one physical-node stencil.
+    for (const auto &[node, rep] : topology.nodes.local_to_rep)
+    {
+        const auto gid_it = topology.nodes.rep_to_qid.find(rep);
+        if (gid_it == topology.nodes.rep_to_qid.end())
+            continue;
+        const auto stencil_it = gid_to_stencil.find(gid_it->second);
+        if (stencil_it != gid_to_stencil.end())
+            tec_singular_node_alias_to_stencil_[node] = stencil_it->second;
+    }
+
+    tec_singular_stencil_ready_ = true;
+}
+
+void IOModule::PrepareTecplotSingularNodeAverages_(const std::vector<TecVar> &vars)
+{
+    if (!tec_singular_stencil_ready_)
+        BuildTecplotSingularNodeStencils_();
+
+    tec_singular_node_averages_.clear();
+    const std::size_t nnode = tec_singular_node_stencils_.size();
+    if (nnode == 0)
+        return;
+
+    std::vector<std::uint64_t> keys;
+    std::unordered_set<std::uint64_t> seen;
+    for (const TecVar &tv : vars)
+    {
+        if (tv.kind != TecVar::Kind::Field || tv.fid < 0)
+            continue;
+        const auto &desc = fld_->descriptor(tv.fid);
+        if (desc.location != StaggerLocation::Cell)
+            continue;
+        const std::uint64_t key = TecplotFieldComponentKey_(tv.fid, tv.comp);
+        if (seen.insert(key).second)
+            keys.push_back(key);
+    }
+
+    const std::size_t nkey = keys.size();
+    if (nkey == 0)
+        return;
+
+    std::vector<double> local_sum(nkey * nnode, 0.0);
+    std::vector<double> global_sum(nkey * nnode, 0.0);
+    std::vector<double> local_weight(nkey * nnode, 0.0);
+    std::vector<double> global_weight(nkey * nnode, 0.0);
+
+    for (std::size_t q = 0; q < nkey; ++q)
+    {
+        const int fid = static_cast<int>(keys[q] >> 32);
+        const int comp = static_cast<int>(keys[q] & 0xffffffffu);
+        for (std::size_t n = 0; n < nnode; ++n)
+        {
+            const std::size_t out = q * nnode + n;
+            for (const TOPO::EntityKey &cell : tec_singular_node_stencils_[n].local_cells)
+            {
+                if (cell.rank != myid_ || cell.block < 0 || cell.block >= fld_->num_blocks())
+                    continue;
+                FieldBlock &fb = fld_->field(fid, cell.block);
+                if (!fb.is_allocated())
+                    continue;
+                FieldBlock &jac = fld_->field("Jac", cell.block);
+                if (!jac.is_allocated())
+                    continue;
+                const Int3 lo = fb.inner_lo();
+                const Int3 hi = fb.inner_hi();
+                if (cell.i < lo.i || cell.i >= hi.i ||
+                    cell.j < lo.j || cell.j >= hi.j ||
+                    cell.k < lo.k || cell.k >= hi.k)
+                    continue;
+                const double weight = std::abs(jac(cell.i, cell.j, cell.k, 0));
+                if (!std::isfinite(weight) || weight <= 0.0)
+                    continue;
+                local_sum[out] += weight * fb(cell.i, cell.j, cell.k, comp);
+                local_weight[out] += weight;
+            }
+        }
+    }
+
+    MPI_Allreduce(local_sum.data(), global_sum.data(),
+                  static_cast<int>(local_sum.size()), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(local_weight.data(), global_weight.data(),
+                  static_cast<int>(local_weight.size()), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+    for (std::size_t q = 0; q < nkey; ++q)
+    {
+        auto &average = tec_singular_node_averages_[keys[q]];
+        average.resize(nnode, 0.0);
+        for (std::size_t n = 0; n < nnode; ++n)
+        {
+            const std::size_t in = q * nnode + n;
+            if (global_weight[in] > 0.0)
+                average[n] = global_sum[in] / global_weight[in];
+        }
+    }
+}
+
+bool IOModule::EvalTecplotSingularNodeAverage_(const TecVar &tv,
+                                               int ib, int i, int j, int k,
+                                               double &value) const
+{
+    if (!tec_topology_ || tv.kind != TecVar::Kind::Field)
+        return false;
+
+    const TOPO::EntityKey node = TOPO::make_node(myid_, ib, i, j, k);
+    const auto stencil_it = tec_singular_node_alias_to_stencil_.find(node);
+    if (stencil_it == tec_singular_node_alias_to_stencil_.end())
+        return false;
+
+    const auto value_it = tec_singular_node_averages_.find(
+        TecplotFieldComponentKey_(tv.fid, tv.comp));
+    if (value_it == tec_singular_node_averages_.end() ||
+        stencil_it->second >= value_it->second.size())
+        return false;
+
+    value = value_it->second[stencil_it->second];
+    return true;
 }
 
 double IOModule::EvalValue_Mixed_(const TecVar &tv, int ib, int i, int j, int k) const
@@ -533,6 +760,8 @@ void IOModule::WriteTecplotBinFile(int step, double time)
 
     // -------- build variable list --------
     const std::vector<TecVar> vars = BuildTecVars_();
+    if (output_mode == TecplotMode::AllNode)
+        PrepareTecplotSingularNodeAverages_(vars);
 
     std::vector<std::string> var_names;
     std::vector<int32_t> var_locs;
