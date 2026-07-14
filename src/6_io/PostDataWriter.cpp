@@ -75,22 +75,53 @@ template <class T> std::span<const T> span(const std::vector<T> &v) { return {v.
 
 std::vector<EntityRow> owner_rows(const TOPO::Topology &t, EntityDim dim, int rank)
 {
-    std::vector<EntityRow> rows;
+    // Important: EdgeTopology::owner_to_gid/FaceTopology::owner_to_gid use a
+    // separate compact ID space for shared-owner synchronization. They are not
+    // quotient entity IDs and omit every ordinary unshared entity. Build the
+    // output view from local representatives and resolve IDs through id_of().
+    std::map<I64, EntityKey> unique;
     if (dim == EntityDim::Node) {
         for (const auto &[key, gid] : t.nodes.rep_to_qid)
-            if (key.rank == rank) rows.push_back({gid, key});
+            if (key.rank == rank) unique.emplace(gid, key);
     } else if (dim == EntityDim::Edge) {
-        for (const auto &[key, gid] : t.edges.gid_to_owner)
-            if (gid.rank == rank) rows.push_back({key, gid});
+        for (const auto &[key, qkey] : t.edges.local_to_qkey) {
+            (void)qkey;
+            if (key.rank == rank && t.is_owner(key))
+                unique.emplace(static_cast<I64>(t.id_of(key).id), key);
+        }
     } else if (dim == EntityDim::Face) {
-        for (const auto &[key, gid] : t.faces.gid_to_owner)
-            if (gid.rank == rank) rows.push_back({key, gid});
+        for (const auto &[key, qkey] : t.faces.local_to_qkey) {
+            (void)qkey;
+            if (key.rank == rank && t.is_owner(key))
+                unique.emplace(static_cast<I64>(t.id_of(key).id), key);
+        }
     } else {
         for (const auto &[key, gid] : t.cells.local_to_qid)
-            if (key.rank == rank) rows.push_back({gid, key});
+            if (key.rank == rank) unique.emplace(gid, key);
     }
-    std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) { return a.gid < b.gid; });
+    std::vector<EntityRow> rows; rows.reserve(unique.size());
+    for (const auto &[id, key] : unique) rows.push_back({id, key});
     return rows;
+}
+
+void validate_entity_partition(const std::vector<EntityRow> &local_rows,
+                               std::size_t global_count, const char *kind)
+{
+    if (global_count > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        throw std::overflow_error(std::string("PostData ") + kind + " count exceeds MPI int range");
+    std::vector<int> local(global_count, 0), global(global_count, 0);
+    for (const auto &row : local_rows) {
+        if (row.gid < 0 || static_cast<std::size_t>(row.gid) >= global_count)
+            throw std::runtime_error(std::string("PostData invalid local ") + kind + " output ID");
+        ++local[static_cast<std::size_t>(row.gid)];
+    }
+    MPI_Allreduce(local.data(), global.data(), static_cast<int>(global_count),
+                  MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    for (std::size_t id = 0; id < global.size(); ++id)
+        if (global[id] != 1)
+            throw std::runtime_error(std::string("PostData ") + kind + " quotient ID " +
+                                     std::to_string(id) + " has output multiplicity " +
+                                     std::to_string(global[id]) + " (expected exactly 1)");
 }
 
 std::array<double,3> point(const Grid &g, const EntityKey &n)
@@ -200,7 +231,9 @@ void write_geometry(const std::filesystem::path &path, const Grid &grid,
     w.WriteSection("face_area_vector",3,span(vectors));w.WriteSection("face_area",1,span(measures));w.WriteSection("face_flags",1,span(flags));
     ids.clear();centers.clear();measures.clear();flags.clear();
     for(const auto&r:cells){ids.push_back(r.gid);auto c=center(grid,r.key);centers.insert(centers.end(),c.begin(),c.end());
-        double v=fields.field("Jac",r.key.block)(r.key.i,r.key.j,r.key.k,0);measures.push_back(v);flags.push_back(1u);
+        double v=fields.field("Jac",r.key.block)(r.key.i,r.key.j,r.key.k,0);measures.push_back(v);
+        const std::string &physics=const_cast<Grid &>(grid).grids(r.key.block).block_name;
+        flags.push_back(physics=="Fluid" ? 1u : physics=="Solid" ? 2u : 4u);
         if(o.validate&&(!std::isfinite(v)||v<=0))throw std::runtime_error("PostData cell volume validation failed");}
     w.WriteSection("cell_global_id",1,span(ids));w.WriteSection("cell_center_xyz",3,span(centers));
     w.WriteSection("cell_volume",1,span(measures));w.WriteSection("cell_flags",1,span(flags));w.Close();
@@ -236,6 +269,7 @@ void write_topology(const std::filesystem::path &path,const Grid&grid,const TOPO
         for(int k=0;k<sh.k;++k)for(int j=0;j<sh.j;++j)for(int i=0;i<sh.i;++i){EntityKey e=d==EntityDim::Node?TOPO::make_node(rank,ib,i,j,k):d==EntityDim::Cell?TOPO::make_cell(rank,ib,i,j,k):d==EntityDim::Edge?TOPO::make_edge(rank,ib,i,j,k,a):TOPO::make_face(rank,ib,i,j,k,a);map.push_back(gid(t,e));signs.push_back(t.sign_to_owner(e));owners.push_back(t.is_owner(e)?1:0);}
         std::ostringstream base;base<<'b'<<std::setw(4)<<std::setfill('0')<<ib<<'_'<<ld;std::vector<I64> shape{ib,ld,sh.i,sh.j,sh.k};
         w.WriteSection(base.str()+"_shape",5,span(shape));w.WriteSection(base.str()+"_gid",1,span(map));w.WriteSection(base.str()+"_sign",1,span(signs));w.WriteSection(base.str()+"_owner",1,span(owners));}}
+    std::vector<I64> block_meta;for(int ib=0;ib<grid.nblock;++ib){const std::string&physics=const_cast<Grid &>(grid).grids(ib).block_name;const I64 code=physics=="Fluid"?1:physics=="Solid"?2:0;block_meta.insert(block_meta.end(),{rank,ib,code});}w.WriteSection("block_metadata",3,span(block_meta));
     std::vector<I64> conn;auto add_patch=[&](const TOPO::InterfacePatch&p){conn.insert(conn.end(),{p.this_block,p.nb_block,p.direction,p.nb_direction,p.trans.perm[0],p.trans.perm[1],p.trans.perm[2],p.trans.sign[0],p.trans.sign[1],p.trans.sign[2],p.trans.offset.i,p.trans.offset.j,p.trans.offset.k,p.this_rank,p.nb_rank});};
     for(const auto&p:t.inner_patches)if(p.this_rank==rank)add_patch(p);for(const auto&p:t.parallel_patches)if(p.this_rank==rank)add_patch(p);
     w.WriteSection("block_connections",15,span(conn));w.Close();
@@ -304,8 +338,11 @@ void write_manifest(const std::filesystem::path&dir,const Grid&grid,const Field&
        "    \"value_loop_order\": \"i, j, k, component (component fastest)\",\n"
        "    \"block_index_scope\": \"rank-local; use topology chunk block maps for global entities\",\n"
        "    \"oriented_field_rule\": \"global_owner_value = local_value / local_orientation_sign\",\n"
+       "    \"inactive_semantics\": \"a field is intentionally inactive when its descriptor physics does not match the block physics; do not treat that as missing data for that domain\",\n"
        "    \"fields\": [";
-    first_item=true;for(const auto&name:o.existing_flow_fields){if(!fields.has_field(name))continue;const auto&d=fields.descriptor(name);if(!first_item)f<<',';first_item=false;f<<"{\"name\":\""<<json_escape(name)<<"\",\"location\":\""<<location_name(d.location)<<"\",\"location_code\":"<<restart_location_code(d.location)<<",\"components\":"<<d.ncomp<<",\"nghost\":"<<d.nghost<<",\"value_kind\":\""<<field_value_kind_name(d.value_kind)<<"\"}";}f<<"]\n  },\n"
+    first_item=true;for(const auto&name:o.existing_flow_fields){if(!fields.has_field(name))continue;const auto&d=fields.descriptor(name);if(!first_item)f<<',';first_item=false;f<<"{\"name\":\""<<json_escape(name)<<"\",\"location\":\""<<location_name(d.location)<<"\",\"location_code\":"<<restart_location_code(d.location)<<",\"components\":"<<d.ncomp<<",\"nghost\":"<<d.nghost<<",\"value_kind\":\""<<field_value_kind_name(d.value_kind)<<"\",\"physics_domain\":\""<<json_escape(d.physics.empty()?"all":d.physics)<<"\"}";}f<<"]\n  },\n"
+       "  \"block_physics_codes\": {\"0\":\"unknown\",\"1\":\"Fluid\",\"2\":\"Solid\"},\n"
+       "  \"cell_flag_bits\": {\"fluid\":1,\"solid\":2,\"unknown_physics\":4},\n"
        "  \"operators\": [{\"name\":\"B_face_to_cell_cartesian\",\"input_location\":\"face\",\"input_value_kind\":\"face_2form\",\"input_components\":1,\"output_location\":\"cell\",\"output_value_kind\":\"cartesian_vector\",\"output_components\":3,\"operator_version\":1},{\"name\":\"cell_scalar_to_node\",\"operator_version\":1}],\n  \"fields\": [";
     bool first=true;int index=0;for(const auto&name:o.constant_fields){if(!fields.has_field(name))continue;const auto&d=fields.descriptor(name);if(!first)f<<',';first=false;std::ostringstream key;key<<"field_"<<std::setw(4)<<std::setfill('0')<<index++;f<<"{\"name\":\""<<json_escape(name)<<"\",\"location\":\""<<location_name(d.location)<<"\",\"components\":"<<d.ncomp<<",\"section_prefix\":\""<<key.str()<<"\"}";}f<<"]\n}\n";
     if(!f)throw std::runtime_error("manifest.json write failed");
@@ -318,6 +355,7 @@ PostDataWriter::PostDataWriter(const Grid&g,const TOPO::Topology&t,const Field&f
 void PostDataWriter::WriteStaticData(const std::filesystem::path&dir,WriteOptions options) const
 {
     options=normalize_options(topology_,std::move(options));if(options.validate)validate_global_ids_and_orientation(topology_);std::filesystem::create_directories(dir);
+    if(options.validate){validate_entity_partition(owner_rows(topology_,EntityDim::Node,rank_),node_count(topology_),"node");validate_entity_partition(owner_rows(topology_,EntityDim::Edge,rank_),edge_count(topology_),"edge");validate_entity_partition(owner_rows(topology_,EntityDim::Face,rank_),face_count(topology_),"face");validate_entity_partition(owner_rows(topology_,EntityDim::Cell,rank_),cell_count(topology_),"cell");}
     write_geometry(dir/chunk_name("geometry",rank_),grid_,topology_,fields_,singular_edges_,rank_,options);
     write_topology(dir/chunk_name("topology",rank_),grid_,topology_,rank_,options);
     write_reconstruction(dir/chunk_name("reconstruction",rank_),grid_,topology_,fields_,rank_,options);

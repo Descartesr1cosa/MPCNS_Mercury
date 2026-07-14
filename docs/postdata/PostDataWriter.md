@@ -69,6 +69,18 @@ rank-local block index and `L` is the entity location number:
 Each prefix has `_shape`, `_gid`, `_sign`, and `_owner` sections. Values are
 linearized with `i + ni * (j + nj * k)`.
 
+Each topology chunk also has `block_metadata[rank, local_block, physics_code]`.
+Physics codes and Cell flag bits are declared in `manifest.json`. Fluid fields
+such as `U_H` and `U_Na` are intentionally inactive on Solid blocks; readers
+must use the physics domain/Cell flags rather than treating those records as
+missing Fluid state.
+
+Edge and Face output IDs always come from the complete quotient ID maps
+(`qkey_to_qid`). The compact owner-sync ID tables are a separate internal ID
+space and are never serialized as entity IDs. With validation enabled, output
+performs an MPI multiplicity check requiring every quotient Node/Edge/Face/Cell
+ID to be emitted exactly once.
+
 `Bcell_weights` already includes both the cell-outward sign and the local to
 global face-orientation sign. Consequently a reader only performs the CSR
 multiply-add against global owner-oriented face values.
