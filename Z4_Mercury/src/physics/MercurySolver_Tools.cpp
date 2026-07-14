@@ -1073,9 +1073,10 @@ void MercurySolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
 
 void MercurySolver::Calc_J_Edge()
 {
-    //  ComputeJ_AtEdges_Inner_();
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
+        // B_xi/B_eta/B_zeta are the Bind face-flux DOFs.  Badd is prescribed
+        // analytically and must not contribute to the solved current.
         auto &Bxi = fld_->field(fid_.fid_B.xi, iblk);
         auto &Beta = fld_->field(fid_.fid_B.eta, iblk);
         auto &Bzeta = fld_->field(fid_.fid_B.zeta, iblk);

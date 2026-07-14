@@ -671,16 +671,6 @@ void MercuryBoundary::InstallDefaultGroups()
     gUplus.halo_level = HaloLevel::Corner3D;
     AddGroup(gUplus);
 
-    BoundGroup gdE;
-    gdE.name = "dE";
-    gdE.fields = {"dE_xi", "dE_eta", "dE_zeta"};
-    gdE.do_coupling = true;
-    gdE.do_physical = true;
-    gdE.do_halo = true;
-    gdE.halo_level = HaloLevel::Corner3D;
-    gdE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdE);
-
     BoundGroup gdB;
     gdB.name = "dB";
     gdB.fields = {"dB_xi", "dB_eta", "dB_zeta"};
@@ -700,16 +690,6 @@ void MercuryBoundary::InstallDefaultGroups()
     gdJ.halo_level = HaloLevel::Corner3D;
     gdJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
     AddGroup(gdJ);
-
-    BoundGroup gdJcell;
-    gdJcell.name = "dJcell";
-    gdJcell.fields = {"dJ_cell"};
-    gdJcell.do_coupling = true;
-    gdJcell.do_physical = true;
-    gdJcell.do_halo = true;
-    gdJcell.halo_level = HaloLevel::Corner3D;
-    gdJcell.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdJcell);
 
     BoundGroup gBadd;
     gBadd.name = "Badd";

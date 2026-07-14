@@ -22,12 +22,6 @@ bool MercurySolver::StepOnce()
 {
     Compute_Timestep();
 
-#if HALL_IMPLICIT == 1
-    double Emag0 = 0.0;
-    if (control_.if_outres)
-        Emag0 = ComputeMagEnergy_Cell_();
-#endif
-
     ZeroRHS_();
 
     // Conservative Euler update: fluid RHS plus CT induction RHS.
@@ -37,39 +31,11 @@ bool MercurySolver::StepOnce()
     ApplyUpdate_Euler_();
 
     // Mercury internal resistive correction acts only on B_face.
-    if (resist_control.use_implicit_mercury_resistance)
+    if (resist_control.is_Mercury_resistance)
     {
         mercury_bound_.Sync("Bface");
         SolveImplicitResistiveDiffusion_(dt);
     }
-    else
-    {
-        ResistiveDiffusionSubcycles_();
-    }
-
-#if HALL_IMPLICIT == 1
-    // Implicit Hall substep also updates B_face only.
-    hall_implicit_.SolveOneStep(dt, control_.if_outres);
-    calc_Bcell();
-
-    if (control_.if_outres)
-    {
-        const double Emag1 = ComputeMagEnergy_Cell_();
-        if (par_->GetInt("myid") == 0)
-        {
-            const double dE = Emag1 - Emag0;
-            const double rel = dE / std::max(std::abs(Emag0), 1e-300);
-            std::cout << "[HallOnlyEnergy] dt=" << dt
-                      << " Emag0=" << Emag0
-                      << " Emag1=" << Emag1
-                      << " dE=" << dE
-                      << " rel=" << rel
-                      << std::endl
-                      << std::endl
-                      << std::endl;
-        }
-    }
-#endif
 
     // Record and Update Runtime DATA
     {
@@ -83,7 +49,7 @@ bool MercurySolver::StepOnce()
         mercury_bound_.Sync("Ucell");
         // The implicit update already finishes with a full Bface sync.  Avoid
         // immediately repeating the identical halo/owner exchange.
-        if (!resist_control.use_implicit_mercury_resistance)
+        if (!resist_control.is_Mercury_resistance)
             mercury_bound_.Sync("Bface");
 
         UpdateDerivedFields_();

@@ -72,10 +72,7 @@ struct SolverFields
     // IdTriplet fid_RHShall_Bface; // RHShall_xi/eta/zeta
 
     IdTriplet fid_dJ;
-    IdTriplet fid_dE;
     IdTriplet fid_dB;
-    IdTriplet fid_dEpre;
-    int fid_dJcell;
 
     void Init(Field *fld_in)
     {
@@ -201,13 +198,6 @@ struct SolverFields
         fid_dB.xi = fld->field_id("dB_xi");
         fid_dB.eta = fld->field_id("dB_eta");
         fid_dB.zeta = fld->field_id("dB_zeta");
-        fid_dE.xi = fld->field_id("dE_xi");
-        fid_dE.eta = fld->field_id("dE_eta");
-        fid_dE.zeta = fld->field_id("dE_zeta");
-        fid_dEpre.xi = fld->field_id("dEpre_xi");
-        fid_dEpre.eta = fld->field_id("dEpre_eta");
-        fid_dEpre.zeta = fld->field_id("dEpre_zeta");
-        fid_dJcell = fld->field_id("dJ_cell");
 
         // -------- Check --------
         Validate();
@@ -287,8 +277,5 @@ struct SolverFields
         // fid_RHS_Bface.require_all("RHS_B_face(RHS_xi/eta/zeta)");
         fid_dJ.require_all("dJ_xi/dJ_eta/dJ_zeta");
         fid_dB.require_all("dB_xi/dB_eta/dB_zeta");
-        fid_dE.require_all("dE_xi/dE_eta/dE_zeta");
-        fid_dEpre.require_all("dEpre_xi/dEpre_eta/dEpre_zeta");
-        require_id(fid_dJcell, "dJ_cell");
     }
 };

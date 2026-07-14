@@ -10,8 +10,6 @@ LIST==================================================================
 
 // Mercury interior resistivity
 bool    is_Mercury_resistance           1
-bool    use_implicit_mercury_resistance 1
-int     n_resistive_subcycles           1
 // Smooth double-tanh resistivity window. r_inner/r_outer are transition
 // centers, not hard cutoffs; width should span several radial cells.
 double  mercury_eta_r_inner             0.84
@@ -19,7 +17,7 @@ double  mercury_eta_r_outer             1.04
 double  mercury_eta_width               0.02
 double  implicit_resistive_ksp_rtol     5.0e-3
 double  implicit_resistive_ksp_atol     1.0e-8
-int     implicit_resistive_ksp_max_it   20
+int     implicit_resistive_ksp_max_it   200
 
 bool    is_Ambipolar_Efield             1
 double  r_min                           1.1

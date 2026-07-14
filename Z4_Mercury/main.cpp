@@ -18,9 +18,6 @@
 #include "MercuryCase.h"
 #include "MercuryGridValidation.h"
 
-#if HALL_IMPLICIT == 1
-// #include "4_solver/ImplicitHall_Solver.h"
-#endif
 //==============================================================================
 
 //==============================================================================

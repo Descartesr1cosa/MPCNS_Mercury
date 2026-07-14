@@ -50,7 +50,7 @@ aux_source_directory(./src/physics  SRC_PHY)
 # aux_source_directory(./src/3_io  SRC2)
 # aux_source_directory(./src/4_solver  SRC3)
 aux_source_directory(./src/tools  SRC_TOOL)
-aux_source_directory(./src/implicit  SRC_IMP)
+set(SRC_IMP ./src/implicit/Mercury_ImplicitResistive.cpp)
 set(SRC_SETUP ./src/MercurySolver_Setup.cpp)
 
 # build the executable program

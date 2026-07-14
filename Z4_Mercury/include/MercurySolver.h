@@ -8,14 +8,16 @@
 #include "2_Initial.h"
 #include "3_Control.h"
 #include "4_halo/HaloEdgeOwner.h"
-#include "4_Hall_Implicit_Type.h"
+#include "3_field/FieldArray.h"
 #include "7_metric/SingularEdgeRegistry.h"
 
 #include <petscksp.h>
 
-#if HALL_IMPLICIT == 1
-#include "4_Hall_Implicit.h"
-#endif
+struct HallFaceScratchBlock_
+{
+    Vector Ehc;
+    Scalar beta;
+};
 
 struct NumInfo
 {
@@ -41,8 +43,6 @@ struct NumInfo
 struct ResistiveEdgeEMFControl
 {
     bool is_Mercury_resistance = false;
-    bool use_implicit_mercury_resistance = false;
-    int n_subcycles = 1;
     double radial_inner = 0.84;
     double radial_outer = 1.04;
     double radial_width = 0.02;
@@ -107,9 +107,6 @@ private:
     TOPO::Topology *topo_equiv_{nullptr};
     HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat_{nullptr};
     METRIC::SingularEdgeRegistry *singular_edges_{nullptr};
-#if HALL_IMPLICIT == 1
-    ImplicitHallSolver hall_implicit_;
-#endif
     // --- components ---
     Control control_;
     MercuryBoundary mercury_bound_;
@@ -211,66 +208,7 @@ private:
 
     std::vector<HallFaceScratchBlock_> hall_face_scratch_;
     void SetupHallFaceScratch_();
-
-#if HALL_IMPLICIT == 1
-
-    void FillFrozenBflatFromCurrentBcell_()
-    {
-        const int nb = fld_->num_blocks();
-
-        for (int ib = 0; ib < nb; ++ib)
-        {
-            auto &Bc = fld_->field(fid_.fid_Bcell, ib);
-            if (!Bc.is_allocated())
-                continue;
-
-            auto &buf = hall_face_scratch_[ib];
-            const Int3 clo = buf.clo;
-            const Int3 chi = buf.chi;
-
-            for (int i = clo.i; i < chi.i; ++i)
-                for (int j = clo.j; j < chi.j; ++j)
-                    for (int k = clo.k; k < chi.k; ++k)
-                    {
-                        buf.Bflat(i, j, k, 0) = Bc(i, j, k, 0);
-                        buf.Bflat(i, j, k, 1) = Bc(i, j, k, 1);
-                        buf.Bflat(i, j, k, 2) = Bc(i, j, k, 2);
-                    }
-        }
-    }
-    void FillFrozenAlphaFlatCell_()
-    {
-        constexpr double eps = 1e-14;
-        const int nb = fld_->num_blocks();
-
-        for (int ib = 0; ib < nb; ++ib)
-        {
-            auto &UH = fld_->field(fid_.fid_U_H, ib);
-            auto &UNa = fld_->field(fid_.fid_U_Na, ib);
-
-            if (!UH.is_allocated() || !UNa.is_allocated())
-                continue;
-
-            auto &buf = hall_face_scratch_[ib];
-            const Int3 clo = buf.clo;
-            const Int3 chi = buf.chi;
-
-            for (int i = clo.i; i < chi.i; ++i)
-                for (int j = clo.j; j < chi.j; ++j)
-                    for (int k = clo.k; k < chi.k; ++k)
-                    {
-                        // double num[3];
-                        // Hall_Num_Limiter(UH(i, j, k, 0), UNa(i, j, k, 0), num);
-                        // const double ne = std::max(num[2], eps);
-
-                        NumInfo num = Hall_Num_Limiter(UH(i, j, k, 0), UNa(i, j, k, 0));
-                        const double ne = num.ne_eff;
-
-                        buf.alpha_flat(i, j, k) = hall_coef / ne;
-                    }
-        }
-    }
-#endif
+    void SetupCellReconstructionWeights_();
 
 private:
     //=========================================================================
@@ -306,7 +244,6 @@ private:
     void AddSourceToRHS_Fluid();
     //---------------------------------------------------------------
     // For Magnetic
-    void AddResistiveEdgeEMF_To_(const IdTriplet &fid_Etarget);
     double MercuryResistivityShape_(double radius) const;
     void AddArtificialResistivityToEdgeEMF_();
     void AddLocalArtificialResistivityToEdgeEMF_();
@@ -320,7 +257,6 @@ private:
 
     // 只更新 Bface: Bface += dt_sub * RHS_b
     void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);
-    void ResistiveDiffusionSubcycles_();
 
     void SetupImplicitResistiveDiffusion_();
     void DestroyImplicitResistiveDiffusion_();

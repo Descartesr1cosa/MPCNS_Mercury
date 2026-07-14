@@ -103,8 +103,7 @@ void MercuryBoundary::Sync_(const BoundGroup &g)
     if (g.do_halo &&
         (g.name == "Bface" || g.name == "Badd" || g.name == "dB" ||
          g.name == "Eedge" || g.name == "Ehall" || g.name == "Eres" ||
-         g.name == "Jedge" || g.name == "dE" || g.name == "dJ" ||
-         g.name == "dEpre"))
+         g.name == "Jedge" || g.name == "dJ"))
     {
         halo_->sync_owner_alias_group(g.name);
     }

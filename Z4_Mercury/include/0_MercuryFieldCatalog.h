@@ -179,16 +179,7 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"RHS_Bres_zeta", StaggerLocation::FaceZe, 1, 0, ""},
         {"divB", StaggerLocation::Cell, 1, 1, ""},
 
-        // Hall implicit increment and predictor fields.
-        {"dE_xi", StaggerLocation::EdgeXi, 1, UseRuntimeGhost, "",
-         SyncContract("dE", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
-        {"dE_eta", StaggerLocation::EdgeEt, 1, UseRuntimeGhost, "",
-         SyncContract("dE", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
-        {"dE_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
-         SyncContract("dE", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
+        // Increment fields used by the implicit physical-resistivity solve.
         {"dB_xi", StaggerLocation::FaceXi, 1, UseRuntimeGhost, "",
          SyncContract("dB", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::FaceOwner, true),
          FieldValueKind::FaceContravariant2Form},
@@ -206,18 +197,6 @@ inline std::vector<FieldSpec> FieldSpecs()
          FieldValueKind::EdgeCovariant1Form},
         {"dJ_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
          SyncContract("dJ", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
-        {"dJ_cell", StaggerLocation::Cell, 3, UseRuntimeGhost, "",
-         SyncContract("dJcell", true, true, true),
-         FieldValueKind::CartesianVector},
-        {"dEpre_xi", StaggerLocation::EdgeXi, 1, UseRuntimeGhost, "",
-         SyncContract("dEpre", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
-        {"dEpre_eta", StaggerLocation::EdgeEt, 1, UseRuntimeGhost, "",
-         SyncContract("dEpre", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
-         FieldValueKind::EdgeCovariant1Form},
-        {"dEpre_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
-         SyncContract("dEpre", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
          FieldValueKind::EdgeCovariant1Form},
     };
 }
