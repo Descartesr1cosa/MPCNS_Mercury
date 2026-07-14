@@ -170,7 +170,42 @@ void MercurySolver::BuildImplicitResistiveEdgeDofMap_()
     resist_owner_edges_sorted_.clear(); // 本进程的Edge自由度
     implicit_resistive_dofs_.clear();   // Edge自由度+Edge的扩散系数eta，且要求eta>0.0
 
-    HALO_OWNER::gather_local_owner_edges_sorted(*topo_equiv_, resist_owner_edges_sorted_);
+    // The topology owner table contains only shared equivalence classes.  It
+    // deliberately omits ordinary singleton edges inside a block, so using
+    // gather_local_owner_edges_sorted() here made the resistive operator act
+    // only on block/interface edge columns.  Every physical edge is an
+    // implicit unknown: for a shared class keep its unique owner; for an
+    // unshared singleton the local edge is already its own owner.
+    int my_rank = 0;
+    PARALLEL::mpi_rank(&my_rank);
+    const TOPO::EntityAxis axes[3] = {
+        TOPO::EntityAxis::Xi, TOPO::EntityAxis::Eta, TOPO::EntityAxis::Zeta};
+    const int edge_fids[3] = {
+        fid_.fid_Eres.xi, fid_.fid_Eres.eta, fid_.fid_Eres.zeta};
+
+    for (int ib = 0; ib < fld_->num_blocks(); ++ib)
+    {
+        for (int q = 0; q < 3; ++q)
+        {
+            auto &E = fld_->field(edge_fids[q], ib);
+            if (!E.is_allocated())
+                continue;
+            const Int3 lo = E.inner_lo();
+            const Int3 hi = E.inner_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const auto e = TOPO::make_edge(my_rank, ib, i, j, k, axes[q]);
+                        const auto shared = topo_equiv_->edges.local_is_owner.find(e);
+                        if (shared != topo_equiv_->edges.local_is_owner.end() && !shared->second)
+                            continue;
+                        resist_owner_edges_sorted_.push_back(e);
+                    }
+        }
+    }
+
+    std::sort(resist_owner_edges_sorted_.begin(), resist_owner_edges_sorted_.end());
 
     for (const auto &e : resist_owner_edges_sorted_)
     {

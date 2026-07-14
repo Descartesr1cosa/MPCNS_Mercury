@@ -37,6 +37,14 @@ void MercurySolver::PrintMinMaxDiagnostics_()
     double divb_max_l = -std::numeric_limits<double>::infinity();
 
     const int nblock = fld_->num_blocks();
+    // Per-block shell statistics expose panel/coupling failures that disappear
+    // in a global radial average.  The shell is the conducting Mercury layer.
+    std::vector<double> shell_jsum_l(nblock, 0.0), shell_jmax_l(nblock, 0.0);
+    std::vector<double> shell_count_l(nblock, 0.0), shell_jzero_l(nblock, 0.0);
+    std::vector<double> shell_wzero_l(nblock, 0.0);
+    constexpr int NSHELL = 16;
+    std::array<double, NSHELL> shell_r_sum_l{}, shell_r_max_l{}, shell_r_n_l{};
+    std::array<double, NSHELL> shell_r_jzero_l{}, shell_r_edgezero_l{};
     for (int ib = 0; ib < nblock; ++ib)
     {
         auto &UH = fld_->field(fid_.fid_U_H, ib);
@@ -112,6 +120,50 @@ void MercurySolver::PrintMinMaxDiagnostics_()
                 }
     }
 
+    // The solid Mercury blocks do not allocate fluid fields, so they must not
+    // be gated by UH/PVH availability as the general fluid diagnostics are.
+    for (int ib = 0; ib < nblock; ++ib)
+    {
+        auto &Jcel = fld_->field(fid_.fid_Jcell, ib);
+        auto &Wj = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
+        if (!Jcel.is_allocated()) continue;
+        auto &blk = grd_->grids(ib);
+        const Int3 lo=Jcel.inner_lo(), hi=Jcel.inner_hi();
+        for (int i=lo.i;i<hi.i;++i) for (int j=lo.j;j<hi.j;++j) for (int k=lo.k;k<hi.k;++k)
+        {
+            const double x=blk.dual_x(i+1,j+1,k+1);
+            const double y=blk.dual_y(i+1,j+1,k+1);
+            const double z=blk.dual_z(i+1,j+1,k+1);
+            const double radius=std::sqrt(x*x+y*y+z*z);
+            if (radius < 0.84 || radius >= 1.0) continue;
+            const double jx=Jcel(i,j,k,0), jy=Jcel(i,j,k,1), jz=Jcel(i,j,k,2);
+            const double jmag=std::sqrt(jx*jx+jy*jy+jz*jz);
+            const double sedge[12] = {
+                fld_->field(fid_.fid_J.xi,ib)(i,j,k,0), fld_->field(fid_.fid_J.xi,ib)(i,j+1,k,0),
+                fld_->field(fid_.fid_J.xi,ib)(i,j,k+1,0), fld_->field(fid_.fid_J.xi,ib)(i,j+1,k+1,0),
+                fld_->field(fid_.fid_J.eta,ib)(i,j,k,0), fld_->field(fid_.fid_J.eta,ib)(i+1,j,k,0),
+                fld_->field(fid_.fid_J.eta,ib)(i,j,k+1,0), fld_->field(fid_.fid_J.eta,ib)(i+1,j,k+1,0),
+                fld_->field(fid_.fid_J.zeta,ib)(i,j,k,0), fld_->field(fid_.fid_J.zeta,ib)(i+1,j,k,0),
+                fld_->field(fid_.fid_J.zeta,ib)(i,j+1,k,0), fld_->field(fid_.fid_J.zeta,ib)(i+1,j+1,k,0)};
+            double sedge_max=0.0;
+            for(double q:sedge) sedge_max=std::max(sedge_max,std::abs(q));
+            const int is=std::min(NSHELL-1,std::max(0,static_cast<int>((radius-0.84)/0.01)));
+            shell_r_sum_l[is]+=jmag;
+            shell_r_max_l[is]=std::max(shell_r_max_l[is],jmag);
+            shell_r_n_l[is]+=1.0;
+            if(jmag<1.0e-12) shell_r_jzero_l[is]+=1.0;
+            if(sedge_max<1.0e-12) shell_r_edgezero_l[is]+=1.0;
+            shell_jsum_l[ib]+=jmag;
+            shell_jmax_l[ib]=std::max(shell_jmax_l[ib],jmag);
+            shell_count_l[ib]+=1.0;
+            if(jmag<1.0e-12) shell_jzero_l[ib]+=1.0;
+            double wnorm=0.0;
+            if(Wj.is_allocated()) for(int m=0;m<36;++m)
+                wnorm=std::max(wnorm,std::abs(Wj(i,j,k,m)));
+            if(wnorm<1.0e-30) shell_wzero_l[ib]+=1.0;
+        }
+    }
+
     for (int ib = 0; ib < nblock; ++ib)
     {
         auto accumulate_edge = [&](FieldBlock &J, FieldBlock &dl, int axis)
@@ -181,6 +233,13 @@ void MercurySolver::PrintMinMaxDiagnostics_()
     PARALLEL::mpi_sum(jezero_l.data(), jezero_g.data(), NR);
     double bind_face_max_g=0.0;
     PARALLEL::mpi_max(&bind_face_max_l,&bind_face_max_g,1);
+    std::array<double,NSHELL> shell_r_sum_g{}, shell_r_max_g{}, shell_r_n_g{};
+    std::array<double,NSHELL> shell_r_jzero_g{}, shell_r_edgezero_g{};
+    PARALLEL::mpi_sum(shell_r_sum_l.data(),shell_r_sum_g.data(),NSHELL);
+    PARALLEL::mpi_max(shell_r_max_l.data(),shell_r_max_g.data(),NSHELL);
+    PARALLEL::mpi_sum(shell_r_n_l.data(),shell_r_n_g.data(),NSHELL);
+    PARALLEL::mpi_sum(shell_r_jzero_l.data(),shell_r_jzero_g.data(),NSHELL);
+    PARALLEL::mpi_sum(shell_r_edgezero_l.data(),shell_r_edgezero_g.data(),NSHELL);
 
     const int myid = par_->GetInt("myid");
     if (myid == 0)
@@ -251,6 +310,16 @@ void MercurySolver::PrintMinMaxDiagnostics_()
                         jezero_g[ir]/jecount_g[ir]);
         }
         std::printf("           max |Bind_face flux| = %.6e\n\n",bind_face_max_g);
+        std::printf("           solid Jcell detail, 0.84<=r<1:\n");
+        for(int is=0;is<NSHELL;++is)
+        {
+            if(shell_r_n_g[is]<=0.0) continue;
+            const double rlo=0.84+0.01*is;
+            std::printf("             [%.2f,%.2f): mean=%.3e max=%.3e Jzero=%.3e all12edgezero=%.3e\n",
+                        rlo,rlo+0.01,shell_r_sum_g[is]/shell_r_n_g[is],shell_r_max_g[is],
+                        shell_r_jzero_g[is]/shell_r_n_g[is],shell_r_edgezero_g[is]/shell_r_n_g[is]);
+        }
+        std::printf("\n");
 
         // // -----------------------------
         // // NEW: stiffness diagnostics
@@ -262,4 +331,24 @@ void MercurySolver::PrintMinMaxDiagnostics_()
 
         std::fflush(stdout);
     }
+
+    // Local block counts differ between MPI ranks, so print them in rank order
+    // instead of reducing variable-length arrays.
+    int nrank = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &nrank);
+    for (int rank = 0; rank < nrank; ++rank)
+    {
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (myid != rank) continue;
+        for (int ib=0; ib<nblock; ++ib)
+        {
+            if (shell_count_l[ib] <= 0.0) continue;
+            std::printf("[ShellBlock] rank=%d local_block=%d meanJ=%.6e maxJ=%.6e zero=%.6e Wzero=%.6e n=%.0f\n",
+                        myid, ib, shell_jsum_l[ib]/shell_count_l[ib], shell_jmax_l[ib],
+                        shell_jzero_l[ib]/shell_count_l[ib],
+                        shell_wzero_l[ib]/shell_count_l[ib], shell_count_l[ib]);
+        }
+        std::fflush(stdout);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
 }
