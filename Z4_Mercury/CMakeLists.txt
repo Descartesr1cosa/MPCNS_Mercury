@@ -25,8 +25,7 @@ include_directories(../include)
 include_directories(../Z4_Mercury/include)
 include_directories(.)
 
-# source files directiory
-# Basic Files
+# Shared infrastructure sources.
 aux_source_directory(../src/0_basic  DIRSRCS0)
 aux_source_directory(../src/1_grid  DIRSRCS1)
 aux_source_directory(../src/2_topology  DIRSRCS2)
@@ -42,27 +41,23 @@ aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
 aux_source_directory(../src/8_dec  DIRSRCS8)
 
-# Mercury Solver Files
+# Mercury solver sources.
 aux_source_directory(./src  SRC)
 aux_source_directory(./src/boundary  SRC_BOUND)
 aux_source_directory(./src/operators  SRC_OPERATOR)
 aux_source_directory(./src/physics  SRC_PHY)
-# aux_source_directory(./src/3_io  SRC2)
-# aux_source_directory(./src/4_solver  SRC3)
 aux_source_directory(./src/tools  SRC_TOOL)
 set(SRC_IMP ./src/implicit/Mercury_ImplicitResistive.cpp)
-set(SRC_SETUP ./src/MercurySolver_Setup.cpp)
 
-# build the executable program
+# Build the executable.
 add_executable(MercuryZ4 main.cpp 
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
  ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
  ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
- ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP} ${SRC_SETUP})
-#  ${SRC0} ${SRC1} ${SRC2} ${SRC3} ${SRC4} ${SRC5} ${SRC6})
+ ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
 
-# add the mpi linkings
+# Link MPI and PETSc.
 target_link_libraries(MercuryZ4 PRIVATE ${MPI_LIBRARIES} PkgConfig::PETSC stdc++fs)
 
 if(MERCURY_SANITIZE_ADDRESS)

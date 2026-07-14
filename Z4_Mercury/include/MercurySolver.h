@@ -7,64 +7,11 @@
 #include "0_SolverFields.h"
 #include "2_Initial.h"
 #include "3_Control.h"
+#include "MercuryPhysicsTypes.h"
 #include "4_halo/HaloEdgeOwner.h"
-#include "3_field/FieldArray.h"
 #include "7_metric/SingularEdgeRegistry.h"
 
 #include <petscksp.h>
-
-struct HallFaceScratchBlock_
-{
-    Vector Ehc;
-    Scalar beta;
-};
-
-struct NumInfo
-{
-    // true number densities, nondimensional
-    double nH_true{0.0};
-    double nNa_true{0.0};
-    double ne_true{0.0};
-
-    // Hall denominator regularization
-    double ne_eff{0.0};
-
-    // composition fractions: chiH + chiNa = 1 if ne_true > tiny
-    double chiH{1.0};
-    double chiNa{0.0};
-
-    // optional low-density MHD source weights:
-    // wH_mhd + wNa_mhd = ne_true / ne_eff <= 1
-    double wH_mhd{0.0};
-    double wNa_mhd{0.0};
-    double mhd_taper{0.0};
-};
-
-struct ResistiveEdgeEMFControl
-{
-    bool is_Mercury_resistance = false;
-    double radial_inner = 0.84;
-    double radial_outer = 1.04;
-    double radial_width = 0.02;
-
-    double implicit_ksp_rtol = 1.0e-8;
-    double implicit_ksp_atol = 1.0e-12;
-    int implicit_ksp_max_it = 200;
-};
-
-struct ArtificialResistivityControl
-{
-    double eta_max = 0.0;
-    double J_range_start = 0.0;
-    double J_range_on = 0.0;
-    bool local_enabled = false;
-    double local_eta_max = 0.0;
-    double local_center[3] = {0.0, 0.0, 0.0};
-    double local_r_decay = 1.0;
-    double local_r_cutoff = 0.0;
-};
-
-struct AmbipolarEdgeEMFControl { bool enabled = false; };
 
 // ---- forward declarations (avoid heavy includes in header) ----
 class Grid;
@@ -206,7 +153,7 @@ private:
     bool implicit_resistive_ready_{false};
     bool implicit_resistive_has_guess_{false};
 
-    std::vector<HallFaceScratchBlock_> hall_face_scratch_;
+    std::vector<HallFaceScratchBlock> hall_face_scratch_;
     void SetupHallFaceScratch_();
     void SetupCellReconstructionWeights_();
 
@@ -286,40 +233,6 @@ private:
     void AssembleSingularEdgeEMF_HallExplicit_();
     void ApplyStationaryWallNonResistiveEMF_();
     //---------------------------------------------------------------
-    double ComputeMagEnergy_Cell_()
-    {
-        double E = 0.0;
-
-        const int nb = fld_->num_blocks();
-        for (int ib = 0; ib < nb; ++ib)
-        {
-            auto &Bc = fld_->field(fid_.fid_Bcell, ib);
-            auto &Jdet = fld_->field(fid_.fid_Jac, ib); // 这里换成你的 cell volume / Jacobian 字段
-
-            if (!Bc.is_allocated() || !Jdet.is_allocated())
-                continue;
-
-            Int3 lo = Bc.inner_lo();
-            Int3 hi = Bc.inner_hi();
-
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                    {
-                        const double Bx = Bc(i, j, k, 0);
-                        const double By = Bc(i, j, k, 1);
-                        const double Bz = Bc(i, j, k, 2);
-
-                        const double vol = Jdet(i, j, k, 0); // 按你的存法改
-                        E += 0.5 * (Bx * Bx + By * By + Bz * Bz) * vol;
-                    }
-        }
-
-        double Eglob = 0.0;
-        MPI_Allreduce(&E, &Eglob, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        return Eglob;
-    }
-
     struct DebugItem
     {
         double val = 0.0;
