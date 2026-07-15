@@ -75,7 +75,11 @@ inline std::vector<FieldSpec> FieldSpecs()
     return {
         // Conservative fluid state.
         {"U_H", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid",
-         SyncContract("Ucell", false, true, true, HaloLevel::Corner1D),
+         // Edge EMF stencils at a physical-wall/panel-seam intersection read
+         // fluid ghosts across two and three directions.  Register the field
+         // itself at Corner3D: the runtime group request cannot promote a
+         // lower field-level halo contract.
+         SyncContract("Ucell", false, true, true, HaloLevel::Corner3D),
          FieldValueKind::ConservedVector},
 
         // Magnetic field, electric field, current, and derived cell fields.
