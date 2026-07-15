@@ -1,4 +1,6 @@
 #include "LunarSolver.h"
+#include "0_basic/LayoutTraits.h"
+#include "1_grid/BlockTraits.h"
 
 namespace
 {
@@ -64,6 +66,178 @@ void LunarSolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
     }
 }
 
+void LunarSolver::ReduceFaceContributionsToOwners_(const IdTriplet &fid_face)
+{
+    if(!topo_) return;
+    const int myid=par_->GetInt("myid");
+    if(!face_contribution_reduce_cache_ready_)
+    {
+        face_contribution_reduce_classes_.clear();
+        face_contribution_reduce_classes_.reserve(topo_->faces.classes.size());
+        for(const auto &cls:topo_->faces.classes)
+            if(cls.global_id>=0 && cls.members.size()>1)
+                face_contribution_reduce_classes_.push_back(&cls);
+        std::sort(face_contribution_reduce_classes_.begin(),
+                  face_contribution_reduce_classes_.end(),
+                  [](const auto *a,const auto *b)
+                  { return a->global_id<b->global_id; });
+        face_contribution_local_sum_.resize(face_contribution_reduce_classes_.size());
+        face_contribution_global_sum_.resize(face_contribution_reduce_classes_.size());
+
+        face_contribution_local_terms_.clear();
+        for(std::size_t n=0;n<face_contribution_reduce_classes_.size();++n)
+        {
+            const auto &cls=*face_contribution_reduce_classes_[n];
+            for(const auto &m:cls.members)
+                if(m.entity.rank==myid)
+                    face_contribution_local_terms_.push_back(
+                        {n,m.entity,m.orient_sign});
+        }
+        face_contribution_reduce_cache_ready_=true;
+    }
+
+    const std::size_t nclass=face_contribution_reduce_classes_.size();
+    if(nclass==0) return;
+    auto &local_sum=face_contribution_local_sum_;
+    auto &global_sum=face_contribution_global_sum_;
+    std::fill(local_sum.begin(),local_sum.end(),0.0);
+    for(const auto &term:face_contribution_local_terms_)
+    {
+        const auto &f=term.face;
+        FieldBlock &value=fld_->field(fid_face.at(static_cast<int>(f.axis)+1),f.block);
+        local_sum[term.class_index]+=term.orient_sign*value(f.i,f.j,f.k,0);
+    }
+    MPI_Allreduce(local_sum.data(),global_sum.data(),static_cast<int>(nclass),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+
+    // Write the assembled quotient value to every local representative before
+    // halo exchange.  This prevents a seam ghost from receiving the one-sided
+    // cell contribution of an alias that has not yet been owner-synchronised.
+    for(const auto &term:face_contribution_local_terms_)
+    {
+        const auto &f=term.face;
+        FieldBlock &value=fld_->field(fid_face.at(static_cast<int>(f.axis)+1),f.block);
+        value(f.i,f.j,f.k,0)=term.orient_sign*global_sum[term.class_index];
+    }
+}
+
+void LunarSolver::ApplyConsistentM2ToBface_()
+{
+    for(int ib=0;ib<fld_->num_blocks();++ib)
+    {
+        auto &Hxi=fld_->field(fid_.fid_M2B.xi,ib);
+        auto &Heta=fld_->field(fid_.fid_M2B.eta,ib);
+        auto &Hzeta=fld_->field(fid_.fid_M2B.zeta,ib);
+        auto zero=[](FieldBlock &a)
+        {
+            const Int3 lo=a.get_lo(),hi=a.get_hi();
+            for(int i=lo.i;i<hi.i;++i)
+                for(int j=lo.j;j<hi.j;++j)
+                    for(int k=lo.k;k<hi.k;++k)
+                        a(i,j,k,0)=0.0;
+        };
+        zero(Hxi); zero(Heta); zero(Hzeta);
+
+        const auto &Bxi=fld_->field(fid_.fid_B.xi,ib);
+        const auto &Beta=fld_->field(fid_.fid_B.eta,ib);
+        const auto &Bzeta=fld_->field(fid_.fid_B.zeta,ib);
+        const auto &M=fld_->field(fid_.fid_Hodge_M2_cell_consistent,ib);
+        auto scatter=[&](int i,int j,int k,const double phi[6])
+        {
+            double q[6]={0.0,0.0,0.0,0.0,0.0,0.0};
+            for(int r=0;r<6;++r)
+                for(int c=0;c<6;++c)
+                    q[r]+=M(i,j,k,6*r+c)*phi[c];
+            Hxi(i,j,k,0)-=q[0];     Hxi(i+1,j,k,0)+=q[1];
+            Heta(i,j,k,0)-=q[2];    Heta(i,j+1,k,0)+=q[3];
+            Hzeta(i,j,k,0)-=q[4];   Hzeta(i,j,k+1,0)+=q[5];
+        };
+        const Int3 lo=M.inner_lo(),hi=M.inner_hi();
+        for(int i=lo.i;i<hi.i;++i)
+            for(int j=lo.j;j<hi.j;++j)
+                for(int k=lo.k;k<hi.k;++k)
+                {
+                    // Cell-local outward face fluxes.  Local minus faces have
+                    // the opposite orientation to the stored face 2-form.
+                    const double phi[6]={-Bxi(i,j,k,0), Bxi(i+1,j,k,0),
+                                         -Beta(i,j,k,0), Beta(i,j+1,k,0),
+                                         -Bzeta(i,j,k,0),Bzeta(i,j,k+1,0)};
+                    scatter(i,j,k,phi);
+                }
+
+        // Close dual loops cut by a genuine radial boundary with one
+        // geometrically extended ghost cell.  Bind_cell has already received
+        // the zero-normal-gradient physical BC.  Reproject that Cartesian
+        // vector onto the ghost area vectors rather than copying face-flux
+        // scalars, which would be inconsistent on a curved grid.
+        const auto &Bind=fld_->field(fid_.fid_Bindcell,ib);
+        const auto &Sxi=fld_->field(fid_.fid_metric.xi,ib);
+        const auto &Set=fld_->field(fid_.fid_metric.eta,ib);
+        const auto &Sze=fld_->field(fid_.fid_metric.zeta,ib);
+        for(const auto &p:topo_->physical_patches)
+        {
+            if(p.this_block!=ib ||
+               (p.bc_name!="Absorbing" && p.bc_name!="Farfield"))
+                continue;
+            const Box3 inner=LAYOUT::boundary_inner_slab_one_layer_from_cells(
+                GRID_TRAITS::cell_counts(grd_->grids(ib)),
+                StaggerLocation::Cell,p.this_box_node,p.direction);
+            const Box3 ghost=LAYOUT::ghost_slab_from_inner(inner,p.direction,1);
+            for(int i=ghost.lo.i;i<ghost.hi.i;++i)
+                for(int j=ghost.lo.j;j<ghost.hi.j;++j)
+                    for(int k=ghost.lo.k;k<ghost.hi.k;++k)
+                    {
+                        const double bv[3]={Bind(i,j,k,0),Bind(i,j,k,1),Bind(i,j,k,2)};
+                        auto dot=[&](const FieldBlock &S,int ii,int jj,int kk)
+                        { return S(ii,jj,kk,0)*bv[0]+S(ii,jj,kk,1)*bv[1]+S(ii,jj,kk,2)*bv[2]; };
+                        const double phi[6]={-dot(Sxi,i,j,k), dot(Sxi,i+1,j,k),
+                                             -dot(Set,i,j,k), dot(Set,i,j+1,k),
+                                             -dot(Sze,i,j,k),dot(Sze,i,j,k+1)};
+                        scatter(i,j,k,phi);
+                    }
+        }
+    }
+
+    ReduceFaceContributionsToOwners_(fid_.fid_M2B);
+    lunar_bound_.Sync("M2Bface");
+}
+
+void LunarSolver::ExtrapolatePhysicalBoundaryTangentialCurrent_()
+{
+    // The absorbing/farfield magnetic BC extends the Cartesian field with
+    // zero normal gradient.  Its compatible boundary current is therefore
+    // obtained by extending the first interior tangential edge value to the
+    // boundary edge.  This also closes physical-boundary/seam corner duals,
+    // whose missing half-polygons cannot be represented by a real-cell M2.
+    for(const auto &p:topo_->physical_patches)
+    {
+        if(p.bc_name!="Absorbing" && p.bc_name!="Farfield")
+            continue;
+        const int ib=p.this_block;
+        const int normal_axis=std::abs(p.direction)-1;
+        const int inward=(p.direction<0)?+1:-1;
+        for(int edge_axis=0;edge_axis<3;++edge_axis)
+        {
+            if(edge_axis==normal_axis) continue;
+            FieldBlock &J=fld_->field(fid_.fid_J.at(edge_axis+1),ib);
+            const StaggerLocation loc=J.descriptor().location;
+            const Box3 slab=LAYOUT::boundary_inner_slab_one_layer_from_cells(
+                GRID_TRAITS::cell_counts(grd_->grids(ib)),loc,
+                p.this_box_node,p.direction);
+            for(int i=slab.lo.i;i<slab.hi.i;++i)
+                for(int j=slab.lo.j;j<slab.hi.j;++j)
+                    for(int k=slab.lo.k;k<slab.hi.k;++k)
+                    {
+                        int ii=i,jj=j,kk=k;
+                        if(normal_axis==0) ii+=inward;
+                        else if(normal_axis==1) jj+=inward;
+                        else kk+=inward;
+                        J(i,j,k,0)=J(ii,jj,kk,0);
+                    }
+        }
+    }
+}
+
 void LunarSolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                                  const IdTriplet &fid_Jedge)
 {
@@ -74,11 +248,14 @@ void LunarSolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
         {fld_->descriptor(fid_Jedge.xi).name,
          fld_->descriptor(fid_Jedge.eta).name,
          fld_->descriptor(fid_Jedge.zeta).name},
-        regular_seam_curl_correction);
+        consistent_m2_enabled_ ? 0.0 : regular_seam_curl_correction);
 }
 
 void LunarSolver::Calc_J_Edge()
 {
+    if(consistent_m2_enabled_)
+        ApplyConsistentM2ToBface_();
+
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
         // B_xi/B_eta/B_zeta are the Bind face-flux DOFs.  Badd is prescribed
@@ -99,13 +276,25 @@ void LunarSolver::Calc_J_Edge()
         auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, iblk);
         auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, iblk);
 
-        // compute J (edge 1-form) from face B (2-form)
-        // multiper 用 +1.0 J =curl B。
-        CTOperators::CurlAdjFaceToEdge(iblk,
-                                       Bxi, Beta, Bzeta,
-                                       beta_xi, beta_eta, beta_zeta,
-                                       Jxi, Jeta, Jzeta,
-                                       /*multiper=*/1.0);
+        // compute J (edge 1-form) from face B (2-form).  In consistent mode
+        // M2*B has already been assembled on quotient faces, so only the
+        // metric-free incidence transpose is applied here.
+        if(consistent_m2_enabled_)
+        {
+            auto &Hxi=fld_->field(fid_.fid_M2B.xi,iblk);
+            auto &Heta=fld_->field(fid_.fid_M2B.eta,iblk);
+            auto &Hzeta=fld_->field(fid_.fid_M2B.zeta,iblk);
+            CTOperators::CurlAdjMetricFaceToEdge(
+                iblk,Hxi,Heta,Hzeta,Jxi,Jeta,Jzeta,1.0);
+        }
+        else
+        {
+            CTOperators::CurlAdjFaceToEdge(iblk,
+                                           Bxi, Beta, Bzeta,
+                                           beta_xi, beta_eta, beta_zeta,
+                                           Jxi, Jeta, Jzeta,
+                                           /*multiper=*/1.0);
+        }
 
         //  J_edge^(1-form) = (alpha_edge / mu0) * Jcirc_edge
         //     alpha = |e|/|S*|  (⋆1^{-1})
@@ -138,6 +327,11 @@ void LunarSolver::Calc_J_Edge()
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_J);
     AssembleSingularEdgeCurrent_(fid_.fid_B, fid_.fid_J);
     lunar_bound_.Sync("Jedge"); // ApplyBC_EdgeJ_();
+    if(consistent_m2_enabled_)
+    {
+        ExtrapolatePhysicalBoundaryTangentialCurrent_();
+        lunar_bound_.Sync("Jedge");
+    }
 }
 
 void LunarSolver::calc_Jcell()

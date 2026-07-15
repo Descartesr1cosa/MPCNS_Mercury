@@ -8,6 +8,9 @@
 #include "LunarSolver.h"
 #include "0_LunarFieldCatalog.h"
 
+#include <algorithm>
+#include <cctype>
+
 LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
                              TOPO::Topology *topo_equiv,
@@ -24,6 +27,10 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
 {
     // ---- Cache field ids ----
     fid_.Init(fld_);
+
+    // Geometry is static.  Reconcile every shared physical face once before
+    // initialization constructs magnetic face fluxes from those metrics.
+    CanonicalizeSharedFaceGeometry_();
 
     // ---- Build IO Module ----
     constexpr int NRES = 8; // H+ conservative variables and induced magnetic field
@@ -159,6 +166,17 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
     // Keep legacy lunar cases Hall-enabled when the new switch is absent.
     hall_enabled_ = !par_->HasBoo("is_Hall_Efield") ||
                     par_->GetBoo("is_Hall_Efield");
+    std::string hodge_mode = par_->HasStr("hodge_M2_mode")
+                                 ? par_->GetStr("hodge_M2_mode")
+                                 : "consistent";
+    std::transform(hodge_mode.begin(), hodge_mode.end(), hodge_mode.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (hodge_mode != "consistent" && hodge_mode != "lumped")
+        throw std::runtime_error("hodge_M2_mode must be 'consistent' or 'lumped'");
+    consistent_m2_enabled_ = (hodge_mode == "consistent");
+    if (par_->GetInt("myid") == 0)
+        std::cout << "[Lunar][Hodge] M2=" << hodge_mode
+                  << ", M1_inverse=lumped\n";
     hall_taper_r_min = par_->GetDou("r_min");
     hall_taper_r_max = par_->GetDou("r_max");
 
@@ -175,6 +193,12 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
 
     SetupHallFaceScratch_();
     SetupCellReconstructionWeights_();
+
+    // Opt-in manufactured verification for geometry/Hodge development.  It
+    // deliberately overwrites B, so production setup examples leave it absent.
+    if (par_->HasBoo("debug_test_J_operator") &&
+        par_->GetBoo("debug_test_J_operator"))
+        Debug_TestJOperator_Manufactured(-1);
 
     // ---- Optional offline post-data output ----
     // Missing keys deliberately mean disabled, preserving older CASE files.

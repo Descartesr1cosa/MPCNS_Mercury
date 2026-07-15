@@ -5,6 +5,10 @@ bool    is_Ambipolar_Efield             1
 // Hall switch controls only the Hall contribution to the induction EMF.
 // The timestep remains the ideal-MHD fast-wave CFL in either state.
 bool    is_Hall_Efield                  1
+// Face Hodge used by J = M1_lumped^{-1} D^T M2 B.
+// "consistent" assembles the local 6x6 cell mass matrices on quotient faces;
+// "lumped" retains the original diagonal face metric for A/B comparison.
+string  hodge_M2_mode                   consistent
 double  r_min                           1.1
 double  r_max                           1.2
 

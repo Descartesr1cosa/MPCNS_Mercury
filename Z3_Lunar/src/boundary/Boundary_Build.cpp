@@ -304,6 +304,15 @@ void LunarBoundary::InstallDefaultGroups()
     gB.halo_level = HaloLevel::Corner3D;
     AddGroup(gB);
 
+    BoundGroup gM2B;
+    gM2B.name = "M2Bface";
+    gM2B.fields = {"M2B_xi", "M2B_eta", "M2B_zeta"};
+    gM2B.do_coupling = false;
+    gM2B.do_physical = false;
+    gM2B.do_halo = true;
+    gM2B.halo_level = HaloLevel::Corner3D;
+    AddGroup(gM2B);
+
     BoundGroup EfaceB;
     EfaceB.name = "Eface";
     EfaceB.fields = {"Eface_xi", "Eface_eta", "Eface_zeta"};
