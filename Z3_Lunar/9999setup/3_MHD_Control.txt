@@ -1,0 +1,21 @@
+// No global intrinsic lunar dipole.
+int     num_of_dipole                   0
+
+bool    is_Ambipolar_Efield             1
+double  r_min                           1.1
+double  r_max                           1.2
+
+// artificial resistivity limiter
+double  arti_eta_max                    0.00
+double  J_range_start                   800.0
+double  J_range_on                      3000.0
+
+bool    is_local_artificial_resistivity 1
+double  local_arti_eta_max              0.1
+double  local_arti_x0                   1.53
+double  local_arti_y0                   0.0
+double  local_arti_z0                   0.25
+double  local_arti_r_decay              0.05
+double  local_arti_r_cutoff             0.05
+
+END_OF_FILE

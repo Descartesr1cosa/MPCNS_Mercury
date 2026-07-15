@@ -1,0 +1,34 @@
+double  CFL                     0.8
+double  yee                     0.125
+double  max_Time                20.0
+int     output_step             1000
+int     output_residual         50
+double  Archive_Output_Time     0.5
+
+// Offline static post-data output.
+bool    post_static_output      1
+
+int     dimension               3
+
+// cubic-sphere panel coupling needs enough non-degenerate ghost layers for
+// reconstruction, CT edge forms, and corner communication.
+int     ngg                     4
+bool    continue_calc           1
+bool    continue_calc_index     0
+int     Read_Method             2
+int     max_Nstep               80000000
+int     corner_treat            2
+
+int     ns                      1
+double  mole_mass1              0.001
+
+LIST==================================================================
+constant        5
+(double)
+gamma           NA              R_uni       mu_mag             q_e
+1.6667          6.02E23         8.314       1.256637061e-6     1.602E-19
+LIST==================================================================
+
+double  scale                   1.0
+
+END_OF_FILE
