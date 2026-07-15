@@ -47,6 +47,17 @@ void LunarBoundary::InstallHandlers()
                           this->BC_UH_Farfield_H_(U, fld, r, ngh);
                       });
 
+    RegisterPhysical_("U_H", "Absorbing",
+                      [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
+                      {
+                          this->BC_UH_Absorbing_(U, fld, r, ngh);
+                      });
+
+    // Magnetic face fluxes retain the boundary-face value and use a
+    // zero-normal-gradient ghost extension.  Electric face/edge work fields
+    // use the same extension; their boundary values are assembled from the
+    // one-sided fluid state after BC_UH_Absorbing_ limits wall emission.
+
 
     // -------------------------------------------------------------------------
     //  Pole: fluid cells

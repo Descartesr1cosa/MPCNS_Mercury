@@ -116,6 +116,10 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
     }
     initial_.Initialization(fld_, fid_);
 
+    // Apply the one-way lunar-surface state before the first derived-field
+    // reconstruction; U_plus then supplies the limited one-sided velocity to
+    // the boundary EMF assembly from the first step onward.
+    lunar_bound_.Sync("Ucell");
     lunar_bound_.Sync("Badd");
     // Restarted halo/alias values may be stale.  Synchronize Bface before the
     // first derived-field/Jedge evaluation so the initial implicit RHS uses

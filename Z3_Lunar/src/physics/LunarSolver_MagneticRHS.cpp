@@ -1,6 +1,4 @@
 #include "LunarSolver.h"
-#include "0_basic/LayoutTraits.h"
-#include <algorithm>
 
 void LunarSolver::AssembleRHS_Induction_CT_()
 {
@@ -61,10 +59,10 @@ void LunarSolver::AssembleRHS_Induction_CT_()
         add_one(fld_->field(fid_.fid_E.zeta,ib),fld_->field(fid_.fid_Ehall.zeta,ib));
     }
 
-    // Apply the material-interface condition after every non-Lunar-
-    // resistive contribution (ideal, ambipolar, artificial and Hall) has been
-    // assembled.  Applying it immediately after the ideal term would allow
-    // later terms to leak back onto the shared tangential edge.
+    // At an absorbing lunar boundary, U_H ghost states have already limited
+    // wall emission. The ideal/ambipolar/Hall reconstruction therefore forms
+    // the tangential EMF from that one-sided state; it is intentionally not
+    // forced to zero, which would impose a perfectly conducting wall.
 
     lunar_bound_.Sync("Eedge");
 
