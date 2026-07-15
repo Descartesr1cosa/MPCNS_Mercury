@@ -11,6 +11,12 @@
 #include "4_halo/HaloEdgeOwner.h"
 #include "7_metric/SingularEdgeRegistry.h"
 
+// Compile-time density-floor fraction relative to the nondimensional inflow
+// density. Override with -DZ3_LUNAR_DENSITY_FLOOR_FRACTION=<value>.
+#ifndef Z3_LUNAR_DENSITY_FLOOR_FRACTION
+#define Z3_LUNAR_DENSITY_FLOOR_FRACTION 1.0e-3
+#endif
+
 
 // ---- forward declarations (avoid heavy includes in header) ----
 class Grid;
@@ -97,6 +103,7 @@ private:
     double M_H{0.0};
     double m_H{0.0};
     double state_coeff_H{0.0};
+    double density_floor_{0.0};
     double CFL{0.0};
     double hall_coef{0.0};
     double ambi_coef{0.0};
@@ -168,6 +175,7 @@ private:
     void ZeroRHS_();
     void AssembleRHS_Induction_CT_();
     void ApplyUpdate_Euler_();
+    void ApplyDensityFloor_();
     //---------------------------------------------------------------
     // For Fluid
     void Scheme_U_();

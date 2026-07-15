@@ -5,6 +5,7 @@ void LunarSolver::calc_physical_constant(Param *par)
     // -------- constants / reference ----------
     auto cst = par_->GetDou_List("constant");
     auto ref = par_->GetDou_List("REF");
+    auto ini = par_->GetDou_List("INITIAL");
 
     gamma_ = cst.data["gamma"];
     R_uni = cst.data["R_uni"];
@@ -22,6 +23,13 @@ void LunarSolver::calc_physical_constant(Param *par)
     rho_ref = M_ref * n_ref / NA;       // kg/m^3
     M_H = par->GetDou("mole_mass1");    // kg/mol
     m_H = M_H / NA;                     // kg/particle
+
+    const double rho_inflow_nd =
+        (ini.data["n"] / n_ref) *
+        (ini.data["Molecular_mass"] / M_ref);
+    density_floor_ = std::max(
+        0.0, static_cast<double>(Z3_LUNAR_DENSITY_FLOOR_FRACTION)) *
+        rho_inflow_nd;
 
     // 无量纲状态方程系数：p = rho * T * coeff
     // coeff = (R_uni * T_ref) / (M * U_ref^2)

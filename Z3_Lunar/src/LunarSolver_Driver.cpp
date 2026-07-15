@@ -29,6 +29,7 @@ bool LunarSolver::StepOnce()
     AddSourceToRHS_Fluid();
     AssembleRHS_Induction_CT_();
     ApplyUpdate_Euler_();
+    ApplyDensityFloor_();
 
     // Record and Update Runtime DATA
     {
