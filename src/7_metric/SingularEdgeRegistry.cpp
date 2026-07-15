@@ -78,7 +78,7 @@ namespace METRIC
 void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, Grid &grid, int rank)
 {
     rank_ = rank;
-    entries_.clear(); gid_to_index_.clear();
+    entries_.clear(); curl_entries_.clear(); gid_to_index_.clear();
     const int nglobal = topology.edges.n_global_owner;
     std::vector<double> local_length(nglobal,0.0), local_cell_measure(nglobal,0.0);
     std::vector<double> local_face_measure(nglobal,0.0);
@@ -88,11 +88,11 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
 
     for (const auto &cls : topology.edges.classes)
     {
-        // members counts block-local aliases, not physical sectors.  A
-        // conforming block decomposition can give a regular edge three
-        // aliases.  Treat this as a candidate only; physical valence is
-        // classified below from quotient-face incidence.
-        if (cls.members.size() < 3 || cls.global_id < 0)
+        // Build the physical-cell polygon for every shared quotient edge.
+        // Variable-valence singular edges remain a separate subset for EMF
+        // assembly and output, while regular seam edges also use this polygon
+        // for the non-orthogonal curl/current operator.
+        if (cls.members.size() < 2 || cls.global_id < 0)
             continue;
 
         SingularPhysicalEdge rec;
@@ -181,23 +181,9 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         incident_centers[static_cast<int>(global_center_records[n])].push_back(
             {global_center_records[n+1],global_center_records[n+2],global_center_records[n+3]});
 
-    // Singularity is the valence of quotient faces incident on the physical
-    // edge, not the number of block-local edge aliases (or cells).  Three and
-    // greater-than-four face sectors use the variable-valence path.  Four is
-    // a regular interior edge; two is a regular physical-boundary edge.
-    entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
-                                  [&](const SingularPhysicalEdge &e)
-                                  {
-                                      const int physical_faces = gf[e.global_id];
-                                      return physical_faces != 3 && physical_faces <= 4;
-                                  }),
-                   entries_.end());
-    gid_to_index_.clear();
-
     for (std::size_t entry_index = 0; entry_index < entries_.size(); ++entry_index)
     {
         auto &e = entries_[entry_index];
-        gid_to_index_[e.global_id] = entry_index;
         e.primal_length = gln[e.global_id] ? gl[e.global_id]/gln[e.global_id] : 0.0;
         // The dual face is the polygon through the centers of the real cells
         // incident on this quotient edge.  Sum(V/L) is a primal cross-section
@@ -269,19 +255,50 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         for (auto &c : e.local_incident_cells) c.weight = gv[e.global_id] > 0.0 ? c.measure/gv[e.global_id] : 0.0;
         for (auto &f:e.local_incident_faces) f.weight = gfm[e.global_id] > 0.0 ? f.measure/gfm[e.global_id] : 0.0;
 
-        // Publish the corrected scalar Hodge data to every local alias.  The
-        // vector-valued Sstar remains untouched until a dual-polygon vector
-        // reconstruction is requested by an operator.
-        for (const auto &a:e.aliases)
-        {
-            const auto &x=a.edge;
-            if (x.rank!=rank_ || x.block<0 || x.block>=fields.num_blocks()) continue;
-            FieldBlock &astar=fields.field(std::string("Astar_")+axis_suffix(x.axis),x.block);
-            FieldBlock &hinv=fields.field(std::string("Hodge_star_inverse_2form_to_1form_edge_")+axis_suffix(x.axis)+"_lumped",x.block);
-            if (contains_inner(astar,x.i,x.j,x.k)) astar(x.i,x.j,x.k,0)=e.dual_area;
-            if (contains_inner(hinv,x.i,x.j,x.k)) hinv(x.i,x.j,x.k,0)=e.inverse_hodge;
-        }
+        const int physical_faces=gf[e.global_id];
+        e.variable_valence=e.aliases.size()>=3 &&
+                           (physical_faces==3 || physical_faces>4);
+        if(e.variable_valence)
+            // Publish the variable-valence scalar Hodge data to every local
+            // singular alias. Regular seam metrics remain block-local.
+            for (const auto &a:e.aliases)
+            {
+                const auto &x=a.edge;
+                if (x.rank!=rank_ || x.block<0 || x.block>=fields.num_blocks()) continue;
+                FieldBlock &astar=fields.field(std::string("Astar_")+axis_suffix(x.axis),x.block);
+                FieldBlock &hinv=fields.field(std::string("Hodge_star_inverse_2form_to_1form_edge_")+axis_suffix(x.axis)+"_lumped",x.block);
+                if (contains_inner(astar,x.i,x.j,x.k)) astar(x.i,x.j,x.k,0)=e.dual_area;
+                if (contains_inner(hinv,x.i,x.j,x.k)) hinv(x.i,x.j,x.k,0)=e.inverse_hodge;
+            }
     }
+
+    curl_entries_=entries_;
+    curl_entries_.erase(
+        std::remove_if(curl_entries_.begin(),curl_entries_.end(),
+                       [](const SingularPhysicalEdge &e)
+                       {
+                           return e.ordered_cell_centers.size()<3 ||
+                                  e.global_valid_cell_count!=e.global_valid_face_count ||
+                                  !(e.inverse_hodge>0.0) ||
+                                  !std::isfinite(e.inverse_hodge);
+                       }),
+        curl_entries_.end());
+
+    // Singularity is the valence of quotient faces incident on the physical
+    // edge, not the number of block-local aliases. Three and greater-than-four
+    // sectors use the variable-valence EMF/output path; four is a regular seam
+    // edge and remains only in curl_entries_.
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                  [&](const SingularPhysicalEdge &e)
+                                  {
+                                      const int physical_faces = gf[e.global_id];
+                                      return e.aliases.size()<3 ||
+                                             (physical_faces != 3 && physical_faces <= 4);
+                                  }),
+                   entries_.end());
+    gid_to_index_.clear();
+    for(std::size_t n=0;n<entries_.size();++n)
+        gid_to_index_[entries_[n].global_id]=n;
 
 }
 
@@ -351,20 +368,23 @@ void SingularEdgeRegistry::assemble_face_triplet_to_local_owners(
 void SingularEdgeRegistry::assemble_cell_vector_circulation_to_local_owners(
     Field &fields,
     const std::string &cell_vector_field_name,
-    const std::array<std::string,3> &edge_field_names) const
+    const std::array<std::string,3> &edge_field_names,
+    double regular_edge_blend) const
 {
-    if(entries_.empty()) return;
+    if(curl_entries_.empty()) return;
 
-    std::vector<std::size_t> offset(entries_.size()+1,0);
-    for(std::size_t n=0;n<entries_.size();++n)
-        offset[n+1]=offset[n]+entries_[n].ordered_cell_centers.size();
+    std::vector<std::size_t> offset(curl_entries_.size()+1,0);
+    for(std::size_t n=0;n<curl_entries_.size();++n)
+        offset[n+1]=offset[n]+curl_entries_[n].ordered_cell_centers.size();
     const std::size_t nsector=offset.back();
     std::vector<double> local_b(3*nsector,0.0), global_b(3*nsector,0.0);
     std::vector<int> local_count(nsector,0), global_count(nsector,0);
+    std::vector<double> local_old(curl_entries_.size(),0.0);
+    std::vector<double> global_old(curl_entries_.size(),0.0);
 
     const int cell_fid=fields.field_id(cell_vector_field_name);
-    for(std::size_t n=0;n<entries_.size();++n)
-        for(const auto &inc:entries_[n].local_incident_cells)
+    for(std::size_t n=0;n<curl_entries_.size();++n)
+        for(const auto &inc:curl_entries_[n].local_incident_cells)
         {
             if(inc.sector_index<0) continue;
             FieldBlock &b=fields.field(cell_fid,inc.entity.block);
@@ -375,14 +395,27 @@ void SingularEdgeRegistry::assemble_cell_vector_circulation_to_local_owners(
             ++local_count[s];
         }
 
+    for(std::size_t n=0;n<curl_entries_.size();++n)
+    {
+        const auto &e=curl_entries_[n];
+        if(e.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for(const auto &a:e.aliases) if(a.owner) { owner_sign=a.orientation; break; }
+        const int fid=fields.field_id(edge_field_names[static_cast<int>(e.owner.axis)]);
+        local_old[n]=owner_sign*
+            fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0);
+    }
+
     MPI_Allreduce(local_b.data(),global_b.data(),static_cast<int>(global_b.size()),
                   MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(global_count.size()),
                   MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(local_old.data(),global_old.data(),static_cast<int>(global_old.size()),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 
-    for(std::size_t n=0;n<entries_.size();++n)
+    for(std::size_t n=0;n<curl_entries_.size();++n)
     {
-        const auto &e=entries_[n];
+        const auto &e=curl_entries_[n];
         const std::size_t ns=e.ordered_cell_centers.size();
         if(ns<3) continue;
         double circulation=0.0;
@@ -404,8 +437,11 @@ void SingularEdgeRegistry::assemble_cell_vector_circulation_to_local_owners(
         int owner_sign=+1;
         for(const auto &a:e.aliases) if(a.owner) { owner_sign=a.orientation; break; }
         const int fid=fields.field_id(edge_field_names[static_cast<int>(e.owner.axis)]);
+        const double consistent=e.inverse_hodge*circulation;
+        const double blend=e.variable_valence ? 1.0 : regular_edge_blend;
+        const double canonical=global_old[n]+blend*(consistent-global_old[n]);
         fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=
-            owner_sign*e.inverse_hodge*circulation;
+            owner_sign*canonical;
     }
 }
 } // namespace METRIC

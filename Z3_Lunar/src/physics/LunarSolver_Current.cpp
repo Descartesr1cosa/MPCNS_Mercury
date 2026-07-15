@@ -1,5 +1,13 @@
 #include "LunarSolver.h"
 
+namespace
+{
+// Deferred non-orthogonal correction on ordinary block seams.  The
+// variable-valence Singular Edge itself always uses the full physical dual
+// polygon; applying the full correction to every seam edge was too stiff.
+constexpr double regular_seam_curl_correction = 0.25;
+}
+
 void LunarSolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
 {
     if(!topo_) return;
@@ -65,7 +73,8 @@ void LunarSolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
         *fld_, "Bind_cell",
         {fld_->descriptor(fid_Jedge.xi).name,
          fld_->descriptor(fid_Jedge.eta).name,
-         fld_->descriptor(fid_Jedge.zeta).name});
+         fld_->descriptor(fid_Jedge.zeta).name},
+        regular_seam_curl_correction);
 }
 
 void LunarSolver::Calc_J_Edge()
