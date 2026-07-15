@@ -4,6 +4,7 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "3_field/Field.h"
 #include "1_grid/1_MPCNS_Grid.h"
+#include "2_topology/LocalIncidence.h"
 
 #include <algorithm>
 #include <cmath>
@@ -147,7 +148,23 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
                     if (!contains_inner(area,f.i,f.j,f.k)) continue;
                     const double av = area(f.i,f.j,f.k,0);
                     if (std::isfinite(av) && av > 1.e-30)
-                    { rec.local_incident_faces.push_back({f,av,0.0,e,a.orientation}); local_face_measure[rec.global_id]+=av; ++local_faces[rec.global_id]; }
+                    {
+                        int local_incidence=0;
+                        for(const auto &term:TOPO::boundary_of_face(f))
+                            if(term.entity==e) { local_incidence=term.sign; break; }
+                        if(local_incidence==0)
+                            ERROR::Abort("SingularEdgeRegistry: incident face does not contain its source edge");
+                        METRIC::WeightedIncidentEntity inc{f,av,0.0,e,a.orientation};
+                        // Registry canonical vectors/cochains use the quotient
+                        // key orientation (the same convention as alias
+                        // reductions), not the arbitrary local owner axis.
+                        inc.entity_orientation=topology.face_qsign(f);
+                        inc.quotient_incidence=inc.entity_orientation*local_incidence*
+                                                topology.edge_qsign(e);
+                        rec.local_incident_faces.push_back(inc);
+                        local_face_measure[rec.global_id]+=av;
+                        ++local_faces[rec.global_id];
+                    }
                 }
         }
         gid_to_index_[rec.global_id] = entries_.size(); entries_.push_back(std::move(rec));
@@ -442,6 +459,45 @@ void SingularEdgeRegistry::assemble_cell_vector_circulation_to_local_owners(
         const double canonical=global_old[n]+blend*(consistent-global_old[n]);
         fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=
             owner_sign*canonical;
+    }
+}
+
+void SingularEdgeRegistry::assemble_consistent_face_coboundary_to_local_owners(
+    Field &fields,
+    const std::array<std::string,3> &face_field_names,
+    const std::array<std::string,3> &edge_field_names) const
+{
+    if(curl_entries_.empty()) return;
+
+    // M2B is a quotient face 1-cochain.  Assemble d1^T M2B on the unique
+    // physical edge first, and apply the physical lumped M1 inverse exactly
+    // once.  Averaging already-scaled block-local J aliases is not equivalent
+    // on a variable-valence edge.
+    std::vector<double> local(curl_entries_.size(),0.0);
+    std::vector<double> global(curl_entries_.size(),0.0);
+    for(std::size_t n=0;n<curl_entries_.size();++n)
+        for(const auto &inc:curl_entries_[n].local_incident_faces)
+        {
+            if(inc.quotient_incidence==0) continue;
+            const int fid=fields.field_id(face_field_names[static_cast<int>(inc.entity.axis)]);
+            FieldBlock &h=fields.field(fid,inc.entity.block);
+            if(!h.is_allocated()) continue;
+            const double canonical_face=inc.entity_orientation*
+                h(inc.entity.i,inc.entity.j,inc.entity.k,0);
+            local[n]+=inc.quotient_incidence*canonical_face;
+        }
+
+    MPI_Allreduce(local.data(),global.data(),static_cast<int>(global.size()),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    for(std::size_t n=0;n<curl_entries_.size();++n)
+    {
+        const auto &e=curl_entries_[n];
+        if(e.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for(const auto &a:e.aliases) if(a.owner) { owner_sign=a.orientation; break; }
+        const int fid=fields.field_id(edge_field_names[static_cast<int>(e.owner.axis)]);
+        fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=
+            owner_sign*e.inverse_hodge*global[n];
     }
 }
 } // namespace METRIC

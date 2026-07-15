@@ -242,13 +242,26 @@ void LunarSolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                                  const IdTriplet &fid_Jedge)
 {
     if (!singular_edges_ || singular_edges_->empty()) return;
-    (void)fid_Bface;
-    singular_edges_->assemble_cell_vector_circulation_to_local_owners(
-        *fld_, "Bind_cell",
-        {fld_->descriptor(fid_Jedge.xi).name,
-         fld_->descriptor(fid_Jedge.eta).name,
-         fld_->descriptor(fid_Jedge.zeta).name},
-        consistent_m2_enabled_ ? 0.0 : regular_seam_curl_correction);
+    const std::array<std::string,3> edge_names{{
+        fld_->descriptor(fid_Jedge.xi).name,
+        fld_->descriptor(fid_Jedge.eta).name,
+        fld_->descriptor(fid_Jedge.zeta).name}};
+    if(singular_current_mode_=="quotient_m2")
+    {
+        const std::array<std::string,3> face_names{{
+            fld_->descriptor(fid_.fid_M2B.xi).name,
+            fld_->descriptor(fid_.fid_M2B.eta).name,
+            fld_->descriptor(fid_.fid_M2B.zeta).name}};
+        singular_edges_->assemble_consistent_face_coboundary_to_local_owners(
+            *fld_,face_names,edge_names);
+    }
+    else if(singular_current_mode_=="polygon")
+    {
+        (void)fid_Bface;
+        singular_edges_->assemble_cell_vector_circulation_to_local_owners(
+            *fld_, "Bind_cell", edge_names,
+            consistent_m2_enabled_ ? 0.0 : regular_seam_curl_correction);
+    }
 }
 
 void LunarSolver::Calc_J_Edge()

@@ -29,6 +29,11 @@ struct WeightedIncidentEntity
     TOPO::EntityKey source_alias{TOPO::EntityDim::Edge,0,0,0,0,0,TOPO::EntityAxis::Xi};
     int source_orientation = +1;
     int sector_index = -1;
+    // Orientation of this entity to its quotient owner and the coefficient
+    // in the canonical quotient coboundary row.  The latter is meaningful
+    // for incident faces of an edge.
+    int entity_orientation = +1;
+    int quotient_incidence = 0;
 };
 
 // One record represents one edge of the quotient (physical) mesh.  Records
@@ -76,6 +81,10 @@ public:
         const std::string &cell_vector_field_name,
         const std::array<std::string,3> &edge_field_names,
         double regular_edge_blend = 1.0) const;
+    void assemble_consistent_face_coboundary_to_local_owners(
+        Field &fields,
+        const std::array<std::string,3> &face_field_names,
+        const std::array<std::string,3> &edge_field_names) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 

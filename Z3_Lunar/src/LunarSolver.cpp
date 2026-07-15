@@ -174,9 +174,35 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
     if (hodge_mode != "consistent" && hodge_mode != "lumped")
         throw std::runtime_error("hodge_M2_mode must be 'consistent' or 'lumped'");
     consistent_m2_enabled_ = (hodge_mode == "consistent");
+    singular_current_mode_ = par_->HasStr("singular_current_mode")
+                                 ? par_->GetStr("singular_current_mode")
+                                 : "polygon";
+    std::transform(singular_current_mode_.begin(), singular_current_mode_.end(),
+                   singular_current_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (singular_current_mode_ != "quotient_m2" &&
+        singular_current_mode_ != "polygon" &&
+        singular_current_mode_ != "regular")
+        throw std::runtime_error(
+            "singular_current_mode must be 'quotient_m2', 'polygon', or 'regular'");
+    if (singular_current_mode_ == "quotient_m2" && !consistent_m2_enabled_)
+        throw std::runtime_error(
+            "singular_current_mode='quotient_m2' requires hodge_M2_mode='consistent'");
+    singular_emf_mode_ = par_->HasStr("singular_emf_mode")
+                             ? par_->GetStr("singular_emf_mode")
+                             : "multisector_uct";
+    std::transform(singular_emf_mode_.begin(), singular_emf_mode_.end(),
+                   singular_emf_mode_.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (singular_emf_mode_ != "multisector_uct" &&
+        singular_emf_mode_ != "cell_average")
+        throw std::runtime_error(
+            "singular_emf_mode must be 'multisector_uct' or 'cell_average'");
     if (par_->GetInt("myid") == 0)
         std::cout << "[Lunar][Hodge] M2=" << hodge_mode
-                  << ", M1_inverse=lumped\n";
+                  << ", M1_inverse=lumped, singular_current="
+                  << singular_current_mode_ << ", singular_emf="
+                  << singular_emf_mode_ << "\n";
     hall_taper_r_min = par_->GetDou("r_min");
     hall_taper_r_max = par_->GetDou("r_max");
 
