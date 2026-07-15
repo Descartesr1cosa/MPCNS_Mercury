@@ -22,10 +22,6 @@ struct NumInfo
     double mhd_taper{0.0};
 };
 
-struct ResistiveEdgeEMFControl
-{
-};
-
 struct ArtificialResistivityControl
 {
     double eta_max{0.0};

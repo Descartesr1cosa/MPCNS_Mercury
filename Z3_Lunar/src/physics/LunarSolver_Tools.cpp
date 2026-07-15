@@ -38,8 +38,6 @@ void LunarSolver::calc_physical_constant(Param *par)
 
     inver_MA2 = ref.data["B_ref"] * ref.data["B_ref"] / (U_ref * U_ref * cst.data["mu_mag"] * rho_ref);
 
-    inver_Rem = par->GetDou("eta_max_lunar") / (cst.data["mu_mag"] * U_ref * ref.data["L_ref"]);
-
     ne_hall_floor = 0.01;                              // nondimensional
     ne_hall_floor_dimensional = ne_hall_floor * n_ref; // dimension
 }

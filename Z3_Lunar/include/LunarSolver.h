@@ -107,9 +107,6 @@ private:
     double momentum_hall_coeff{0.0};
 
     double inver_MA2{0.0};
-    double inver_Rem{0.0};
-
-    ResistiveEdgeEMFControl resist_control;
     ArtificialResistivityControl arti_resist_control;
     AmbipolarEdgeEMFControl ambipolar_control;
 
