@@ -1539,6 +1539,9 @@ void LunarSolver::Debug_TestJOperator_Manufactured(int test_id)
     auto compute_Jedge_production = [&]()
     {
         clear_J_fields();
+        // Production singular-edge current is assembled from the physical
+        // cell reconstruction of the manufactured face fluxes.
+        calc_Bcell();
         Calc_J_Edge();
     };
 

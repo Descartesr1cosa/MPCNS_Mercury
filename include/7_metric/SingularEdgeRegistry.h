@@ -28,6 +28,7 @@ struct WeightedIncidentEntity
     double weight = 0.0;
     TOPO::EntityKey source_alias{TOPO::EntityDim::Edge,0,0,0,0,0,TOPO::EntityAxis::Xi};
     int source_orientation = +1;
+    int sector_index = -1;
 };
 
 // One record represents one edge of the quotient (physical) mesh.  Records
@@ -44,6 +45,9 @@ struct SingularPhysicalEdge
     double dual_area = 0.0;
     double inverse_hodge = 0.0; // |edge| / |dual face|
     std::array<double,3> canonical_edge_vector{{0.0,0.0,0.0}};
+    // Unique real-cell centers ordered counter-clockwise when viewed along
+    // canonical_edge_vector.  They form the boundary of the dual face.
+    std::vector<std::array<double,3>> ordered_cell_centers;
     int global_valid_cell_count = 0;
     int global_valid_face_count = 0;
 };
@@ -66,6 +70,10 @@ public:
     void assemble_face_triplet_to_local_owners(Field &fields,
                                                const std::array<std::string,3> &field_names,
                                                const FaceContribution &contribution) const;
+    void assemble_cell_vector_circulation_to_local_owners(
+        Field &fields,
+        const std::string &cell_vector_field_name,
+        const std::array<std::string,3> &edge_field_names) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 

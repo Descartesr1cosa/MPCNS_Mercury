@@ -60,81 +60,12 @@ void MercurySolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                                  const IdTriplet &fid_Jedge)
 {
     if (!singular_edges_ || singular_edges_->empty()) return;
-
-    auto incidence_sign = [](const TOPO::EntityKey &edge,
-                             const TOPO::EntityKey &face) -> int
-    {
-        using TOPO::EntityAxis;
-        if (edge.rank != face.rank || edge.block != face.block)
-            return 0;
-
-        if (edge.axis == EntityAxis::Xi)
-        {
-            if (face.axis == EntityAxis::Eta && face.i == edge.i && face.j == edge.j)
-            {
-                if (face.k == edge.k - 1) return +1;
-                if (face.k == edge.k) return -1;
-            }
-            if (face.axis == EntityAxis::Zeta && face.i == edge.i && face.k == edge.k)
-            {
-                if (face.j == edge.j) return +1;
-                if (face.j == edge.j - 1) return -1;
-            }
-        }
-        else if (edge.axis == EntityAxis::Eta)
-        {
-            if (face.axis == EntityAxis::Xi && face.i == edge.i && face.j == edge.j)
-            {
-                if (face.k == edge.k) return +1;
-                if (face.k == edge.k - 1) return -1;
-            }
-            if (face.axis == EntityAxis::Zeta && face.j == edge.j && face.k == edge.k)
-            {
-                if (face.i == edge.i - 1) return +1;
-                if (face.i == edge.i) return -1;
-            }
-        }
-        else if (edge.axis == EntityAxis::Zeta)
-        {
-            if (face.axis == EntityAxis::Xi && face.i == edge.i && face.k == edge.k)
-            {
-                if (face.j == edge.j - 1) return +1;
-                if (face.j == edge.j) return -1;
-            }
-            if (face.axis == EntityAxis::Eta && face.j == edge.j && face.k == edge.k)
-            {
-                if (face.i == edge.i) return +1;
-                if (face.i == edge.i - 1) return -1;
-            }
-        }
-        return 0;
-    };
-
-    auto contribution = [&](const METRIC::SingularPhysicalEdge &edge,
-                            const METRIC::WeightedIncidentEntity &inc) -> double
-    {
-        const auto &face = inc.entity;
-        const int sign = incidence_sign(inc.source_alias, face);
-        if (sign == 0) return 0.0;
-
-        const int dir = static_cast<int>(face.axis) + 1;
-        FieldBlock &B = fld_->field(fid_Bface.at(dir), face.block);
-        FieldBlock &beta = fld_->field(fid_.Face_beta.at(dir), face.block);
-        if (!B.is_allocated() || !beta.is_allocated()) return 0.0;
-
-        // source_orientation maps the local positive edge direction to the
-        // canonical physical-edge direction.  local_incident_faces contains
-        // each quotient face exactly once, so this is a sum, not an average.
-        return edge.inverse_hodge * inc.source_orientation * sign *
-               beta(face.i, face.j, face.k, 0) * B(face.i, face.j, face.k, 0);
-    };
-
-    singular_edges_->assemble_face_triplet_to_local_owners(
-        *fld_,
+    (void)fid_Bface;
+    singular_edges_->assemble_cell_vector_circulation_to_local_owners(
+        *fld_, "Bind_cell",
         {fld_->descriptor(fid_Jedge.xi).name,
          fld_->descriptor(fid_Jedge.eta).name,
-         fld_->descriptor(fid_Jedge.zeta).name},
-        contribution);
+         fld_->descriptor(fid_Jedge.zeta).name});
 }
 
 void MercurySolver::Calc_J_Edge()

@@ -232,6 +232,24 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
                 };
                 return angle(a)<angle(b);
             });
+            e.ordered_cell_centers=points;
+            for(auto &local:e.local_incident_cells)
+            {
+                Block &blk=grid.grids(local.entity.block);
+                const std::array<double,3> p{{
+                    blk.dual_x(local.entity.i+1,local.entity.j+1,local.entity.k+1),
+                    blk.dual_y(local.entity.i+1,local.entity.j+1,local.entity.k+1),
+                    blk.dual_z(local.entity.i+1,local.entity.j+1,local.entity.k+1)}};
+                double best=std::numeric_limits<double>::max();
+                for(std::size_t n=0;n<points.size();++n)
+                {
+                    const double dx=p[0]-points[n][0];
+                    const double dy=p[1]-points[n][1];
+                    const double dz=p[2]-points[n][2];
+                    const double d2=dx*dx+dy*dy+dz*dz;
+                    if(d2<best) { best=d2; local.sector_index=static_cast<int>(n); }
+                }
+            }
             std::array<double,3> area_vec{{0.0,0.0,0.0}};
             for(std::size_t n=0;n<points.size();++n)
             {
@@ -327,6 +345,67 @@ void SingularEdgeRegistry::assemble_face_triplet_to_local_owners(
         for (const auto &a:e.aliases) if (a.owner) { owner_sign=a.orientation; break; }
         const int fid=fields.field_id(field_names[static_cast<int>(e.owner.axis)]);
         fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n];
+    }
+}
+
+void SingularEdgeRegistry::assemble_cell_vector_circulation_to_local_owners(
+    Field &fields,
+    const std::string &cell_vector_field_name,
+    const std::array<std::string,3> &edge_field_names) const
+{
+    if(entries_.empty()) return;
+
+    std::vector<std::size_t> offset(entries_.size()+1,0);
+    for(std::size_t n=0;n<entries_.size();++n)
+        offset[n+1]=offset[n]+entries_[n].ordered_cell_centers.size();
+    const std::size_t nsector=offset.back();
+    std::vector<double> local_b(3*nsector,0.0), global_b(3*nsector,0.0);
+    std::vector<int> local_count(nsector,0), global_count(nsector,0);
+
+    const int cell_fid=fields.field_id(cell_vector_field_name);
+    for(std::size_t n=0;n<entries_.size();++n)
+        for(const auto &inc:entries_[n].local_incident_cells)
+        {
+            if(inc.sector_index<0) continue;
+            FieldBlock &b=fields.field(cell_fid,inc.entity.block);
+            if(!b.is_allocated()) continue;
+            const std::size_t s=offset[n]+static_cast<std::size_t>(inc.sector_index);
+            for(int q=0;q<3;++q)
+                local_b[3*s+q]+=b(inc.entity.i,inc.entity.j,inc.entity.k,q);
+            ++local_count[s];
+        }
+
+    MPI_Allreduce(local_b.data(),global_b.data(),static_cast<int>(global_b.size()),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(global_count.size()),
+                  MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+
+    for(std::size_t n=0;n<entries_.size();++n)
+    {
+        const auto &e=entries_[n];
+        const std::size_t ns=e.ordered_cell_centers.size();
+        if(ns<3) continue;
+        double circulation=0.0;
+        for(std::size_t m=0;m<ns;++m)
+        {
+            const std::size_t a=offset[n]+m;
+            const std::size_t b=offset[n]+(m+1)%ns;
+            if(global_count[a]!=1 || global_count[b]!=1)
+                ERROR::Abort("SingularEdgeRegistry: a dual polygon sector does not map to one unique real cell");
+            for(int q=0;q<3;++q)
+            {
+                const double bmid=0.5*(global_b[3*a+q]+global_b[3*b+q]);
+                const double dx=e.ordered_cell_centers[(m+1)%ns][q]-
+                                e.ordered_cell_centers[m][q];
+                circulation+=bmid*dx;
+            }
+        }
+        if(e.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for(const auto &a:e.aliases) if(a.owner) { owner_sign=a.orientation; break; }
+        const int fid=fields.field_id(edge_field_names[static_cast<int>(e.owner.axis)]);
+        fields.field(fid,e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=
+            owner_sign*e.inverse_hodge*circulation;
     }
 }
 } // namespace METRIC
