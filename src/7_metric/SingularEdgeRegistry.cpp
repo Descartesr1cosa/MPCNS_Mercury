@@ -500,4 +500,144 @@ void SingularEdgeRegistry::assemble_consistent_face_coboundary_to_local_owners(
             owner_sign*e.inverse_hodge*global[n];
     }
 }
+
+void SingularEdgeRegistry::assemble_cell_vector_affine_curl_to_local_owners(
+    Field &fields,
+    const std::string &cell_vector_field_name,
+    const std::array<std::string,3> &edge_field_names) const
+{
+    if(entries_.empty()) return;
+
+    // One unique Cartesian B sample per physical sector.  An affine fit in
+    // the plane normal to the quotient edge supplies the polynomial-exact
+    // target of M1_lumped^{-1} d1^T M2: J_e=(curl B . t_hat)|e|.
+    std::vector<std::size_t> offset(entries_.size()+1,0);
+    for(std::size_t n=0;n<entries_.size();++n)
+        offset[n+1]=offset[n]+entries_[n].ordered_cell_centers.size();
+    const std::size_t nsector=offset.back();
+    std::vector<double> local_b(3*nsector,0.0),global_b(3*nsector,0.0);
+    std::vector<int> local_count(nsector,0),global_count(nsector,0);
+    const int cell_fid=fields.field_id(cell_vector_field_name);
+    for(std::size_t n=0;n<entries_.size();++n)
+        for(const auto &inc:entries_[n].local_incident_cells)
+        {
+            if(inc.sector_index<0) continue;
+            FieldBlock &b=fields.field(cell_fid,inc.entity.block);
+            if(!b.is_allocated()) continue;
+            const std::size_t s=offset[n]+static_cast<std::size_t>(inc.sector_index);
+            for(int q=0;q<3;++q)
+                local_b[3*s+q]+=b(inc.entity.i,inc.entity.j,inc.entity.k,q);
+            ++local_count[s];
+        }
+    MPI_Allreduce(local_b.data(),global_b.data(),static_cast<int>(global_b.size()),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(global_count.size()),
+                  MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+
+    auto solve3=[](double A[3][3],double rhs[3],double x[3])->bool
+    {
+        double aug[3][4];
+        double scale=0.0;
+        for(int i=0;i<3;++i) for(int j=0;j<3;++j)
+        { aug[i][j]=A[i][j]; scale=std::max(scale,std::abs(A[i][j])); }
+        for(int i=0;i<3;++i) aug[i][3]=rhs[i];
+        const double tol=std::max(1.e-30,1.e-12*scale);
+        for(int col=0;col<3;++col)
+        {
+            int pivot=col;
+            for(int row=col+1;row<3;++row)
+                if(std::abs(aug[row][col])>std::abs(aug[pivot][col])) pivot=row;
+            if(std::abs(aug[pivot][col])<=tol) return false;
+            if(pivot!=col) for(int j=col;j<4;++j) std::swap(aug[col][j],aug[pivot][j]);
+            const double d=aug[col][col];
+            for(int j=col;j<4;++j) aug[col][j]/=d;
+            for(int row=0;row<3;++row) if(row!=col)
+            {
+                const double f=aug[row][col];
+                for(int j=col;j<4;++j) aug[row][j]-=f*aug[col][j];
+            }
+        }
+        for(int i=0;i<3;++i) x[i]=aug[i][3];
+        return std::isfinite(x[0])&&std::isfinite(x[1])&&std::isfinite(x[2]);
+    };
+
+    for(std::size_t n=0;n<entries_.size();++n)
+    {
+        const auto &edge=entries_[n];
+        const std::size_t ns=edge.ordered_cell_centers.size();
+        if(ns<3) continue;
+        for(std::size_t m=0;m<ns;++m)
+            if(global_count[offset[n]+m]!=1)
+                ERROR::Abort("Singular affine patch sector does not map to one unique real cell");
+
+        const double L=std::sqrt(edge.canonical_edge_vector[0]*edge.canonical_edge_vector[0]+
+                                 edge.canonical_edge_vector[1]*edge.canonical_edge_vector[1]+
+                                 edge.canonical_edge_vector[2]*edge.canonical_edge_vector[2]);
+        if(!(L>0.0)) continue;
+        const std::array<double,3> t{{edge.canonical_edge_vector[0]/L,
+                                      edge.canonical_edge_vector[1]/L,
+                                      edge.canonical_edge_vector[2]/L}};
+        const std::array<double,3> ref=std::abs(t[0])<0.9
+            ? std::array<double,3>{{1.0,0.0,0.0}}
+            : std::array<double,3>{{0.0,1.0,0.0}};
+        std::array<double,3> u{{t[1]*ref[2]-t[2]*ref[1],
+                                t[2]*ref[0]-t[0]*ref[2],
+                                t[0]*ref[1]-t[1]*ref[0]}};
+        const double un=std::sqrt(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+        if(!(un>0.0)) continue;
+        for(double &q:u) q/=un;
+        const std::array<double,3> v{{t[1]*u[2]-t[2]*u[1],
+                                      t[2]*u[0]-t[0]*u[2],
+                                      t[0]*u[1]-t[1]*u[0]}};
+
+        std::array<double,3> center{{0.0,0.0,0.0}};
+        for(const auto &p:edge.ordered_cell_centers)
+            for(int q=0;q<3;++q) center[q]+=p[q]/static_cast<double>(ns);
+        std::vector<double> px(ns),py(ns),bu(ns),bv(ns);
+        double radius2=0.0;
+        for(std::size_t m=0;m<ns;++m)
+        {
+            std::array<double,3> dr{{edge.ordered_cell_centers[m][0]-center[0],
+                                     edge.ordered_cell_centers[m][1]-center[1],
+                                     edge.ordered_cell_centers[m][2]-center[2]}};
+            px[m]=dr[0]*u[0]+dr[1]*u[1]+dr[2]*u[2];
+            py[m]=dr[0]*v[0]+dr[1]*v[1]+dr[2]*v[2];
+            radius2+=px[m]*px[m]+py[m]*py[m];
+            const double *b=&global_b[3*(offset[n]+m)];
+            bu[m]=b[0]*u[0]+b[1]*u[1]+b[2]*u[2];
+            bv[m]=b[0]*v[0]+b[1]*v[1]+b[2]*v[2];
+        }
+        const double radius=std::sqrt(radius2/static_cast<double>(ns));
+        if(!(radius>0.0) || !std::isfinite(radius)) continue;
+
+        // Normalize transverse coordinates before forming the normal matrix.
+        // This keeps the fixed small solve well-conditioned across radial
+        // refinement levels; derivatives are divided by radius afterwards.
+        double normal[3][3]={{0,0,0},{0,0,0},{0,0,0}};
+        double rhs_u[3]={0,0,0},rhs_v[3]={0,0,0};
+        for(std::size_t m=0;m<ns;++m)
+        {
+            const double p[3]={1.0,px[m]/radius,py[m]/radius};
+            for(int i=0;i<3;++i)
+            {
+                rhs_u[i]+=p[i]*bu[m]; rhs_v[i]+=p[i]*bv[m];
+                for(int j=0;j<3;++j) normal[i][j]+=p[i]*p[j];
+            }
+        }
+        double Au[3][3],Av[3][3];
+        for(int i=0;i<3;++i) for(int j=0;j<3;++j) Au[i][j]=Av[i][j]=normal[i][j];
+        double cu[3],cv[3];
+        if(!solve3(Au,rhs_u,cu) || !solve3(Av,rhs_v,cv)) continue;
+        const double curl_t=(cv[1]-cu[2])/radius;
+        const double canonical=L*curl_t;
+        if(!std::isfinite(canonical)) continue;
+
+        if(edge.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for(const auto &a:edge.aliases) if(a.owner){owner_sign=a.orientation;break;}
+        const int fid=fields.field_id(edge_field_names[static_cast<int>(edge.owner.axis)]);
+        fields.field(fid,edge.owner.block)(edge.owner.i,edge.owner.j,edge.owner.k,0)=
+            owner_sign*canonical;
+    }
+}
 } // namespace METRIC

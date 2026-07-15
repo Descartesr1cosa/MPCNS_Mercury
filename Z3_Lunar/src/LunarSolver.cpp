@@ -176,15 +176,16 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
     consistent_m2_enabled_ = (hodge_mode == "consistent");
     singular_current_mode_ = par_->HasStr("singular_current_mode")
                                  ? par_->GetStr("singular_current_mode")
-                                 : "polygon";
+                                 : "polynomial";
     std::transform(singular_current_mode_.begin(), singular_current_mode_.end(),
                    singular_current_mode_.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (singular_current_mode_ != "quotient_m2" &&
         singular_current_mode_ != "polygon" &&
+        singular_current_mode_ != "polynomial" &&
         singular_current_mode_ != "regular")
         throw std::runtime_error(
-            "singular_current_mode must be 'quotient_m2', 'polygon', or 'regular'");
+            "singular_current_mode must be 'quotient_m2', 'polygon', 'polynomial', or 'regular'");
     if (singular_current_mode_ == "quotient_m2" && !consistent_m2_enabled_)
         throw std::runtime_error(
             "singular_current_mode='quotient_m2' requires hodge_M2_mode='consistent'");

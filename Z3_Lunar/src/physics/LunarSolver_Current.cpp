@@ -262,6 +262,12 @@ void LunarSolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
             *fld_, "Bind_cell", edge_names,
             consistent_m2_enabled_ ? 0.0 : regular_seam_curl_correction);
     }
+    else if(singular_current_mode_=="polynomial")
+    {
+        (void)fid_Bface;
+        singular_edges_->assemble_cell_vector_affine_curl_to_local_owners(
+            *fld_,"Bind_cell",edge_names);
+    }
 }
 
 void LunarSolver::Calc_J_Edge()

@@ -85,6 +85,10 @@ public:
         Field &fields,
         const std::array<std::string,3> &face_field_names,
         const std::array<std::string,3> &edge_field_names) const;
+    void assemble_cell_vector_affine_curl_to_local_owners(
+        Field &fields,
+        const std::string &cell_vector_field_name,
+        const std::array<std::string,3> &edge_field_names) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 

@@ -111,7 +111,7 @@ private:
     double hall_taper_r_max{0.0};
     bool hall_enabled_{true};
     bool consistent_m2_enabled_{true};
-    std::string singular_current_mode_{"polygon"};
+    std::string singular_current_mode_{"polynomial"};
     std::string singular_emf_mode_{"multisector_uct"};
 
     double momentum_induce_coeff{0.0};

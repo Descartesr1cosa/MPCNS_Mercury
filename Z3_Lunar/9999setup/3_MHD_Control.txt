@@ -11,8 +11,9 @@ bool    is_Hall_Efield                  1
 string  hodge_M2_mode                   consistent
 // Singular/shared edge current closure:
 // quotient_m2 assembles M1_lumped^{-1} d1^T M2B on unique physical faces;
-// polygon and regular are retained only for controlled A/B comparisons.
-string  singular_current_mode           polygon
+// polynomial is a local affine-exact extraordinary-edge closure;
+// quotient_m2 and regular are retained for controlled A/B comparisons.
+string  singular_current_mode           polynomial
 // Singular-edge ideal EMF: multisector_uct uses only the ordered real-cell
 // ring and physical fast waves; cell_average is the legacy A/B fallback.
 string  singular_emf_mode               multisector_uct
