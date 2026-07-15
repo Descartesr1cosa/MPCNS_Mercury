@@ -43,20 +43,23 @@ void LunarSolver::AssembleRHS_Induction_CT_()
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_E);
     AssembleSingularEdgeEMF_NonHall_();
 
-    AddHallEdgeEMF_();
-    lunar_bound_.Sync("Ehall");
-    for (int ib=0; ib<nb; ++ib)
+    if (hall_enabled_)
     {
-        auto add_one=[](FieldBlock &e,FieldBlock &h)
+        AddHallEdgeEMF_();
+        lunar_bound_.Sync("Ehall");
+        for (int ib=0; ib<nb; ++ib)
         {
-            if (!e.is_allocated() || !h.is_allocated()) return;
-            const Int3 lo=e.inner_lo(), hi=e.inner_hi();
-            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                e(i,j,k,0)+=h(i,j,k,0);
-        };
-        add_one(fld_->field(fid_.fid_E.xi,ib),fld_->field(fid_.fid_Ehall.xi,ib));
-        add_one(fld_->field(fid_.fid_E.eta,ib),fld_->field(fid_.fid_Ehall.eta,ib));
-        add_one(fld_->field(fid_.fid_E.zeta,ib),fld_->field(fid_.fid_Ehall.zeta,ib));
+            auto add_one=[](FieldBlock &e,FieldBlock &h)
+            {
+                if (!e.is_allocated() || !h.is_allocated()) return;
+                const Int3 lo=e.inner_lo(), hi=e.inner_hi();
+                for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+                    e(i,j,k,0)+=h(i,j,k,0);
+            };
+            add_one(fld_->field(fid_.fid_E.xi,ib),fld_->field(fid_.fid_Ehall.xi,ib));
+            add_one(fld_->field(fid_.fid_E.eta,ib),fld_->field(fid_.fid_Ehall.eta,ib));
+            add_one(fld_->field(fid_.fid_E.zeta,ib),fld_->field(fid_.fid_Ehall.zeta,ib));
+        }
     }
 
     // At an absorbing lunar boundary, U_H ghost states have already limited

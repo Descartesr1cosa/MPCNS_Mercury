@@ -7,7 +7,6 @@
 
 void LunarSolver::Compute_Timestep()
 {
-    const double rho_floor = 1e-2;
     const double p_floor = 1e-8;
 
     double dt_local = 1e100;
@@ -43,7 +42,16 @@ void LunarSolver::Compute_Timestep()
                         if (V <= 0.0)
                             continue;
 
-                        double rho = std::max(U(i, j, k, 0), rho_floor);
+                        // Use the actual positive density in the ideal-MHD
+                        // fast-wave CFL.  A large density floor suppresses
+                        // advective and Alfven speeds in the lunar wake and
+                        // can therefore overestimate the stable dt.
+                        const double rho = U(i, j, k, 0);
+                        if (!(rho > 0.0) || !std::isfinite(rho))
+                        {
+                            dt_local = 0.0;
+                            continue;
+                        }
                         double ux = U(i, j, k, 1) / rho;
                         double uy = U(i, j, k, 2) / rho;
                         double uz = U(i, j, k, 3) / rho;
@@ -52,7 +60,7 @@ void LunarSolver::Compute_Timestep()
 
                         // 压力：p = (gamma-1) * (E - ke)
                         double eint = E - ke;
-                        double p = (gamma_ - 1.0) * eint;
+                        double p = std::max((gamma_ - 1.0) * eint, p_floor);
 
                         double cs2 = gamma_ * p / rho;
 

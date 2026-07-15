@@ -102,6 +102,7 @@ private:
     double ambi_coef{0.0};
     double hall_taper_r_min{0.0};
     double hall_taper_r_max{0.0};
+    bool hall_enabled_{true};
 
     double momentum_induce_coeff{0.0};
     double momentum_hall_coeff{0.0};

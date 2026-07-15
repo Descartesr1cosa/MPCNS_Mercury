@@ -2,6 +2,9 @@
 int     num_of_dipole                   0
 
 bool    is_Ambipolar_Efield             1
+// Hall switch controls only the Hall contribution to the induction EMF.
+// The timestep remains the ideal-MHD fast-wave CFL in either state.
+bool    is_Hall_Efield                  1
 double  r_min                           1.1
 double  r_max                           1.2
 

@@ -153,6 +153,9 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
     runtime_data_->Begin(*run_data_, par_, count_global_cells());
 
     ambipolar_control.enabled = par_->GetBoo("is_Ambipolar_Efield");
+    // Keep legacy lunar cases Hall-enabled when the new switch is absent.
+    hall_enabled_ = !par_->HasBoo("is_Hall_Efield") ||
+                    par_->GetBoo("is_Hall_Efield");
     hall_taper_r_min = par_->GetDou("r_min");
     hall_taper_r_max = par_->GetDou("r_max");
 
