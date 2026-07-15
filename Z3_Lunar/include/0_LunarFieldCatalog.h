@@ -156,6 +156,19 @@ inline std::vector<FieldSpec> FieldSpecs()
          SyncContract("B_cell", true, true, true),
          FieldValueKind::CartesianVector},
 
+        // Lunar-only Tecplot caches.  These are rebuilt from real cell values
+        // through the quotient node-to-cell incidence immediately before a
+        // .plt write.  They deliberately have no halo/boundary contract:
+        // every physical node alias is assigned from the same MPI-reduced
+        // value, including variable-valence singular edges.
+        {"PV_H_tecnode", StaggerLocation::Node, 5, 0, "Fluid"},
+        {"B_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
+         FieldSyncContract{}, FieldValueKind::CartesianVector},
+        {"Bind_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
+         FieldSyncContract{}, FieldValueKind::CartesianVector},
+        {"J_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
+         FieldSyncContract{}, FieldValueKind::CartesianVector},
+
         // Fluid-side auxiliary fields.
         {"U_plus", StaggerLocation::Cell, 3, UseRuntimeGhost, "Fluid",
          SyncContract("Uplus", false, false, true), FieldValueKind::CartesianVector},

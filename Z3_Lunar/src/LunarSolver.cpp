@@ -45,22 +45,23 @@ LunarSolver::LunarSolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo
         std::vector<std::string> tec_block_name = {}; // 全部物理块输出
         io_.SetTecplotBlocks(tec_block_name);
 
-        std::vector<std::string> plt_name = {"PV_H", "B_cell", "Bind_cell", "J_cell"};
+        std::vector<std::string> plt_name = {
+            "PV_H_tecnode", "B_cell_tecnode", "Bind_cell_tecnode", "J_cell_tecnode"};
         io_.SetTecplotPhysicalOutputs(plt_name);
 
-        std::string fld_name = "PV_H";
+        std::string fld_name = "PV_H_tecnode";
         std::vector<std::string> var_name = {"u_H", "v_H", "w_H", "p_H", "T_H"};
         io_.SetTecplotFieldComponentNames(fld_name, var_name);
 
-        fld_name = "B_cell";
+        fld_name = "B_cell_tecnode";
         var_name = {"Bx", "By", "Bz"};
         io_.SetTecplotFieldComponentNames(fld_name, var_name);
 
-        fld_name = "Bind_cell";
+        fld_name = "Bind_cell_tecnode";
         var_name = {"bx_ind", "by_ind", "bz_ind"};
         io_.SetTecplotFieldComponentNames(fld_name, var_name);
 
-        fld_name = "J_cell";
+        fld_name = "J_cell_tecnode";
         var_name = {"Jx", "Jy", "Jz"};
         io_.SetTecplotFieldComponentNames(fld_name, var_name);
 

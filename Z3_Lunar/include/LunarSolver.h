@@ -159,6 +159,7 @@ private:
     void UpdateFluidDerivedFields_();
     void UpdateMagneticDerivedFields_();
     void UpdateDerivedFields_();
+    void UpdateTecplotNodeFields_();
     void calc_physical_constant(Param *par);
     void PrintMinMaxDiagnostics_();
     NumInfo Hall_Num_Limiter(double rhoH);

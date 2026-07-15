@@ -65,6 +65,11 @@ bool LunarSolver::UpdateControlAndOutput()
 
     if (control_.if_outfile)
     {
+        // Build application-owned nodal output from real quotient-mesh cell
+        // incidence.  In particular, do not let Tecplot interpolation sample
+        // degenerate block-local ghosts at a variable-valence singular edge.
+        UpdateTecplotNodeFields_();
+
         // 写新 DATA 前，先保护旧 DATA
         io_.BackupDataDirectory("./DATA_backup");
 
