@@ -57,168 +57,73 @@ void LunarSolver::AssembleSingularEdgeEMF_NonHall_()
 {
     if (!singular_edges_ || singular_edges_->empty()) return;
 
-    // One state per unique real sector around each quotient edge:
-    // u(3), B(3), rho, p, cell-centred non-Hall EMF 1-form.
-    constexpr int nstate=9;
-    constexpr double Cuct=0.5;
-    const auto &edges=singular_edges_->entries();
-    std::vector<std::size_t> offset(edges.size()+1,0);
-    for(std::size_t n=0;n<edges.size();++n)
-        offset[n+1]=offset[n]+edges[n].ordered_cell_centers.size();
-    const std::size_t nsector=offset.back();
-    std::vector<double> local(nstate*nsector,0.0),global(nstate*nsector,0.0);
-    std::vector<int> local_count(nsector,0),global_count(nsector,0);
-    std::vector<double> local_average(edges.size(),0.0),global_average(edges.size(),0.0);
+    auto contribution = [this](const METRIC::SingularPhysicalEdge &edge,
+                               const METRIC::WeightedIncidentEntity &inc) -> double
+    {
+        const auto &c=inc.entity;
+        FieldBlock &u=fld_->field(fid_.fid_U_plus,c.block);
+        FieldBlock &b=fld_->field(fid_.fid_Bcell,c.block);
+        if (!u.is_allocated() || !b.is_allocated()) return 0.0;
 
-    for(std::size_t n=0;n<edges.size();++n)
-        for(const auto &inc:edges[n].local_incident_cells)
+        const double ex=-(u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,2)-
+                          u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,1));
+        const double ey=-(u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,0)-
+                          u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
+        const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
+                          u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
+        double emf=ex*edge.canonical_edge_vector[0]+
+                   ey*edge.canonical_edge_vector[1]+
+                   ez*edge.canonical_edge_vector[2];
+
+        // Electron-pressure (ambipolar) contribution.  Along the singular
+        // line only the edge-tangent derivative is needed; transverse
+        // collapsed ghosts never enter this centered cell derivative.
+        if (ambipolar_control.enabled)
         {
-            if(inc.sector_index<0) continue;
-            const auto &c=inc.entity;
-            FieldBlock &u=fld_->field(fid_.fid_U_plus,c.block);
-            FieldBlock &b=fld_->field(fid_.fid_Bcell,c.block);
-            FieldBlock &uH=fld_->field(fid_.fid_U_H,c.block);
             FieldBlock &pH=fld_->field(fid_.fid_PV_H,c.block);
-            FieldBlock &jc=fld_->field(fid_.fid_Jcell,c.block);
-            if(!u.is_allocated() || !b.is_allocated() || !uH.is_allocated() ||
-               !pH.is_allocated() || !jc.is_allocated()) continue;
-            const std::size_t s=offset[n]+static_cast<std::size_t>(inc.sector_index);
-            double *q=&local[nstate*s];
-            for(int d=0;d<3;++d) { q[d]+=u(c.i,c.j,c.k,d); q[3+d]+=b(c.i,c.j,c.k,d); }
-            q[6]+=uH(c.i,c.j,c.k,0);
-            q[7]+=pH(c.i,c.j,c.k,3);
-
-            const double ex=-(u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,2)-
-                              u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,1));
-            const double ey=-(u(c.i,c.j,c.k,2)*b(c.i,c.j,c.k,0)-
-                              u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,2));
-            const double ez=-(u(c.i,c.j,c.k,0)*b(c.i,c.j,c.k,1)-
-                              u(c.i,c.j,c.k,1)*b(c.i,c.j,c.k,0));
-            double emf=ex*edges[n].canonical_edge_vector[0]+
-                       ey*edges[n].canonical_edge_vector[1]+
-                       ez*edges[n].canonical_edge_vector[2];
-
-            // Non-ideal terms retain their physical-cell reconstruction.  The
-            // only centered derivative is tangent to the real edge; collapsed
-            // transverse ghosts are never used.
-            if(ambipolar_control.enabled)
-            {
-                int im=c.i,jm=c.j,km=c.k,ip=c.i,jp=c.j,kp=c.k;
-                const int ax=static_cast<int>(inc.source_alias.axis);
-                if(ax==0){--im;++ip;} else if(ax==1){--jm;++jp;} else {--km;++kp;}
-                const double dp=0.5*(pH(ip,jp,kp,3)-pH(im,jm,km,3));
-                const NumInfo num=Hall_Num_Limiter(uH(c.i,c.j,c.k,0));
-                const double pressure_coef=(rho_ref*U_ref)/(q_e*L_ref*B_ref*n_ref);
-                emf-=pressure_coef*inc.source_orientation*dp/num.ne_eff;
-            }
-            const double jedge=jc(c.i,c.j,c.k,0)*edges[n].canonical_edge_vector[0]+
-                               jc(c.i,c.j,c.k,1)*edges[n].canonical_edge_vector[1]+
-                               jc(c.i,c.j,c.k,2)*edges[n].canonical_edge_vector[2];
-            const double jmag=std::sqrt(jc(c.i,c.j,c.k,0)*jc(c.i,c.j,c.k,0)+
-                                        jc(c.i,c.j,c.k,1)*jc(c.i,c.j,c.k,1)+
-                                        jc(c.i,c.j,c.k,2)*jc(c.i,c.j,c.k,2));
-            if(arti_resist_control.eta_max>0.0)
-            {
-                double a=(jmag-arti_resist_control.J_range_start)/
-                    std::max(arti_resist_control.J_range_on-arti_resist_control.J_range_start,1.e-30);
-                a=std::max(0.0,std::min(1.0,a));
-                emf+=arti_resist_control.eta_max*a*a*(3.0-2.0*a)*jedge;
-            }
-            if(arti_resist_control.local_enabled && arti_resist_control.local_eta_max>0.0)
-            {
-                auto &cx=grd_->grids(c.block).dual_x;
-                auto &cy=grd_->grids(c.block).dual_y;
-                auto &cz=grd_->grids(c.block).dual_z;
-                const double dx=cx(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[0];
-                const double dy=cy(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[1];
-                const double dz=cz(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[2];
-                const double rr=std::sqrt(dx*dx+dy*dy+dz*dz);
-                if(arti_resist_control.local_r_cutoff<=0.0 || rr<arti_resist_control.local_r_cutoff)
-                    emf+=arti_resist_control.local_eta_max*
-                         std::exp(-rr/arti_resist_control.local_r_decay)*jedge;
-            }
-            q[8]+=emf;
-            local_average[n]+=inc.weight*emf;
-            ++local_count[s];
+            FieldBlock &uH=fld_->field(fid_.fid_U_H,c.block);
+            int im=c.i,jm=c.j,km=c.k, ip=c.i,jp=c.j,kp=c.k;
+            const int ax=static_cast<int>(inc.source_alias.axis);
+            if (ax==0) { --im; ++ip; } else if (ax==1) { --jm; ++jp; } else { --km; ++kp; }
+            const double dp=0.5*(pH(ip,jp,kp,3)-
+                                 pH(im,jm,km,3));
+            const NumInfo num=Hall_Num_Limiter(uH(c.i,c.j,c.k,0));
+            const double pressure_coef=(rho_ref*U_ref)/(q_e*L_ref*B_ref*n_ref);
+            emf -= pressure_coef*inc.source_orientation*dp/num.ne_eff;
         }
 
-    MPI_Allreduce(local.data(),global.data(),static_cast<int>(global.size()),
-                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-    MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(global_count.size()),
-                  MPI_INT,MPI_SUM,MPI_COMM_WORLD);
-    MPI_Allreduce(local_average.data(),global_average.data(),static_cast<int>(global_average.size()),
-                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-
-    auto dot=[](const double *a,const std::array<double,3> &b)
-    { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; };
-    auto fast_speed=[&](const double *q,const std::array<double,3> &normal)
-    {
-        // Use the actual positive density, matching the ideal-MHD CFL policy.
-        const double rho=q[6];
-        if(!(rho>0.0) || !std::isfinite(rho)) return 0.0;
-        const double p=std::max(q[7],1.e-8);
-        const double cs2=gamma_*p/rho;
-        const double b2=q[3]*q[3]+q[4]*q[4]+q[5]*q[5];
-        const double bn=q[3]*normal[0]+q[4]*normal[1]+q[5]*normal[2];
-        const double va2=inver_MA2*b2/rho;
-        const double van2=inver_MA2*bn*bn/rho;
-        const double term=cs2+va2;
-        const double disc=std::max(0.0,term*term-4.0*cs2*van2);
-        const double cf=std::sqrt(std::max(0.0,0.5*(term+std::sqrt(disc))));
-        return std::abs(dot(q,normal))+cf;
+        // Artificial resistivity is reconstructed from physical cell J and
+        // the canonical edge vector, rather than a block-local edge alias.
+        FieldBlock &jc=fld_->field(fid_.fid_Jcell,c.block);
+        const double jedge=jc(c.i,c.j,c.k,0)*edge.canonical_edge_vector[0]+
+                           jc(c.i,c.j,c.k,1)*edge.canonical_edge_vector[1]+
+                           jc(c.i,c.j,c.k,2)*edge.canonical_edge_vector[2];
+        const double jmag=std::sqrt(jc(c.i,c.j,c.k,0)*jc(c.i,c.j,c.k,0)+
+                                    jc(c.i,c.j,c.k,1)*jc(c.i,c.j,c.k,1)+
+                                    jc(c.i,c.j,c.k,2)*jc(c.i,c.j,c.k,2));
+        if (arti_resist_control.eta_max>0.0)
+        {
+            double q=(jmag-arti_resist_control.J_range_start)/
+                     std::max(arti_resist_control.J_range_on-arti_resist_control.J_range_start,1.e-30);
+            q=std::max(0.0,std::min(1.0,q));
+            emf += arti_resist_control.eta_max*q*q*(3.0-2.0*q)*jedge;
+        }
+        if (arti_resist_control.local_enabled && arti_resist_control.local_eta_max>0.0)
+        {
+            auto &cx=grd_->grids(c.block).dual_x; auto &cy=grd_->grids(c.block).dual_y; auto &cz=grd_->grids(c.block).dual_z;
+            const double dx=cx(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[0];
+            const double dy=cy(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[1];
+            const double dz=cz(c.i+1,c.j+1,c.k+1)-arti_resist_control.local_center[2];
+            const double rr=std::sqrt(dx*dx+dy*dy+dz*dz);
+            if (arti_resist_control.local_r_cutoff<=0.0 || rr<arti_resist_control.local_r_cutoff)
+                emf += arti_resist_control.local_eta_max*std::exp(-rr/arti_resist_control.local_r_decay)*jedge;
+        }
+        return emf;
     };
 
-    for(std::size_t n=0;n<edges.size();++n)
-    {
-        const auto &edge=edges[n];
-        const std::size_t ns=edge.ordered_cell_centers.size();
-        if(ns<3 || edge.owner.rank!=par_->GetInt("myid")) continue;
-        int owner_sign=+1;
-        for(const auto &alias:edge.aliases) if(alias.owner){owner_sign=alias.orientation;break;}
-        const int fid=fid_.fid_E.at(static_cast<int>(edge.owner.axis)+1);
-        if(singular_emf_mode_=="cell_average")
-        {
-            fld_->field(fid,edge.owner.block)(edge.owner.i,edge.owner.j,edge.owner.k,0)=
-                owner_sign*global_average[n];
-            continue;
-        }
-        const double L=std::sqrt(edge.canonical_edge_vector[0]*edge.canonical_edge_vector[0]+
-                                 edge.canonical_edge_vector[1]*edge.canonical_edge_vector[1]+
-                                 edge.canonical_edge_vector[2]*edge.canonical_edge_vector[2]);
-        if(!(L>0.0)) continue;
-        const std::array<double,3> t{{edge.canonical_edge_vector[0]/L,
-                                      edge.canonical_edge_vector[1]/L,
-                                      edge.canonical_edge_vector[2]/L}};
-        double emf_sum=0.0,weight_sum=0.0;
-        for(std::size_t m=0;m<ns;++m)
-        {
-            const std::size_t ia=offset[n]+m,ib=offset[n]+(m+1)%ns;
-            if(global_count[ia]!=1 || global_count[ib]!=1)
-                throw std::runtime_error("Singular EMF sector does not map to one unique real cell");
-            const double *qa=&global[nstate*ia],*qb=&global[nstate*ib];
-            std::array<double,3> normal{{
-                edge.ordered_cell_centers[(m+1)%ns][0]-edge.ordered_cell_centers[m][0],
-                edge.ordered_cell_centers[(m+1)%ns][1]-edge.ordered_cell_centers[m][1],
-                edge.ordered_cell_centers[(m+1)%ns][2]-edge.ordered_cell_centers[m][2]}};
-            const double nt=normal[0]*t[0]+normal[1]*t[1]+normal[2]*t[2];
-            for(int d=0;d<3;++d) normal[d]-=nt*t[d];
-            const double dn=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
-            if(!(dn>0.0)) continue;
-            for(double &v:normal) v/=dn;
-            // Transverse magnetic component carried by this incident face.
-            const std::array<double,3> side{{normal[1]*t[2]-normal[2]*t[1],
-                                             normal[2]*t[0]-normal[0]*t[2],
-                                             normal[0]*t[1]-normal[1]*t[0]}};
-            const double dBs=(qb[3]-qa[3])*side[0]+(qb[4]-qa[4])*side[1]+(qb[5]-qa[5])*side[2];
-            const double a=std::max(fast_speed(qa,normal),fast_speed(qb,normal));
-            const double pair_emf=0.5*(qa[8]+qb[8])+Cuct*0.5*a*dBs*L;
-            emf_sum+=dn*pair_emf;
-            weight_sum+=dn;
-        }
-        if(!(weight_sum>0.0)) continue;
-        fld_->field(fid,edge.owner.block)(edge.owner.i,edge.owner.j,edge.owner.k,0)=
-            owner_sign*emf_sum/weight_sum;
-    }
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_xi",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_eta",contribution);
+    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_zeta",contribution);
 }
 
 //=========================================================================

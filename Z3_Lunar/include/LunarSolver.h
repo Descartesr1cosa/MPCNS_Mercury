@@ -110,9 +110,6 @@ private:
     double hall_taper_r_min{0.0};
     double hall_taper_r_max{0.0};
     bool hall_enabled_{true};
-    bool consistent_m2_enabled_{true};
-    std::string singular_current_mode_{"polynomial"};
-    std::string singular_emf_mode_{"multisector_uct"};
 
     double momentum_induce_coeff{0.0};
     double momentum_hall_coeff{0.0};
@@ -147,25 +144,9 @@ private:
     std::vector<double> edge_alias_reduce_local_sum_;
     std::vector<double> edge_alias_reduce_global_sum_;
 
-    // A consistent cell M2 contributes independently from both cells sharing
-    // a quotient face. Sum the oriented contributions by quotient-face class
-    // and write the assembled value to every local representative.
-    bool face_contribution_reduce_cache_ready_{false};
-    std::vector<const TOPO::EquivClass *> face_contribution_reduce_classes_;
-    struct FaceContributionLocalTerm_
-    {
-        std::size_t class_index=0;
-        TOPO::EntityKey face;
-        int orient_sign=1;
-    };
-    std::vector<FaceContributionLocalTerm_> face_contribution_local_terms_;
-    std::vector<double> face_contribution_local_sum_;
-    std::vector<double> face_contribution_global_sum_;
-
     std::vector<HallFaceScratchBlock> hall_face_scratch_;
     void SetupHallFaceScratch_();
     void SetupCellReconstructionWeights_();
-    void CanonicalizeSharedFaceGeometry_();
 
 private:
     //=========================================================================
@@ -211,9 +192,6 @@ private:
     void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                       const IdTriplet &fid_Jedge);
     void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);
-    void ApplyConsistentM2ToBface_();
-    void ReduceFaceContributionsToOwners_(const IdTriplet &fid_face);
-    void ExtrapolatePhysicalBoundaryTangentialCurrent_();
 
     // 只更新 Bface: Bface += dt_sub * RHS_b
     void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);

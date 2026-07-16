@@ -5,18 +5,6 @@ bool    is_Ambipolar_Efield             1
 // Hall switch controls only the Hall contribution to the induction EMF.
 // The timestep remains the ideal-MHD fast-wave CFL in either state.
 bool    is_Hall_Efield                  1
-// Face Hodge used by J = M1_lumped^{-1} D^T M2 B.
-// "consistent" assembles the local 6x6 cell mass matrices on quotient faces;
-// "lumped" retains the original diagonal face metric for A/B comparison.
-string  hodge_M2_mode                   consistent
-// Singular/shared edge current closure:
-// quotient_m2 assembles M1_lumped^{-1} d1^T M2B on unique physical faces;
-// polynomial is a local affine-exact extraordinary-edge closure;
-// quotient_m2 and regular are retained for controlled A/B comparisons.
-string  singular_current_mode           polynomial
-// Singular-edge ideal EMF: multisector_uct uses only the ordered real-cell
-// ring and physical fast waves; cell_average is the legacy A/B fallback.
-string  singular_emf_mode               multisector_uct
 double  r_min                           1.1
 double  r_max                           1.2
 

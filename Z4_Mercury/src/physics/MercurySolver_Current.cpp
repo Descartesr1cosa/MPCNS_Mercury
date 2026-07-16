@@ -1,12 +1,5 @@
 #include "MercurySolver.h"
 
-namespace
-{
-// Keep the shared current operator consistent with Lunar.  Extraordinary
-// edges use the full dual polygon; ordinary seams use a deferred correction.
-constexpr double regular_seam_curl_correction = 0.25;
-}
-
 void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
 {
     if(!topo_) return;
@@ -72,8 +65,7 @@ void MercurySolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
         *fld_, "Bind_cell",
         {fld_->descriptor(fid_Jedge.xi).name,
          fld_->descriptor(fid_Jedge.eta).name,
-         fld_->descriptor(fid_Jedge.zeta).name},
-        regular_seam_curl_correction);
+         fld_->descriptor(fid_Jedge.zeta).name});
 }
 
 void MercurySolver::Calc_J_Edge()

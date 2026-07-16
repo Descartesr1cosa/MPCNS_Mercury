@@ -175,23 +175,6 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"PV_H", StaggerLocation::Cell, 5, UseRuntimeGhost, "Fluid"},
         {"Bcell_from_Bface_w", StaggerLocation::Cell, 18, UseRuntimeGhost, ""},
         {"Jcell_from_Jedge_w", StaggerLocation::Cell, 36, UseRuntimeGhost, ""},
-        // Local MFD/DEC face Hodge and its assembled application.  M2 is a
-        // symmetric 6x6 matrix per real/physical-ghost cell; M2B is a
-        // face-stored covariant dual 1-form and must be reconciled across
-        // quotient faces before D^T.
-        {"Hodge_M2_cell_consistent", StaggerLocation::Cell, 36, UseRuntimeGhost, ""},
-        {"M2B_xi", StaggerLocation::FaceXi, 1, UseRuntimeGhost, "",
-         SyncContract("M2Bface", false, false, true, HaloLevel::Corner3D,
-                      OwnerSyncPolicy::FaceOwner, true),
-         FieldValueKind::FaceContravariant2Form},
-        {"M2B_eta", StaggerLocation::FaceEt, 1, UseRuntimeGhost, "",
-         SyncContract("M2Bface", false, false, true, HaloLevel::Corner3D,
-                      OwnerSyncPolicy::FaceOwner, true),
-         FieldValueKind::FaceContravariant2Form},
-        {"M2B_zeta", StaggerLocation::FaceZe, 1, UseRuntimeGhost, "",
-         SyncContract("M2Bface", false, false, true, HaloLevel::Corner3D,
-                      OwnerSyncPolicy::FaceOwner, true),
-         FieldValueKind::FaceContravariant2Form},
 
         // Work fields with no halo contract.
         {"F_xi", StaggerLocation::FaceXi, 5, 0, "Fluid"},

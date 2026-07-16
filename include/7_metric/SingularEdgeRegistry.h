@@ -29,11 +29,6 @@ struct WeightedIncidentEntity
     TOPO::EntityKey source_alias{TOPO::EntityDim::Edge,0,0,0,0,0,TOPO::EntityAxis::Xi};
     int source_orientation = +1;
     int sector_index = -1;
-    // Orientation of this entity to its quotient owner and the coefficient
-    // in the canonical quotient coboundary row.  The latter is meaningful
-    // for incident faces of an edge.
-    int entity_orientation = +1;
-    int quotient_incidence = 0;
 };
 
 // One record represents one edge of the quotient (physical) mesh.  Records
@@ -53,7 +48,6 @@ struct SingularPhysicalEdge
     // Unique real-cell centers ordered counter-clockwise when viewed along
     // canonical_edge_vector.  They form the boundary of the dual face.
     std::vector<std::array<double,3>> ordered_cell_centers;
-    bool variable_valence = false;
     int global_valid_cell_count = 0;
     int global_valid_face_count = 0;
 };
@@ -79,25 +73,12 @@ public:
     void assemble_cell_vector_circulation_to_local_owners(
         Field &fields,
         const std::string &cell_vector_field_name,
-        const std::array<std::string,3> &edge_field_names,
-        double regular_edge_blend = 1.0) const;
-    void assemble_consistent_face_coboundary_to_local_owners(
-        Field &fields,
-        const std::array<std::string,3> &face_field_names,
-        const std::array<std::string,3> &edge_field_names) const;
-    void assemble_cell_vector_affine_curl_to_local_owners(
-        Field &fields,
-        const std::string &cell_vector_field_name,
         const std::array<std::string,3> &edge_field_names) const;
     bool empty() const { return entries_.empty(); }
     std::size_t size() const { return entries_.size(); }
 
 private:
     std::vector<SingularPhysicalEdge> entries_;
-    // All shared quotient edges with a closed real-cell dual polygon.  This
-    // includes ordinary two-panel seam edges as well as variable-valence
-    // singular edges, but is used only by the current/curl operator.
-    std::vector<SingularPhysicalEdge> curl_entries_;
     std::unordered_map<int, std::size_t> gid_to_index_;
     int rank_ = 0;
 };

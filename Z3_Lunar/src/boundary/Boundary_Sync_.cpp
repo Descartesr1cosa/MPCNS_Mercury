@@ -102,7 +102,6 @@ void LunarBoundary::Sync_(const BoundGroup &g)
     // This is essential at cubic-sphere singular edges (three incident blocks).
     if (g.do_halo &&
         (g.name == "Bface" || g.name == "Badd" || g.name == "dB" ||
-         g.name == "M2Bface" ||
          g.name == "Eedge" || g.name == "Ehall" || g.name == "Eres" ||
          g.name == "Jedge" || g.name == "dJ"))
     {

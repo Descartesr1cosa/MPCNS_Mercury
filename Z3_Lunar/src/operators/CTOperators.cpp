@@ -108,30 +108,4 @@ namespace CTOperators
                     }
         }
     }
-
-    void CurlAdjMetricFaceToEdge(int iblk,
-                                 FieldBlock &Fxi, FieldBlock &Feta, FieldBlock &Fzeta,
-                                 FieldBlock &Exi, FieldBlock &Eeta, FieldBlock &Ezeta,
-                                 double multiper)
-    {
-        (void)iblk;
-        {
-            const Int3 lo=Exi.inner_lo(),hi=Exi.inner_hi();
-            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                Exi(i,j,k,0)=multiper*((Feta(i,j,k-1,0)-Feta(i,j,k,0))+
-                                      (Fzeta(i,j,k,0)-Fzeta(i,j-1,k,0)));
-        }
-        {
-            const Int3 lo=Eeta.inner_lo(),hi=Eeta.inner_hi();
-            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                Eeta(i,j,k,0)=multiper*((Fxi(i,j,k,0)-Fxi(i,j,k-1,0))+
-                                       (Fzeta(i-1,j,k,0)-Fzeta(i,j,k,0)));
-        }
-        {
-            const Int3 lo=Ezeta.inner_lo(),hi=Ezeta.inner_hi();
-            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                Ezeta(i,j,k,0)=multiper*((Fxi(i,j-1,k,0)-Fxi(i,j,k,0))+
-                                        (Feta(i,j,k,0)-Feta(i-1,j,k,0)));
-        }
-    }
 }
