@@ -4,7 +4,9 @@
 Hall, ambipolar, CT, and I/O infrastructure. Its plasma model contains one H+
 fluid only. It has no second-ion conservation system or related production and
 collision sources, no interior physical-resistivity solve, and no material
-coupling channels. Every loaded grid block is treated as `Fluid`.
+coupling channels. Loaded `Fluid` and `Solid` block names are preserved. A
+`Solid` block carries the initialized magnetic field but is not advanced; the
+fluid-side `Coupled-Solid` surface uses the absorbing boundary condition.
 
 Build from the repository root:
 

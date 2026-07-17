@@ -439,7 +439,8 @@ void LunarSolver::ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &f
         auto &RHSB_eta = fld_->field(fid_RHSB.eta, ib);
         auto &RHSB_zeta = fld_->field(fid_RHSB.zeta, ib);
 
-        if (!Ub_xi.is_allocated())
+        if (!Ub_xi.is_allocated() || !Ub_eta.is_allocated() || !Ub_zeta.is_allocated() ||
+            !RHSB_xi.is_allocated() || !RHSB_eta.is_allocated() || !RHSB_zeta.is_allocated())
             continue;
 
         {

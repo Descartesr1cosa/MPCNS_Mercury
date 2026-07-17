@@ -10,7 +10,7 @@ void LunarSolver::AssembleRHS_Induction_CT_()
         auto &Exi = fld_->field(fid_.fid_E.xi, ib);
         auto &Eeta = fld_->field(fid_.fid_E.eta, ib);
         auto &Eze = fld_->field(fid_.fid_E.zeta, ib);
-        if (!Exi.is_allocated())
+        if (!Exi.is_allocated() || !Eeta.is_allocated() || !Eze.is_allocated())
             continue;
 
         auto zero_electric = [&](FieldBlock &E)
@@ -78,7 +78,8 @@ void LunarSolver::AssembleRHS_Induction_CT_()
         auto &RHSBxi = fld_->field(fid_.fid_RHS_b.xi, ib);
         auto &RHSBeta = fld_->field(fid_.fid_RHS_b.eta, ib);
         auto &RHSBze = fld_->field(fid_.fid_RHS_b.zeta, ib);
-        if (!Exi.is_allocated())
+        if (!Exi.is_allocated() || !Eeta.is_allocated() || !Eze.is_allocated() ||
+            !RHSBxi.is_allocated() || !RHSBeta.is_allocated() || !RHSBze.is_allocated())
             continue;
 
         CTOperators::CurlEdgeToFace(ib, Exi, Eeta, Eze, RHSBxi, RHSBeta, RHSBze, /*multiper=*/-1.0);

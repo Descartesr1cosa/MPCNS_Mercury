@@ -73,7 +73,8 @@ private:
         HaloLevel halo_level = HaloLevel::Corner3D;
         int ngh = 0; // reserved: boundary ngh (if BoundaryCore later supports per-call ngh)
 
-        // Empty for the all-fluid Lunar application.
+        // Empty because Lunar treats Fluid/Solid interfaces as physical
+        // Coupled-Solid/Coupled-Fluid surfaces, not data-coupling channels.
         std::vector<std::pair<std::string, std::string>> coupling_pairs;
     };
 

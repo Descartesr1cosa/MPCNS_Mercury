@@ -43,9 +43,6 @@ int main(int arg, char **argv)
         // Read Grid and Preprocess the Grid related info
         Grid *grd = new Grid;
         grd->Grid_Preprocess(par);
-        // Z3_Lunar has a single physical region: every grid block is fluid.
-        for (int ib = 0; ib < grd->nblock; ++ib)
-            grd->grids(ib).block_name = "Fluid";
         LUNAR::ValidateCubicSphereGridOrAbort(*grd, par->GetInt("ngg"), myid);
         //--------------------------------------------------------------------------
         // Build topology

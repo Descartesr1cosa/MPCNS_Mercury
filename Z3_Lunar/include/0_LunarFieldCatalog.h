@@ -181,12 +181,15 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"F_eta", StaggerLocation::FaceEt, 5, 0, "Fluid"},
         {"F_zeta", StaggerLocation::FaceZe, 5, 0, "Fluid"},
         {"RHS_H", StaggerLocation::Cell, 5, 0, "Fluid"},
-        {"RHS_B_xi", StaggerLocation::FaceXi, 1, 0, ""},
-        {"RHS_B_eta", StaggerLocation::FaceEt, 1, 0, ""},
-        {"RHS_B_zeta", StaggerLocation::FaceZe, 1, 0, ""},
-        {"RHS_Bres_xi", StaggerLocation::FaceXi, 1, 0, ""},
-        {"RHS_Bres_eta", StaggerLocation::FaceEt, 1, 0, ""},
-        {"RHS_Bres_zeta", StaggerLocation::FaceZe, 1, 0, ""},
+        // Solid carries initialized B/Badd, but it has no induction solve.
+        // Keeping magnetic RHS storage Fluid-only makes that invariant
+        // structural: the time-update loops cannot modify a Solid block.
+        {"RHS_B_xi", StaggerLocation::FaceXi, 1, 0, "Fluid"},
+        {"RHS_B_eta", StaggerLocation::FaceEt, 1, 0, "Fluid"},
+        {"RHS_B_zeta", StaggerLocation::FaceZe, 1, 0, "Fluid"},
+        {"RHS_Bres_xi", StaggerLocation::FaceXi, 1, 0, "Fluid"},
+        {"RHS_Bres_eta", StaggerLocation::FaceEt, 1, 0, "Fluid"},
+        {"RHS_Bres_zeta", StaggerLocation::FaceZe, 1, 0, "Fluid"},
         {"divB", StaggerLocation::Cell, 1, 1, ""},
 
         // Increment fields used by the implicit physical-resistivity solve.
@@ -323,8 +326,9 @@ inline void RegisterCouplingChannels(Field *fld,
                                      const TOPO::Topology &topology,
                                      int dimension)
 {
-    // Z3_Lunar is an all-fluid application and declares no inter-material
-    // coupling channels.
+    // Lunar handles Fluid/Solid interfaces as physical boundaries. Magnetic
+    // initialization exists on both materials, but no field is transferred
+    // through an inter-material coupling channel.
     const std::vector<Field::PairKey> directed_pairs;
     fld->register_declared_coupling_channels(directed_pairs);
 

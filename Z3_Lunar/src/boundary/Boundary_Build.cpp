@@ -18,8 +18,7 @@ void LunarBoundary::InstallHandlers()
     // 0. Default physical handlers
     //
     // 原则：
-    //   Outflow / Farfield / Pole 默认 copy；
-    //   this application has no material-interface handlers.
+    //   Outflow / Farfield / Pole / material interfaces 默认 copy；
     //
     // 后面只覆盖真正需要特殊处理的字段。
     // -------------------------------------------------------------------------
@@ -29,6 +28,8 @@ void LunarBoundary::InstallHandlers()
         RegisterPhysical_(fn, "Absorbing", copy);
         RegisterPhysical_(fn, "Farfield", copy);
         RegisterPhysical_(fn, "Pole", copy);
+        RegisterPhysical_(fn, "Coupled-Solid", copy);
+        RegisterPhysical_(fn, "Coupled-Fluid", copy);
 
     }
 
@@ -48,6 +49,15 @@ void LunarBoundary::InstallHandlers()
                       });
 
     RegisterPhysical_("U_H", "Absorbing",
+                      [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
+                      {
+                          this->BC_UH_Absorbing_(U, fld, r, ngh);
+                      });
+
+    // The topology names the fluid side of a Fluid/Solid interface
+    // Coupled-Solid. Reuse the absorbing lunar-wall state on that side.
+    // Coupled-Fluid belongs to Solid, where U_H is not allocated.
+    RegisterPhysical_("U_H", "Coupled-Solid",
                       [this](FieldBlock &U, Field *fld, const BOUND::PhysicalRegion &r, int ngh)
                       {
                           this->BC_UH_Absorbing_(U, fld, r, ngh);
