@@ -162,9 +162,9 @@ inline std::vector<FieldSpec> FieldSpecs()
         // every physical node alias is assigned from the same MPI-reduced
         // value, including variable-valence singular edges.
         {"PV_H_tecnode", StaggerLocation::Node, 5, 0, "Fluid"},
-        {"B_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
+        {"B_cell_tecnode", StaggerLocation::Node, 3, 0, "",
          FieldSyncContract{}, FieldValueKind::CartesianVector},
-        {"Bind_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
+        {"Bind_cell_tecnode", StaggerLocation::Node, 3, 0, "",
          FieldSyncContract{}, FieldValueKind::CartesianVector},
         {"J_cell_tecnode", StaggerLocation::Node, 3, 0, "Fluid",
          FieldSyncContract{}, FieldValueKind::CartesianVector},
