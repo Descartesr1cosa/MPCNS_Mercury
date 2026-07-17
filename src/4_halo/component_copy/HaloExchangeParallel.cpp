@@ -348,6 +348,11 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     //-------------------------------------------------------------------------
     // 检测缓冲空间是否足够
     const int num_face_send = pat_send.regions.size();
+    // Parallel corner patterns exclude material-coupling patches.  Therefore
+    // both ends of every retained region have the same block physics and a
+    // physics-scoped field is active (or inactive) on both ranks.  Skip the
+    // inactive pair locally instead of dereferencing its empty FieldBlock.
+    std::vector<unsigned char> send_active(num_face_send, 0);
     if (send_buf.size() < num_face_send)
         send_buf.resize(num_face_send);
     if (req_send.size() < num_face_send)
@@ -362,6 +367,13 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     for (const HaloRegion &r : pat_send.regions)
     {
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
+        send_active[index] = fb.is_allocated() ? 1 : 0;
+        if (!send_active[index])
+        {
+            length[index] = 0;
+            ++index;
+            continue;
+        }
 
         const Box3 &sb = r.send_box; // 本块 inner strip
 
@@ -432,6 +444,7 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     //-------------------------------------------------------------------------
     // 检测缓冲空间是否足够
     const int num_face_recv = pat_recv.regions.size();
+    std::vector<unsigned char> recv_active(num_face_recv, 0);
     if (recv_buf.size() < num_face_recv)
         recv_buf.resize(num_face_recv);
     if (req_recv.size() < num_face_recv)
@@ -446,6 +459,13 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     for (const HaloRegion &r : pat_recv.regions)
     {
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
+        recv_active[index_recv] = fb.is_allocated() ? 1 : 0;
+        if (!recv_active[index_recv])
+        {
+            length_corner_recv[index_recv] = 0;
+            ++index_recv;
+            continue;
+        }
 
         const Box3 &rb = r.recv_box; // 本块 ghost strip
 
@@ -472,13 +492,19 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     index = 0;
     for (const HaloRegion &r : pat_send.regions)
     {
-        PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
+        if (send_active[index])
+            PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
+        else
+            req_send[index] = MPI_REQUEST_NULL;
         index++;
     }
     index_recv = 0;
     for (const HaloRegion &r : pat_recv.regions)
     {
-        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index_recv].data(), length_corner_recv[index_recv], &(req_recv[index_recv]));
+        if (recv_active[index_recv])
+            PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index_recv].data(), length_corner_recv[index_recv], &(req_recv[index_recv]));
+        else
+            req_recv[index_recv] = MPI_REQUEST_NULL;
         index_recv++;
     }
     //----------------------------------------------------------------------
@@ -495,6 +521,11 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
     index_recv = 0;
     for (const HaloRegion &r : pat_recv.regions)
     {
+        if (!recv_active[index_recv])
+        {
+            ++index_recv;
+            continue;
+        }
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
         const Box3 &rb = r.recv_box;                     // 要填充的 halo 区域
 
@@ -585,6 +616,9 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     //-------------------------------------------------------------------------
     // 检测缓冲空间是否足够
     const int num_face_send = pat_send.regions.size();
+    // See exchange_parallel_vertex(): non-coupling edge peers have matching
+    // field allocation, so inactive regions must post no MPI request.
+    std::vector<unsigned char> send_active(num_face_send, 0);
     if (send_buf.size() < num_face_send)
         send_buf.resize(num_face_send);
     if (req_send.size() < num_face_send)
@@ -599,6 +633,13 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     for (const HaloRegion &r : pat_send.regions)
     {
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
+        send_active[index] = fb.is_allocated() ? 1 : 0;
+        if (!send_active[index])
+        {
+            length[index] = 0;
+            ++index;
+            continue;
+        }
 
         const Box3 &sb = r.send_box; // 本块 inner strip
 
@@ -669,6 +710,7 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     //-------------------------------------------------------------------------
     // 检测缓冲空间是否足够
     const int num_face_recv = pat_recv.regions.size();
+    std::vector<unsigned char> recv_active(num_face_recv, 0);
     if (recv_buf.size() < num_face_recv)
         recv_buf.resize(num_face_recv);
     if (req_recv.size() < num_face_recv)
@@ -683,6 +725,13 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     for (const HaloRegion &r : pat_recv.regions)
     {
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
+        recv_active[index_recv] = fb.is_allocated() ? 1 : 0;
+        if (!recv_active[index_recv])
+        {
+            length_corner_recv[index_recv] = 0;
+            ++index_recv;
+            continue;
+        }
 
         const Box3 &rb = r.recv_box; // 本块 ghost strip
 
@@ -709,13 +758,19 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     index = 0;
     for (const HaloRegion &r : pat_send.regions)
     {
-        PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
+        if (send_active[index])
+            PARALLEL::mpi_data_send(r.neighbor_rank, r.send_flag, send_buf[index].data(), length[index], &(req_send[index]));
+        else
+            req_send[index] = MPI_REQUEST_NULL;
         index++;
     }
     index_recv = 0;
     for (const HaloRegion &r : pat_recv.regions)
     {
-        PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index_recv].data(), length_corner_recv[index_recv], &(req_recv[index_recv]));
+        if (recv_active[index_recv])
+            PARALLEL::mpi_data_recv(r.neighbor_rank, r.recv_flag, recv_buf[index_recv].data(), length_corner_recv[index_recv], &(req_recv[index_recv]));
+        else
+            req_recv[index_recv] = MPI_REQUEST_NULL;
         index_recv++;
     }
     //----------------------------------------------------------------------
@@ -732,6 +787,11 @@ void Halo::exchange_parallel_edge(const std::string &field_name)
     index_recv = 0;
     for (const HaloRegion &r : pat_recv.regions)
     {
+        if (!recv_active[index_recv])
+        {
+            ++index_recv;
+            continue;
+        }
         FieldBlock &fb = fld_->field(fid, r.this_block); // 本 rank 上的块
         const Box3 &rb = r.recv_box;                     // 要填充的 halo 区域
 
