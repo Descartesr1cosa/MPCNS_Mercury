@@ -204,14 +204,61 @@ void LunarSolver::Scheme_U_()
 // This package has no second-species creation, drag, or conservation sources.
 void LunarSolver::AddSourceToRHS_Fluid()
 {
+    // Match the cell-centred electron-pressure gradient used by Mercury.
+    auto dd = [](double a, double b, double c,
+                 double fp_i, double fm_i,
+                 double fp_j, double fm_j,
+                 double fp_k, double fm_k) -> double
+    {
+        return 0.5 * (a * (fp_i - fm_i) +
+                      b * (fp_j - fm_j) +
+                      c * (fp_k - fm_k));
+    };
+
+    auto derv_at = [](FieldBlock &Jac, FieldBlock &Axi,
+                      FieldBlock &Aet, FieldBlock &Aze,
+                      int i, int j, int k,
+                      double &ax, double &ay, double &az,
+                      double &bx, double &by, double &bz,
+                      double &cx, double &cy, double &cz)
+    {
+        const double V = std::abs(Jac(i, j, k, 0));
+        if (V <= 0.0)
+        {
+            ax = ay = az = bx = by = bz = cx = cy = cz = 0.0;
+            return;
+        }
+
+        ax = 0.5 * (Axi(i - 1, j, k, 0) + Axi(i, j, k, 0)) / V;
+        ay = 0.5 * (Axi(i - 1, j, k, 1) + Axi(i, j, k, 1)) / V;
+        az = 0.5 * (Axi(i - 1, j, k, 2) + Axi(i, j, k, 2)) / V;
+
+        bx = 0.5 * (Aet(i, j - 1, k, 0) + Aet(i, j, k, 0)) / V;
+        by = 0.5 * (Aet(i, j - 1, k, 1) + Aet(i, j, k, 1)) / V;
+        bz = 0.5 * (Aet(i, j - 1, k, 2) + Aet(i, j, k, 2)) / V;
+
+        cx = 0.5 * (Aze(i, j, k - 1, 0) + Aze(i, j, k, 0)) / V;
+        cy = 0.5 * (Aze(i, j, k - 1, 1) + Aze(i, j, k, 1)) / V;
+        cz = 0.5 * (Aze(i, j, k - 1, 2) + Aze(i, j, k, 2)) / V;
+    };
+
     for (int ib = 0; ib < fld_->num_blocks(); ++ib)
     {
+        FieldBlock &Jac = fld_->field(fid_.fid_Jac, ib);
+        FieldBlock &Axi = fld_->field(fid_.fid_metric.xi, ib);
+        FieldBlock &Aet = fld_->field(fid_.fid_metric.eta, ib);
+        FieldBlock &Aze = fld_->field(fid_.fid_metric.zeta, ib);
         FieldBlock &UH = fld_->field(fid_.fid_U_H, ib);
         FieldBlock &PVH = fld_->field(fid_.fid_PV_H, ib);
         FieldBlock &B = fld_->field(fid_.fid_Bcell, ib);
         FieldBlock &J = fld_->field(fid_.fid_Jcell, ib);
         FieldBlock &RHS = fld_->field(fid_.fid_RHS_H, ib);
-        if (!UH.is_allocated() || !PVH.is_allocated() ||
+        const bool missing_ambipolar_geometry =
+            ambipolar_control.enabled &&
+            (!Jac.is_allocated() || !Axi.is_allocated() ||
+             !Aet.is_allocated() || !Aze.is_allocated());
+        if (missing_ambipolar_geometry ||
+            !UH.is_allocated() || !PVH.is_allocated() ||
             !B.is_allocated() || !J.is_allocated() || !RHS.is_allocated())
             continue;
 
@@ -232,6 +279,37 @@ void LunarSolver::AddSourceToRHS_Fluid()
                     RHS(i,j,k,2) += sy;
                     RHS(i,j,k,3) += sz;
                     RHS(i,j,k,4) += sx*PVH(i,j,k,0) + sy*PVH(i,j,k,1) + sz*PVH(i,j,k,2);
+
+                    if (ambipolar_control.enabled)
+                    {
+                        // For Lunar's single H+ fluid, pe is the same p_H used
+                        // by AddAmbipolarEdgeEMF_.
+                        double ax, ay, az, bx, by, bz, cx, cy, cz;
+                        derv_at(Jac, Axi, Aet, Aze, i, j, k,
+                                ax, ay, az, bx, by, bz, cx, cy, cz);
+
+                        const double pe_p_i = PVH(i + 1, j, k, 3);
+                        const double pe_m_i = PVH(i - 1, j, k, 3);
+                        const double pe_p_j = PVH(i, j + 1, k, 3);
+                        const double pe_m_j = PVH(i, j - 1, k, 3);
+                        const double pe_p_k = PVH(i, j, k + 1, 3);
+                        const double pe_m_k = PVH(i, j, k - 1, 3);
+
+                        const double dpex = dd(ax, bx, cx, pe_p_i, pe_m_i,
+                                               pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+                        const double dpey = dd(ay, by, cy, pe_p_i, pe_m_i,
+                                               pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+                        const double dpez = dd(az, bz, cz, pe_p_i, pe_m_i,
+                                               pe_p_j, pe_m_j, pe_p_k, pe_m_k);
+
+                        RHS(i,j,k,1) -= weight * dpex;
+                        RHS(i,j,k,2) -= weight * dpey;
+                        RHS(i,j,k,3) -= weight * dpez;
+                        RHS(i,j,k,4) -= weight *
+                            (dpex*PVH(i,j,k,0) +
+                             dpey*PVH(i,j,k,1) +
+                             dpez*PVH(i,j,k,2));
+                    }
                 }
     }
 }
