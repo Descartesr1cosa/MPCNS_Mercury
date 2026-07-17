@@ -26,6 +26,9 @@ double LunarSolver::HallRadialTaperEdge_(int ib, StaggerLocation loc, int i, int
 void LunarSolver::AddHallEdgeEMF_()
 {
     BuildHallFaceEMF_Rusanov_diff_();
+    // Ehall is Fluid-only.  Reconcile regular shared edges over active Fluid
+    // aliases before singular-edge values replace their regular candidates.
+    ReduceEdgeAliasCandidatesToOwners_(fid_.fid_Ehall);
     AssembleSingularEdgeEMF_HallExplicit_();
 }
 

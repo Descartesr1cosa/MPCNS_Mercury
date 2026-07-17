@@ -131,18 +131,32 @@ private:
         std::size_t class_index=0;
         TOPO::EntityKey edge;
         int orient_sign=1;
-    };
-    struct EdgeAliasReduceOwnerWrite_
-    {
-        std::size_t class_index=0;
-        TOPO::EntityKey edge;
-        int orient_sign=1;
-        double member_count=1.0;
+        bool is_fluid=false;
     };
     std::vector<EdgeAliasReduceLocalTerm_> edge_alias_reduce_local_terms_;
-    std::vector<EdgeAliasReduceOwnerWrite_> edge_alias_reduce_owner_writes_;
     std::vector<double> edge_alias_reduce_local_sum_;
     std::vector<double> edge_alias_reduce_global_sum_;
+    std::vector<double> edge_alias_reduce_local_count_;
+    std::vector<double> edge_alias_reduce_global_count_;
+
+    // B/Badd are stored on both materials.  Across a Fluid/Solid face the
+    // Fluid CT value is authoritative, independent of which alias topology
+    // happened to choose as owner; every local alias is then assigned the
+    // same oriented flux before the ordinary halo/owner synchronization.
+    bool face_alias_reduce_cache_ready_{false};
+    std::vector<const TOPO::EquivClass *> face_alias_reduce_classes_;
+    struct FaceAliasReduceLocalTerm_
+    {
+        std::size_t class_index=0;
+        TOPO::EntityKey face;
+        int orient_sign=1;
+        bool is_fluid=false;
+    };
+    std::vector<FaceAliasReduceLocalTerm_> face_alias_reduce_local_terms_;
+    // Packed as [all_sum, all_count, fluid_sum, fluid_count] for one MPI
+    // collective per reconciliation.
+    std::vector<double> face_alias_reduce_local_values_;
+    std::vector<double> face_alias_reduce_global_values_;
 
     std::vector<HallFaceScratchBlock> hall_face_scratch_;
     void SetupHallFaceScratch_();
@@ -192,6 +206,7 @@ private:
     void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                       const IdTriplet &fid_Jedge);
     void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);
+    void ReconcileFaceAliasesPreferFluid_(const IdTriplet &fid_face);
 
     // 只更新 Bface: Bface += dt_sub * RHS_b
     void ApplyUpdate_Euler_BfaceOnly_(double dt_sub, const IdTriplet &fid_RHSB);

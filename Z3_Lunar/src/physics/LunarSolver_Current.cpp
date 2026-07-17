@@ -1,4 +1,5 @@
 #include "LunarSolver.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 void LunarSolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
 {
@@ -16,20 +17,18 @@ void LunarSolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
                   { return a->global_id<b->global_id; });
         edge_alias_reduce_local_sum_.resize(edge_alias_reduce_classes_.size());
         edge_alias_reduce_global_sum_.resize(edge_alias_reduce_classes_.size());
+        edge_alias_reduce_local_count_.resize(edge_alias_reduce_classes_.size());
+        edge_alias_reduce_global_count_.resize(edge_alias_reduce_classes_.size());
 
         edge_alias_reduce_local_terms_.clear();
-        edge_alias_reduce_owner_writes_.clear();
         for(std::size_t n=0;n<edge_alias_reduce_classes_.size();++n)
         {
             const auto &cls=*edge_alias_reduce_classes_[n];
             for(const auto &m:cls.members)
                 if(m.entity.rank==myid)
                     edge_alias_reduce_local_terms_.push_back(
-                        {n,m.entity,m.orient_sign});
-            if(cls.owner.entity.rank==myid)
-                edge_alias_reduce_owner_writes_.push_back(
-                    {n,cls.owner.entity,cls.owner.orient_sign,
-                     static_cast<double>(cls.members.size())});
+                        {n,m.entity,m.orient_sign,
+                         grd_->grids(m.entity.block).block_name=="Fluid"});
         }
         edge_alias_reduce_cache_ready_=true;
     }
@@ -39,20 +38,100 @@ void LunarSolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
     if(nclass==0) return;
     auto &local_sum=edge_alias_reduce_local_sum_;
     auto &global_sum=edge_alias_reduce_global_sum_;
+    auto &local_count=edge_alias_reduce_local_count_;
+    auto &global_count=edge_alias_reduce_global_count_;
     std::fill(local_sum.begin(),local_sum.end(),0.0);
+    std::fill(local_count.begin(),local_count.end(),0.0);
     for(const auto &term:edge_alias_reduce_local_terms_)
     {
+        if(!term.is_fluid) continue;
         const auto &e=term.edge;
         FieldBlock &value=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
+        if(!value.is_allocated()) continue;
         local_sum[term.class_index]+=term.orient_sign*value(e.i,e.j,e.k,0);
+        local_count[term.class_index]+=1.0;
     }
     MPI_Allreduce(local_sum.data(),global_sum.data(),static_cast<int>(nclass),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-    for(const auto &write:edge_alias_reduce_owner_writes_)
+    MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(nclass),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+
+    // Assign every storage alias, including the non-physical Solid transport
+    // placeholder, so the subsequent generic owner/halo transfer has a valid
+    // and orientation-consistent source regardless of owner material.
+    for(const auto &write:edge_alias_reduce_local_terms_)
     {
         const auto &e=write.edge;
-        FieldBlock &owner=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
-        owner(e.i,e.j,e.k,0)=write.orient_sign*
-            global_sum[write.class_index]/write.member_count;
+        FieldBlock &value=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
+        const double count=global_count[write.class_index];
+        if(!value.is_allocated() || count<=0.0) continue;
+        value(e.i,e.j,e.k,0)=write.orient_sign*
+            global_sum[write.class_index]/count;
+    }
+}
+
+void LunarSolver::ReconcileFaceAliasesPreferFluid_(const IdTriplet &fid_face)
+{
+    if(!topo_) return;
+    const int myid=par_->GetInt("myid");
+    if(!face_alias_reduce_cache_ready_)
+    {
+        face_alias_reduce_classes_.clear();
+        face_alias_reduce_classes_.reserve(topo_->faces.classes.size());
+        for(const auto &cls:topo_->faces.classes)
+            if(cls.global_id>=0 && cls.members.size()>1)
+                face_alias_reduce_classes_.push_back(&cls);
+        std::sort(face_alias_reduce_classes_.begin(),face_alias_reduce_classes_.end(),
+                  [](const auto *a,const auto *b)
+                  { return a->global_id<b->global_id; });
+
+        face_alias_reduce_local_terms_.clear();
+        for(std::size_t n=0;n<face_alias_reduce_classes_.size();++n)
+        {
+            const auto &cls=*face_alias_reduce_classes_[n];
+            for(const auto &m:cls.members)
+                if(m.entity.rank==myid)
+                    face_alias_reduce_local_terms_.push_back(
+                        {n,m.entity,m.orient_sign,
+                         grd_->grids(m.entity.block).block_name=="Fluid"});
+        }
+        face_alias_reduce_local_values_.resize(4*face_alias_reduce_classes_.size());
+        face_alias_reduce_global_values_.resize(4*face_alias_reduce_classes_.size());
+        face_alias_reduce_cache_ready_=true;
+    }
+
+    const std::size_t nclass=face_alias_reduce_classes_.size();
+    if(nclass==0) return;
+    auto &local=face_alias_reduce_local_values_;
+    auto &global=face_alias_reduce_global_values_;
+    std::fill(local.begin(),local.end(),0.0);
+
+    for(const auto &term:face_alias_reduce_local_terms_)
+    {
+        const auto &f=term.face;
+        FieldBlock &value=fld_->field(fid_face.at(static_cast<int>(f.axis)+1),f.block);
+        if(!value.is_allocated()) continue;
+        const double oriented=term.orient_sign*value(f.i,f.j,f.k,0);
+        local[4*term.class_index]+=oriented;
+        local[4*term.class_index+1]+=1.0;
+        if(term.is_fluid)
+        {
+            local[4*term.class_index+2]+=oriented;
+            local[4*term.class_index+3]+=1.0;
+        }
+    }
+    MPI_Allreduce(local.data(),global.data(),static_cast<int>(local.size()),
+                  MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+
+    for(const auto &write:face_alias_reduce_local_terms_)
+    {
+        const auto &f=write.face;
+        FieldBlock &value=fld_->field(fid_face.at(static_cast<int>(f.axis)+1),f.block);
+        if(!value.is_allocated()) continue;
+        const std::size_t base=4*write.class_index;
+        const bool has_fluid=global[base+3]>0.0;
+        const double count=has_fluid?global[base+3]:global[base+1];
+        const double sum=has_fluid?global[base+2]:global[base];
+        if(count>0.0)
+            value(f.i,f.j,f.k,0)=write.orient_sign*sum/count;
     }
 }
 
@@ -72,6 +151,9 @@ void LunarSolver::Calc_J_Edge()
 {
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
+        if (grd_->grids(iblk).block_name != "Fluid")
+            continue;
+
         // B_xi/B_eta/B_zeta are the Bind face-flux DOFs.  Badd is prescribed
         // analytically and must not contribute to the solved current.
         auto &Bxi = fld_->field(fid_.fid_B.xi, iblk);
@@ -81,6 +163,10 @@ void LunarSolver::Calc_J_Edge()
         auto &Jxi = fld_->field(fid_.fid_J.xi, iblk);
         auto &Jeta = fld_->field(fid_.fid_J.eta, iblk);
         auto &Jzeta = fld_->field(fid_.fid_J.zeta, iblk);
+
+        if (!Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated() ||
+            !Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated())
+            continue;
 
         auto &beta_xi = fld_->field(fid_.Face_beta.xi, iblk); // Hodge *: 2-form face -> 1-form face
         auto &beta_eta = fld_->field(fid_.Face_beta.eta, iblk);
@@ -137,6 +223,9 @@ void LunarSolver::calc_Jcell()
 
     for (int ib = 0; ib < nblock; ++ib)
     {
+        if (grd_->grids(ib).block_name != "Fluid")
+            continue;
+
         auto &Jcell = fld_->field(fid_.fid_Jcell, ib);
 
         auto &Jxi = fld_->field(fid_.fid_J.xi, ib);

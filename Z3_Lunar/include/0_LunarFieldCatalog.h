@@ -92,6 +92,10 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"B_zeta", StaggerLocation::FaceZe, 1, UseRuntimeGhost, "",
          SyncContract("Bface", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::FaceOwner, true),
          FieldValueKind::FaceContravariant2Form},
+        // Edge/face EM work fields retain storage on Solid only because the
+        // generic oriented halo transport traverses the complete topology.
+        // Lunar physics loops and alias reductions below use Fluid sources
+        // exclusively; Solid storage is a non-physical transport placeholder.
         {"E_xi", StaggerLocation::EdgeXi, 1, UseRuntimeGhost, "",
          SyncContract("Eedge", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
          FieldValueKind::EdgeCovariant1Form},
@@ -190,7 +194,9 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"RHS_Bres_xi", StaggerLocation::FaceXi, 1, 0, "Fluid"},
         {"RHS_Bres_eta", StaggerLocation::FaceEt, 1, 0, "Fluid"},
         {"RHS_Bres_zeta", StaggerLocation::FaceZe, 1, 0, "Fluid"},
-        {"divB", StaggerLocation::Cell, 1, 1, ""},
+        // Solid does not advance induction, so divB is a solved-domain
+        // diagnostic.  B/Badd/Bcell themselves remain available in Solid.
+        {"divB", StaggerLocation::Cell, 1, 1, "Fluid"},
 
         // Increment fields used by the implicit physical-resistivity solve.
         {"dB_xi", StaggerLocation::FaceXi, 1, UseRuntimeGhost, "",

@@ -179,6 +179,11 @@ void LunarSolver::calc_divB()
         auto &Bzeta = fld_->field(fid_.fid_B.zeta, ib);
         auto &Jac = fld_->field(fid_.fid_Jac, ib);
 
+        if (!divB.is_allocated() || !Bxi.is_allocated() ||
+            !Beta.is_allocated() || !Bzeta.is_allocated() ||
+            !Jac.is_allocated())
+            continue;
+
         Int3 lo = divB.inner_lo();
         Int3 hi = divB.inner_hi();
 
@@ -239,4 +244,3 @@ void LunarSolver::calc_divB()
         }
     }
 }
-

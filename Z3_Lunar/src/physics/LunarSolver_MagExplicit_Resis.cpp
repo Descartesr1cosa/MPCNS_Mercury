@@ -1,4 +1,5 @@
 #include "LunarSolver.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -50,6 +51,9 @@ void LunarSolver::AddArtificialResistivityToEdgeEMF_()
     const int nb = fld_->num_blocks();
     for (int ib = 0; ib < nb; ++ib)
     {
+        if (grd_->grids(ib).block_name != "Fluid")
+            continue;
+
         add_one_edge(fld_->field(fid_.fid_E.xi, ib),
                      fld_->field(fid_.fid_J.xi, ib),
                      fld_->field(fid_.Edge_dr.xi, ib));
@@ -122,6 +126,9 @@ void LunarSolver::AddLocalArtificialResistivityToEdgeEMF_()
 
         for (int ib = 0; ib < nb; ++ib)
         {
+            if (grd_->grids(ib).block_name != "Fluid")
+                continue;
+
             auto &Exi = fld_->field(fid_.fid_E.xi, ib);
             auto &Eeta = fld_->field(fid_.fid_E.eta, ib);
             auto &Eze = fld_->field(fid_.fid_E.zeta, ib);
@@ -172,6 +179,9 @@ void LunarSolver::AddLocalArtificialResistivityToEdgeEMF_()
 
     for (int ib = 0; ib < nb; ++ib)
     {
+        if (grd_->grids(ib).block_name != "Fluid")
+            continue;
+
         add_one_edge(fld_->field(fid_.fid_E.xi, ib),
                      fld_->field(fid_.fid_J.xi, ib),
                      local_arti_eta_xi_[ib]);

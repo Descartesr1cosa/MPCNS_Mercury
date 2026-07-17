@@ -100,9 +100,14 @@ void LunarBoundary::Sync_(const BoundGroup &g)
     // alias reconciliation.  Do that after physical/coupling updates, so a
     // topological entity shared by several blocks has one canonical value.
     // This is essential at cubic-sphere singular edges (three incident blocks).
+    // Lunar E/J physics is Fluid-only, but their Solid-side storage aliases
+    // are populated by the active-Fluid reconciliation before Sync().  Thus
+    // the generic topology owner remains a valid transport source regardless
+    // of which material owns the entity.
     if (g.do_halo &&
-        (g.name == "Bface" || g.name == "Badd" || g.name == "dB" ||
-         g.name == "Eedge" || g.name == "Ehall" || g.name == "Eres" ||
+        (g.name == "Bface" || g.name == "Badd" ||
+         g.name == "dB" || g.name == "Eedge" ||
+         g.name == "Ehall" || g.name == "Eres" ||
          g.name == "Jedge" || g.name == "dJ"))
     {
         halo_->sync_owner_alias_group(g.name);

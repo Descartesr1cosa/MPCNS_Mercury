@@ -41,6 +41,10 @@ bool LunarSolver::StepOnce()
     // Add Boundary Condition And Prepare for Next Step
     {
         lunar_bound_.Sync("Ucell");
+        // Fluid is the only induction domain.  Reconcile the updated normal
+        // flux to every Fluid/Solid face alias before the topology owner
+        // synchronization, so a Solid owner cannot restore stale Bind.
+        ReconcileFaceAliasesPreferFluid_(fid_.fid_B);
         lunar_bound_.Sync("Bface");
 
         UpdateDerivedFields_();

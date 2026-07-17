@@ -1,4 +1,5 @@
 #include "LunarSolver.h"
+#include "1_grid/1_MPCNS_Grid.h"
 
 void LunarSolver::AssembleRHS_Induction_CT_()
 {
@@ -7,6 +8,9 @@ void LunarSolver::AssembleRHS_Induction_CT_()
     // 0) E_edge 清零
     for (int ib = 0; ib < nb; ++ib)
     {
+        if (grd_->grids(ib).block_name != "Fluid")
+            continue;
+
         auto &Exi = fld_->field(fid_.fid_E.xi, ib);
         auto &Eeta = fld_->field(fid_.fid_E.eta, ib);
         auto &Eze = fld_->field(fid_.fid_E.zeta, ib);
@@ -49,6 +53,9 @@ void LunarSolver::AssembleRHS_Induction_CT_()
         lunar_bound_.Sync("Ehall");
         for (int ib=0; ib<nb; ++ib)
         {
+            if (grd_->grids(ib).block_name != "Fluid")
+                continue;
+
             auto add_one=[](FieldBlock &e,FieldBlock &h)
             {
                 if (!e.is_allocated() || !h.is_allocated()) return;
@@ -71,6 +78,9 @@ void LunarSolver::AssembleRHS_Induction_CT_()
 
     for (int ib = 0; ib < nb; ++ib)
     {
+        if (grd_->grids(ib).block_name != "Fluid")
+            continue;
+
         auto &Exi = fld_->field(fid_.fid_E.xi, ib);
         auto &Eeta = fld_->field(fid_.fid_E.eta, ib);
         auto &Eze = fld_->field(fid_.fid_E.zeta, ib);
