@@ -40,10 +40,22 @@ Lower-level users can call `IOModule::SetPostDataContext`,
 `IOModule::WritePostStaticData` directly, or construct
 `POST::PostDataWriter` over existing read-only objects.
 
-Dynamic data is not duplicated. `manifest.json` describes the existing
+The primary restart data is not duplicated. `manifest.json` describes the existing
 `DATA/flow_fieldNNNN.bin` checkpoint format (`MPCNSRST`), including its header,
 field/block records, ghost-layer behavior, value loop order, field descriptors,
 and the relation to the block-local topology maps.
+
+`OUTPUT_DEC_JEDGE` defaults to `OFF` and is intended only for debug builds. If
+it is enabled at CMake time and setup parameter `output_dec_jedge` is also
+true, `J_xi/J_eta/J_zeta` are appended to the normal
+`DATA/flow_fieldNNNN.bin` restart whitelist. They follow Bface's existing
+output cadence; there is no separate file or frequency control. Values are
+written after implicit convergence, owner/alias reconciliation, physical
+boundary handling, and `Jedge` sync, never from an intermediate RK/SNES stage.
+
+Jedge is the oriented covariant Edge 1-form `J·dr` computed from induced B
+only; prescribed `Badd` is excluded. Its physical scale is
+`current_density_ref * length_ref`, not `current_density_ref`.
 
 ## MPI and files
 
@@ -84,6 +96,14 @@ ID to be emitted exactly once.
 `Bcell_weights` already includes both the cell-outward sign and the local to
 global face-orientation sign. Consequently a reader only performs the CSR
 multiply-add against global owner-oriented face values.
+
+PostData v2 adds `BfaceJedge_*`, a scalar CSR from global Face IDs to global
+Edge IDs, and `JedgeJcell_*`, a three-output CSR from global Edge IDs to global
+Cell IDs. The former is routed to row owners and merges all shared-edge alias
+contributions; singular edges use the registry's corrected inverse Hodge. The
+latter contains the final 36-component cell weights and expands the Pole-ring
+least-squares override. Python must not reconstruct either operator from
+geometry.
 
 Long field names are represented by stable per-file section prefixes
 `field_NNNN`; `manifest.json` maps constant-field names to these prefixes.

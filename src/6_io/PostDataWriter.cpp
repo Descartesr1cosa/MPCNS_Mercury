@@ -1,6 +1,7 @@
 #include "6_io/PostDataWriter.h"
 
 #include "0_basic/MPI_WRAPPER.h"
+#include "0_basic/LayoutTraits.h"
 #include "1_grid/1_MPCNS_Grid.h"
 #include "2_topology/GlobalIncidence.h"
 #include "2_topology/LocalIncidence.h"
@@ -30,6 +31,14 @@ using TOPO::EntityKey;
 using I64 = std::int64_t;
 
 struct EntityRow { I64 gid; EntityKey key; };
+
+struct OperatorTriplet
+{
+    I64 row = -1;
+    I64 column = -1;
+    double value = 0.0;
+    int destination = 0;
+};
 
 std::string chunk_name(const char *stem, int rank)
 {
@@ -180,6 +189,74 @@ int restart_location_code(StaggerLocation l)
 
 I64 gid(const TOPO::Topology &t, const EntityKey &e) { return static_cast<I64>(t.id_of(e).id); }
 
+const char *edge_alpha_name(EntityAxis a)
+{
+    return a==EntityAxis::Xi ? "Hodge_star_inverse_2form_to_1form_edge_xi_lumped" :
+           a==EntityAxis::Eta ? "Hodge_star_inverse_2form_to_1form_edge_eta_lumped" :
+                                "Hodge_star_inverse_2form_to_1form_edge_zeta_lumped";
+}
+
+const char *face_beta_name(EntityAxis a)
+{
+    return a==EntityAxis::Xi ? "Hodge_star_2form_to_1form_face_xi_lumped" :
+           a==EntityAxis::Eta ? "Hodge_star_2form_to_1form_face_eta_lumped" :
+                                "Hodge_star_2form_to_1form_face_zeta_lumped";
+}
+
+const char *edge_dr_name(EntityAxis a)
+{
+    return a==EntityAxis::Xi ? "dr_xi" : a==EntityAxis::Eta ? "dr_eta" : "dr_zeta";
+}
+
+std::vector<TOPO::IncidenceEntry> adjoint_incident_faces(const EntityKey &e)
+{
+    // This is the exact local stencil used by CTOperators::CurlAdjFaceToEdge.
+    if(e.axis==EntityAxis::Xi) return {
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k-1,EntityAxis::Eta),+1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Eta),-1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Zeta),+1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j-1,e.k,EntityAxis::Zeta),-1}};
+    if(e.axis==EntityAxis::Eta) return {
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Xi),+1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k-1,EntityAxis::Xi),-1},
+        {TOPO::make_face(e.rank,e.block,e.i-1,e.j,e.k,EntityAxis::Zeta),+1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Zeta),-1}};
+    return {
+        {TOPO::make_face(e.rank,e.block,e.i,e.j-1,e.k,EntityAxis::Xi),+1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Xi),-1},
+        {TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Eta),+1},
+        {TOPO::make_face(e.rank,e.block,e.i-1,e.j,e.k,EntityAxis::Eta),-1}};
+}
+
+std::vector<OperatorTriplet> route_triplets_to_row_owners(
+    const std::vector<OperatorTriplet> &local)
+{
+    int nrank=1; MPI_Comm_size(MPI_COMM_WORLD,&nrank);
+    std::vector<int> send_count(nrank,0),recv_count(nrank,0);
+    for(const auto &x:local) {
+        if(x.destination<0||x.destination>=nrank)
+            throw std::runtime_error("PostData operator row has invalid owner rank");
+        ++send_count[x.destination];
+    }
+    MPI_Alltoall(send_count.data(),1,MPI_INT,recv_count.data(),1,MPI_INT,MPI_COMM_WORLD);
+    std::vector<int> send_off(nrank,0),recv_off(nrank,0);
+    for(int r=1;r<nrank;++r){send_off[r]=send_off[r-1]+send_count[r-1];recv_off[r]=recv_off[r-1]+recv_count[r-1];}
+    const int nsend=send_off.back()+send_count.back(), nrecv=recv_off.back()+recv_count.back();
+    std::vector<OperatorTriplet> ordered(nsend),received(nrecv);
+    std::vector<int> cursor=send_off;
+    for(const auto &x:local) ordered[cursor[x.destination]++]=x;
+    std::vector<int> sb(nrank),rb(nrank),sd(nrank),rd(nrank);
+    for(int r=0;r<nrank;++r){
+        sb[r]=send_count[r]*static_cast<int>(sizeof(OperatorTriplet));
+        rb[r]=recv_count[r]*static_cast<int>(sizeof(OperatorTriplet));
+        sd[r]=send_off[r]*static_cast<int>(sizeof(OperatorTriplet));
+        rd[r]=recv_off[r]*static_cast<int>(sizeof(OperatorTriplet));
+    }
+    MPI_Alltoallv(ordered.data(),sb.data(),sd.data(),MPI_BYTE,
+                  received.data(),rb.data(),rd.data(),MPI_BYTE,MPI_COMM_WORLD);
+    return received;
+}
+
 void validate_global_ids_and_orientation(const TOPO::Topology &t)
 {
     auto validate_ids=[](const auto &map,std::size_t count,const char *kind){std::vector<bool>seen(count,false);for(const auto&[key,id]:map){(void)key;if(id<0||static_cast<std::size_t>(id)>=count)throw std::runtime_error(std::string("PostData invalid ")+kind+" global ID");seen[id]=true;}for(bool x:seen)if(!x)throw std::runtime_error(std::string("PostData non-contiguous ")+kind+" global IDs");};
@@ -275,7 +352,8 @@ void write_topology(const std::filesystem::path &path,const Grid&grid,const TOPO
     w.WriteSection("block_connections",15,span(conn));w.Close();
 }
 
-void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const TOPO::Topology&t,const Field&fields,int rank,const WriteOptions&o)
+void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const TOPO::Topology&t,const Field&fields,
+                          const METRIC::SingularEdgeRegistry *singular,int rank,const WriteOptions&o)
 {
     PostBinaryWriter w(path,FileType::Reconstruction,o.case_uuid,o.mesh_uuid);
     const auto cells=owner_rows(t,EntityDim::Cell,rank);std::vector<I64> cg,off{0},faceids;std::vector<double> weights;
@@ -296,7 +374,150 @@ void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const
     for(const auto&[n,s]:rows)local_count.at(n)=s.size();MPI_Allreduce(local_count.data(),global_count.data(),static_cast<int>(nn),MPI_INT,MPI_SUM,MPI_COMM_WORLD);
     std::vector<I64> ng,noff{0},nc;std::vector<double> nw;for(const auto&[n,s]:rows){ng.push_back(n);for(I64 c:s){nc.push_back(c);nw.push_back(1.0/global_count.at(n));}noff.push_back(nc.size());}
     if(o.validate){std::vector<double>local_sum(nn,0.0),global_sum(nn,0.0);for(const auto&[n,s]:rows)for(I64 c:s){(void)c;local_sum.at(n)+=1.0/global_count.at(n);}MPI_Allreduce(local_sum.data(),global_sum.data(),static_cast<int>(nn),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);for(std::size_t n=0;n<nn;++n)if(global_count[n]>0&&std::abs(global_sum[n]-1.0)>1e-12)throw std::runtime_error("PostData NodeScalar weights do not sum to one");}
-    w.WriteSection("NodeScalar_global_id",1,span(ng));w.WriteSection("NodeScalar_offsets",1,span(noff));w.WriteSection("NodeScalar_cell_ids",1,span(nc));w.WriteSection("NodeScalar_weights",1,span(nw));w.Close();
+    w.WriteSection("NodeScalar_global_id",1,span(ng));w.WriteSection("NodeScalar_offsets",1,span(noff));w.WriteSection("NodeScalar_cell_ids",1,span(nc));w.WriteSection("NodeScalar_weights",1,span(nw));
+
+    // B_face -> J_edge. Build the coefficients from the final Hodge fields,
+    // then reproduce the production alias reduction. Contributions are routed
+    // to the rank owning the quotient edge so every serialized CSR row is
+    // complete and occurs in exactly one rank chunk.
+    std::unordered_map<EntityKey,std::size_t,EntityKey::Hash> edge_class_size;
+    for(const auto &cls:t.edges.classes)
+        for(const auto &m:cls.members) edge_class_size[m.entity]=cls.members.size();
+    std::set<I64> singular_rows;
+    if(singular) for(const auto &s:singular->entries()) singular_rows.insert(gid(t,s.owner));
+    std::vector<OperatorTriplet> local_bj;
+    for(const auto &[e,qkey]:t.edges.local_to_qkey){
+        (void)qkey;if(e.rank!=rank||singular_rows.count(gid(t,e)))continue;
+        const auto size_it=edge_class_size.find(e);
+        const double divisor=size_it==edge_class_size.end()?1.0:static_cast<double>(size_it->second);
+        const auto &alpha=fields.field(edge_alpha_name(e.axis),e.block);
+        const double row_scale=t.sign_to_owner(e)*alpha(e.i,e.j,e.k,0)/divisor;
+        const int destination=t.owner_of(e).rank;
+        for(const auto &inc:adjoint_incident_faces(e)){
+            // Physical-boundary exterior ghost faces are not independent DEC
+            // DOFs and therefore have no quotient ID/CSR column.
+            if(t.faces.local_to_qkey.find(inc.entity)==t.faces.local_to_qkey.end())continue;
+            const auto &beta=fields.field(face_beta_name(inc.entity.axis),inc.entity.block);
+            const double value=row_scale*inc.sign*t.sign_to_owner(inc.entity)*
+                               beta(inc.entity.i,inc.entity.j,inc.entity.k,0);
+            local_bj.push_back({gid(t,e),gid(t,inc.entity),value,destination});
+        }
+    }
+    if(singular) for(const auto &s:singular->entries())
+        for(const auto &inc:s.local_incident_faces){
+            int incidence=0;
+            for(const auto &x:adjoint_incident_faces(inc.source_alias))
+                if(x.entity==inc.entity){incidence=x.sign;break;}
+            if(incidence==0)continue;
+            const auto &beta=fields.field(face_beta_name(inc.entity.axis),inc.entity.block);
+            const double value=s.inverse_hodge*t.sign_to_owner(inc.source_alias)*incidence*
+                               t.sign_to_owner(inc.entity)*beta(inc.entity.i,inc.entity.j,inc.entity.k,0);
+            local_bj.push_back({gid(t,s.owner),gid(t,inc.entity),value,s.owner.rank});
+        }
+    const auto received_bj=route_triplets_to_row_owners(local_bj);
+    std::map<I64,std::map<I64,double>> bj_rows;
+    for(const auto &x:received_bj)bj_rows[x.row][x.column]+=x.value;
+    // Reproduce the final Pole Jedge physical handler. Tangential/rotational
+    // edge values on the active Pole slab are exactly zero. The normal family
+    // uses the handler's uncapped dl/Astar formula when its legacy beta_zeta
+    // field is present; otherwise the production handler leaves the inner
+    // value from Calc_J_Edge unchanged.
+    for(const auto &p:t.physical_patches){
+        if(p.this_rank!=rank||p.bc_name!="Pole")continue;const int normal=std::abs(p.direction)-1;if(normal<0||normal>1)continue;
+        const auto &blk=const_cast<Grid&>(grid).grids(p.this_block);const Int3 nc{blk.mx,blk.my,blk.mz};
+        for(int ea=0;ea<3;++ea){const EntityAxis axis=static_cast<EntityAxis>(ea);const Box3 box=LAYOUT::boundary_inner_slab_one_layer_from_cells(nc,location(EntityDim::Edge,axis),p.this_box_node,p.direction);
+            for(int i=box.lo.i;i<box.hi.i;++i)for(int j=box.lo.j;j<box.hi.j;++j)for(int k=box.lo.k;k<box.hi.k;++k){const EntityKey e=TOPO::make_edge(rank,p.this_block,i,j,k,axis);if(!t.is_owner(e))continue;
+                auto &row=bj_rows[gid(t,e)];if(ea!=normal){row.clear();continue;}
+                if(!fields.has_field("beta_zeta"))continue;const auto&beta=fields.field("beta_zeta",p.this_block);const auto&dl=fields.field(metric_length_name(axis),p.this_block);const auto&Astar=fields.field(axis==EntityAxis::Xi?"Astar_xi":"Astar_eta",p.this_block);const double area=Astar(i,j,k,0);row.clear();if(std::abs(area)<=1.e-300)continue;const double scale=dl(i,j,k,0)/area;
+                const EntityKey f0=normal==0?TOPO::make_face(rank,p.this_block,i,j,k,EntityAxis::Zeta):TOPO::make_face(rank,p.this_block,i-1,j,k,EntityAxis::Zeta);
+                const EntityKey f1=normal==0?TOPO::make_face(rank,p.this_block,i,j-1,k,EntityAxis::Zeta):TOPO::make_face(rank,p.this_block,i,j,k,EntityAxis::Zeta);
+                row[gid(t,f0)]+=scale*beta(f0.i,f0.j,f0.k,0)*t.sign_to_owner(f0);row[gid(t,f1)]-=scale*beta(f1.i,f1.j,f1.k,0)*t.sign_to_owner(f1);
+            }}
+    }
+    std::vector<I64> jeg,joff{0},jf;std::vector<double> jw;
+    for(const auto &r:owner_rows(t,EntityDim::Edge,rank)){
+        jeg.push_back(r.gid);const auto it=bj_rows.find(r.gid);
+        if(it!=bj_rows.end())for(const auto &[col,value]:it->second){
+            if(o.validate&&!std::isfinite(value))throw std::runtime_error("PostData non-finite B_face_to_J_edge weight");
+            if(value!=0.0){jf.push_back(col);jw.push_back(value);}
+        }joff.push_back(jf.size());
+    }
+    w.WriteSection("BfaceJedge_global_id",1,span(jeg));w.WriteSection("BfaceJedge_offsets",1,span(joff));
+    w.WriteSection("BfaceJedge_face_ids",1,span(jf));w.WriteSection("BfaceJedge_weights",1,span(jw));
+
+    // J_edge -> cell Cartesian vector. Start with the exact preassembled 36
+    // weights and replace Pole rows with the same regularized ring least-
+    // squares operator used by MercurySolver::calc_Jcell().
+    using Vec3=std::array<double,3>;
+    std::map<I64,std::map<I64,Vec3>> jc_rows;
+    auto add_jc=[&](std::map<I64,Vec3>&row,const EntityKey&e,const Vec3&v){
+        auto &dst=row[gid(t,e)];const double s=t.sign_to_owner(e);
+        for(int a=0;a<3;++a)dst[a]+=s*v[a];
+    };
+    auto cell_edges=[&](const EntityKey&c){return std::array<EntityKey,12>{{
+        TOPO::make_edge(rank,c.block,c.i,c.j,c.k,EntityAxis::Xi),TOPO::make_edge(rank,c.block,c.i,c.j+1,c.k,EntityAxis::Xi),
+        TOPO::make_edge(rank,c.block,c.i,c.j,c.k+1,EntityAxis::Xi),TOPO::make_edge(rank,c.block,c.i,c.j+1,c.k+1,EntityAxis::Xi),
+        TOPO::make_edge(rank,c.block,c.i,c.j,c.k,EntityAxis::Eta),TOPO::make_edge(rank,c.block,c.i+1,c.j,c.k,EntityAxis::Eta),
+        TOPO::make_edge(rank,c.block,c.i,c.j,c.k+1,EntityAxis::Eta),TOPO::make_edge(rank,c.block,c.i+1,c.j,c.k+1,EntityAxis::Eta),
+        TOPO::make_edge(rank,c.block,c.i,c.j,c.k,EntityAxis::Zeta),TOPO::make_edge(rank,c.block,c.i+1,c.j,c.k,EntityAxis::Zeta),
+        TOPO::make_edge(rank,c.block,c.i,c.j+1,c.k,EntityAxis::Zeta),TOPO::make_edge(rank,c.block,c.i+1,c.j+1,c.k,EntityAxis::Zeta)}};};
+    for(const auto &r:cells){auto &row=jc_rows[r.gid];const auto edges=cell_edges(r.key);const auto&W=fields.field("Jcell_from_Jedge_w",r.key.block);
+        for(int n=0;n<12;++n)add_jc(row,edges[n],{W(r.key.i,r.key.j,r.key.k,n),W(r.key.i,r.key.j,r.key.k,12+n),W(r.key.i,r.key.j,r.key.k,24+n)});}
+
+    auto solve3=[&](double Ain[3][3],const double bin[3],double x[3])->bool{
+        double A[3][3];for(int a=0;a<3;++a)for(int c=0;c<3;++c)A[a][c]=Ain[a][c];
+        const double reg=1.e-12*std::max(1.0,A[0][0]+A[1][1]+A[2][2]);for(int a=0;a<3;++a)A[a][a]+=reg;
+        double M[3][4]={{A[0][0],A[0][1],A[0][2],bin[0]},{A[1][0],A[1][1],A[1][2],bin[1]},{A[2][0],A[2][1],A[2][2],bin[2]}};
+        for(int c=0;c<3;++c){int piv=c;double am=std::abs(M[c][c]);for(int rr=c+1;rr<3;++rr)if(std::abs(M[rr][c])>am){am=std::abs(M[rr][c]);piv=rr;}if(am<1.e-300)return false;
+            if(piv!=c)for(int q=c;q<4;++q)std::swap(M[c][q],M[piv][q]);const double inv=1.0/M[c][c];for(int q=c;q<4;++q)M[c][q]*=inv;
+            for(int rr=0;rr<3;++rr)if(rr!=c){const double fac=M[rr][c];for(int q=c;q<4;++q)M[rr][q]-=fac*M[c][q];}}
+        for(int a=0;a<3;++a)x[a]=M[a][3];return true;};
+    auto pole_row=[&](int ib,const std::vector<EntityKey>&edges)->std::map<I64,Vec3>{
+        double A[3][3]={{0,0,0},{0,0,0},{0,0,0}};struct Term{EntityKey e;double q[3];};std::vector<Term>terms;
+        for(const auto&e:edges){const auto&dr=fields.field(edge_dr_name(e.axis),ib);const double dx=dr(e.i,e.j,e.k,0),dy=dr(e.i,e.j,e.k,1),dz=dr(e.i,e.j,e.k,2),l2=dx*dx+dy*dy+dz*dz,L=std::sqrt(l2);if(L<1.e-14)continue;
+            const double tau[3]={dx/L,dy/L,dz/L};for(int a=0;a<3;++a)for(int c=0;c<3;++c)A[a][c]+=tau[a]*tau[c];terms.push_back({e,{dx/l2,dy/l2,dz/l2}});}
+        std::map<I64,Vec3>row;if(terms.empty())return row;double inv[3][3];for(int c=0;c<3;++c){double b[3]={0,0,0},x[3];b[c]=1;if(!solve3(A,b,x))return {};for(int a=0;a<3;++a)inv[a][c]=x[a];}
+        for(const auto&term:terms){Vec3 v{};for(int a=0;a<3;++a)for(int c=0;c<3;++c)v[a]+=inv[a][c]*term.q[c];add_jc(row,term.e,v);}return row;};
+    for(const auto&p:t.physical_patches){if(p.this_rank!=rank||p.bc_name!="Pole")continue;const int dir=std::abs(p.direction);if(dir!=1&&dir!=2)continue;const int ib=p.this_block;const bool high=p.direction>0;const Box3&node=p.this_box_node;
+        if(dir==1){const int ic=high?node.lo.i-1:node.lo.i,it=high?ic:ic+1;for(int j=node.lo.j;j<node.hi.j-1;++j){std::vector<EntityKey>es;for(int k=node.lo.k;k<node.hi.k-1;++k){
+            es.push_back(TOPO::make_edge(rank,ib,ic,j,k,EntityAxis::Xi));es.push_back(TOPO::make_edge(rank,ib,ic,j+1,k,EntityAxis::Xi));es.push_back(TOPO::make_edge(rank,ib,ic,j,k+1,EntityAxis::Xi));es.push_back(TOPO::make_edge(rank,ib,ic,j+1,k+1,EntityAxis::Xi));
+            es.push_back(TOPO::make_edge(rank,ib,it,j,k,EntityAxis::Eta));es.push_back(TOPO::make_edge(rank,ib,it,j,k+1,EntityAxis::Eta));es.push_back(TOPO::make_edge(rank,ib,it,j,k,EntityAxis::Zeta));es.push_back(TOPO::make_edge(rank,ib,it,j+1,k,EntityAxis::Zeta));}
+            const auto row=pole_row(ib,es);if(!row.empty())for(int k=node.lo.k;k<node.hi.k-1;++k)jc_rows[gid(t,TOPO::make_cell(rank,ib,ic,j,k))]=row;}}
+        else{const int jc=high?node.lo.j-1:node.lo.j,jt=high?jc:jc+1;for(int i=node.lo.i;i<node.hi.i-1;++i){std::vector<EntityKey>es;for(int k=node.lo.k;k<node.hi.k-1;++k){
+            es.push_back(TOPO::make_edge(rank,ib,i,jc,k,EntityAxis::Eta));es.push_back(TOPO::make_edge(rank,ib,i+1,jc,k,EntityAxis::Eta));es.push_back(TOPO::make_edge(rank,ib,i,jc,k+1,EntityAxis::Eta));es.push_back(TOPO::make_edge(rank,ib,i+1,jc,k+1,EntityAxis::Eta));
+            es.push_back(TOPO::make_edge(rank,ib,i,jt,k,EntityAxis::Xi));es.push_back(TOPO::make_edge(rank,ib,i,jt,k+1,EntityAxis::Xi));es.push_back(TOPO::make_edge(rank,ib,i,jt,k,EntityAxis::Zeta));es.push_back(TOPO::make_edge(rank,ib,i+1,jt,k,EntityAxis::Zeta));}
+            const auto row=pole_row(ib,es);if(!row.empty())for(int k=node.lo.k;k<node.hi.k-1;++k)jc_rows[gid(t,TOPO::make_cell(rank,ib,i,jc,k))]=row;}}}
+    std::vector<I64> jcg,jcoff{0},jce;std::vector<double> jcw;
+    for(const auto&r:cells){jcg.push_back(r.gid);for(const auto&[edge,v]:jc_rows[r.gid]){if(o.validate&&(!std::isfinite(v[0])||!std::isfinite(v[1])||!std::isfinite(v[2])))throw std::runtime_error("PostData non-finite J_edge_to_cell_cartesian weight");
+        if(v[0]!=0||v[1]!=0||v[2]!=0){jce.push_back(edge);jcw.insert(jcw.end(),v.begin(),v.end());}}jcoff.push_back(jce.size());}
+    w.WriteSection("JedgeJcell_global_id",1,span(jcg));w.WriteSection("JedgeJcell_offsets",1,span(jcoff));
+    w.WriteSection("JedgeJcell_edge_ids",1,span(jce));w.WriteSection("JedgeJcell_weights",3,span(jcw));
+
+    if(o.validate){
+        auto axis_field=[](const char *prefix,EntityAxis a){return std::string(prefix)+(a==EntityAxis::Xi?"xi":a==EntityAxis::Eta?"eta":"zeta");};
+        const std::size_t nf=face_count(t),ne=edge_count(t);if(nf>static_cast<std::size_t>(std::numeric_limits<int>::max())||ne>static_cast<std::size_t>(std::numeric_limits<int>::max()))throw std::overflow_error("PostData DEC validation exceeds MPI int range");
+        std::vector<double> lb(nf,0.0),gb(nf,0.0),lj(ne,0.0),gj(ne,0.0);std::vector<int> lbc(nf,0),gbc(nf,0),ljc(ne,0),gjc(ne,0);
+        for(const auto&r:owner_rows(t,EntityDim::Face,rank)){const auto&f=fields.field(axis_field("B_",r.key.axis),r.key.block);lb[r.gid]=t.sign_to_owner(r.key)*f(r.key.i,r.key.j,r.key.k,0);lbc[r.gid]=1;}
+        for(const auto&r:owner_rows(t,EntityDim::Edge,rank)){const auto&j=fields.field(axis_field("J_",r.key.axis),r.key.block);lj[r.gid]=t.sign_to_owner(r.key)*j(r.key.i,r.key.j,r.key.k,0);ljc[r.gid]=1;}
+        MPI_Allreduce(lb.data(),gb.data(),static_cast<int>(nf),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);MPI_Allreduce(lbc.data(),gbc.data(),static_cast<int>(nf),MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+        MPI_Allreduce(lj.data(),gj.data(),static_cast<int>(ne),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);MPI_Allreduce(ljc.data(),gjc.data(),static_cast<int>(ne),MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+        for(std::size_t q=0;q<nf;++q)if(gbc[q]!=1)throw std::runtime_error("PostData B_face_to_J_edge validation missing/duplicate Face owner");
+        for(std::size_t q=0;q<ne;++q)if(gjc[q]!=1)throw std::runtime_error("PostData B_face_to_J_edge validation missing/duplicate Edge owner");
+        double local_abs=0.0,local_scale=0.0;
+        for(const auto&[e,qkey]:t.edges.local_to_qkey){(void)qkey;if(e.rank!=rank)continue;const auto&j=fields.field(axis_field("J_",e.axis),e.block);const double oriented=t.sign_to_owner(e)*j(e.i,e.j,e.k,0),owner=gj[gid(t,e)];local_abs=std::max(local_abs,std::abs(oriented-owner));local_scale=std::max(local_scale,std::max(std::abs(oriented),std::abs(owner)));}
+        for(const auto&[f,qkey]:t.faces.local_to_qkey){(void)qkey;if(f.rank!=rank)continue;const auto&b=fields.field(axis_field("B_",f.axis),f.block);const double oriented=t.sign_to_owner(f)*b(f.i,f.j,f.k,0),owner=gb[gid(t,f)];local_abs=std::max(local_abs,std::abs(oriented-owner));local_scale=std::max(local_scale,std::max(std::abs(oriented),std::abs(owner)));}
+        double global_abs=0.0,global_scale=0.0;MPI_Allreduce(&local_abs,&global_abs,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);MPI_Allreduce(&local_scale,&global_scale,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
+        if(global_abs>512.0*std::numeric_limits<double>::epsilon()*std::max(1.0,global_scale))throw std::runtime_error("PostData owner/alias orientation validation failed: max_abs="+std::to_string(global_abs));
+        local_abs=0.0;local_scale=0.0;
+        for(const auto&r:owner_rows(t,EntityDim::Edge,rank)){double value=0.0;const auto it=bj_rows.find(r.gid);if(it!=bj_rows.end())for(const auto&[col,weight]:it->second)value+=weight*gb[col];local_abs=std::max(local_abs,std::abs(value-gj[r.gid]));local_scale=std::max(local_scale,std::max(std::abs(value),std::abs(gj[r.gid])));}
+        MPI_Allreduce(&local_abs,&global_abs,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);MPI_Allreduce(&local_scale,&global_scale,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
+        if(global_abs>2048.0*std::numeric_limits<double>::epsilon()*std::max(1.0,global_scale))throw std::runtime_error("PostData B_face_to_J_edge does not reproduce synchronized solver Jedge: max_abs="+std::to_string(global_abs));
+        local_abs=0.0;local_scale=0.0;
+        for(const auto&r:cells){Vec3 value{};for(const auto&[edge,weight]:jc_rows[r.gid])for(int a=0;a<3;++a)value[a]+=weight[a]*gj[edge];const auto&j=fields.field("J_cell",r.key.block);for(int a=0;a<3;++a){const double actual=j(r.key.i,r.key.j,r.key.k,a);local_abs=std::max(local_abs,std::abs(value[a]-actual));local_scale=std::max(local_scale,std::max(std::abs(value[a]),std::abs(actual)));}}
+        MPI_Allreduce(&local_abs,&global_abs,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);MPI_Allreduce(&local_scale,&global_scale,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
+        if(global_abs>2048.0*std::numeric_limits<double>::epsilon()*std::max(1.0,global_scale))throw std::runtime_error("PostData J_edge_to_cell_cartesian does not reproduce solver Jcell: max_abs="+std::to_string(global_abs));
+    }
+    w.Close();
 }
 
 void write_fields(const std::filesystem::path&path,FileType type,const Grid&grid,const TOPO::Topology&t,const Field&fields,int rank,const std::vector<std::string>&names,const WriteOptions&o)
@@ -317,7 +538,10 @@ std::string json_escape(const std::string&s){std::string o;for(char c:s){if(c=='
 void write_manifest(const std::filesystem::path&dir,const Grid&grid,const Field&fields,int size,int total_blocks,const WriteOptions&o)
 {
     std::ofstream f(dir/"manifest.json",std::ios::trunc);if(!f)throw std::runtime_error("cannot write manifest.json");
-    f<<"{\n  \"format_name\": \"MPCNS_PostData\",\n  \"format_version\": 1,\n  \"case_uuid\": \""<<uuid_string(o.case_uuid)<<"\",\n  \"mesh_uuid\": \""<<uuid_string(o.mesh_uuid)<<"\",\n  \"endianness\": \"little\",\n  \"float_type\": \"float64\",\n  \"index_type\": \"int64\",\n  \"dimension\": "<<grid.dimension<<",\n  \"number_of_blocks\": "<<total_blocks<<",\n  \"number_of_ranks\": "<<size<<",\n  \"array_order\": \"C\",\n  \"logical_index_order\": \"i-fastest\",\n  \"linear_index\": \"i + ni * (j + nj * k)\",\n  \"face_magnetic_semantics\": \"oriented_face_2form_flux\",\n  \"normalization\": {";
+    const auto jr=o.normalization.find("current_density_ref"),lr=o.normalization.find("length_ref");
+    const bool has_jedge_ref=jr!=o.normalization.end()&&lr!=o.normalization.end();
+    f<<"{\n  \"format_name\": \"MPCNS_PostData\",\n  \"format_version\": 2,\n  \"case_uuid\": \""<<uuid_string(o.case_uuid)<<"\",\n  \"mesh_uuid\": \""<<uuid_string(o.mesh_uuid)<<"\",\n  \"endianness\": \"little\",\n  \"float_type\": \"float64\",\n  \"index_type\": \"int64\",\n  \"dimension\": "<<grid.dimension<<",\n  \"number_of_blocks\": "<<total_blocks<<",\n  \"number_of_ranks\": "<<size<<",\n  \"array_order\": \"C\",\n  \"logical_index_order\": \"i-fastest\",\n  \"linear_index\": \"i + ni * (j + nj * k)\",\n  \"face_magnetic_semantics\": \"oriented_face_2form_flux\",\n  \"dec_current_semantics\": {\"stored_quantity\":\"J_dot_dr\",\"form_degree\":1,\"variance\":\"covariant\",\"orientation_aware\":true,\"magnetic_source\":\"induced_B_only\",\"excludes_fields\":[\"Badd_xi\",\"Badd_eta\",\"Badd_zeta\"],\"physical_reference_expression\":\"current_density_ref * length_ref\",\"physical_reference_value\":";
+    if(has_jedge_ref)f<<std::setprecision(17)<<jr->second*lr->second;else f<<"null";f<<"},\n  \"normalization\": {";
     bool first_item=true;for(const auto&[k,v]:o.normalization){if(!first_item)f<<',';first_item=false;f<<'"'<<json_escape(k)<<"\":"<<std::setprecision(17)<<v;}f<<"},\n  \"physical_constants\": {";
     first_item=true;for(const auto&[k,v]:o.physical_constants){if(!first_item)f<<',';first_item=false;f<<'"'<<json_escape(k)<<"\":"<<std::setprecision(17)<<v;}f<<"},\n  \"species\": [";
     for(std::size_t i=0;i<o.species.size();++i){if(i)f<<',';f<<'"'<<json_escape(o.species[i])<<'"';}f<<"],\n  \"files\": {\n";
@@ -330,6 +554,7 @@ void write_manifest(const std::filesystem::path&dir,const Grid&grid,const Field&
        "    \"path_pattern\": \""<<json_escape(o.existing_flow_path_pattern)<<"\",\n"
        "    \"number_of_rank_files\": "<<size<<",\n"
        "    \"overwrite_semantics\": \"latest checkpoint per rank\",\n"
+       "    \"optional_dec_jedge\": {\"compile_option\":\"OUTPUT_DEC_JEDGE\",\"runtime_parameter\":\"output_dec_jedge\",\"default_enabled\":false,\"cadence\":\"same_as_Bface_restart\",\"snapshot_phase\":\"completed time step after implicit convergence, owner/alias reconciliation, physical boundary handling, and Jedge sync\"},\n"
        "    \"contains_ghost_layers\": true,\n"
        "    \"header_layout\": [\"magic[8]\",\"version:int32\",\"step:int32\",\"time:float64\",\"nblock:int32\",\"nfield:int32\"],\n"
        "    \"field_header_layout\": [\"name_length:int32\",\"name_bytes\",\"location:int32\",\"components:int32\",\"nghost:int32\"],\n"
@@ -343,7 +568,7 @@ void write_manifest(const std::filesystem::path&dir,const Grid&grid,const Field&
     first_item=true;for(const auto&name:o.existing_flow_fields){if(!fields.has_field(name))continue;const auto&d=fields.descriptor(name);if(!first_item)f<<',';first_item=false;f<<"{\"name\":\""<<json_escape(name)<<"\",\"location\":\""<<location_name(d.location)<<"\",\"location_code\":"<<restart_location_code(d.location)<<",\"components\":"<<d.ncomp<<",\"nghost\":"<<d.nghost<<",\"value_kind\":\""<<field_value_kind_name(d.value_kind)<<"\",\"physics_domain\":\""<<json_escape(d.physics.empty()?"all":d.physics)<<"\"}";}f<<"]\n  },\n"
        "  \"block_physics_codes\": {\"0\":\"unknown\",\"1\":\"Fluid\",\"2\":\"Solid\"},\n"
        "  \"cell_flag_bits\": {\"fluid\":1,\"solid\":2,\"unknown_physics\":4},\n"
-       "  \"operators\": [{\"name\":\"B_face_to_cell_cartesian\",\"input_location\":\"face\",\"input_value_kind\":\"face_2form\",\"input_components\":1,\"output_location\":\"cell\",\"output_value_kind\":\"cartesian_vector\",\"output_components\":3,\"operator_version\":1},{\"name\":\"cell_scalar_to_node\",\"operator_version\":1}],\n  \"fields\": [";
+       "  \"operators\": [{\"name\":\"B_face_to_cell_cartesian\",\"input_location\":\"face\",\"input_value_kind\":\"face_2form\",\"input_components\":1,\"output_location\":\"cell\",\"output_value_kind\":\"cartesian_vector\",\"output_components\":3,\"operator_version\":1},{\"name\":\"B_face_to_J_edge\",\"input_location\":\"face\",\"input_value_kind\":\"oriented_face_2form_flux\",\"output_location\":\"edge\",\"output_value_kind\":\"edge_covariant_1form\",\"output_components\":1,\"solver_normalized_formula\":\"M1_inverse * D1_transpose * M2\",\"physical_formula\":\"(1/mu_m) * M1_inverse * D1_transpose * M2\",\"weights_source\":\"solver_final_assembly\",\"operator_version\":1},{\"name\":\"J_edge_to_cell_cartesian\",\"input_location\":\"edge\",\"input_value_kind\":\"edge_covariant_1form\",\"output_location\":\"cell\",\"output_value_kind\":\"cartesian_vector\",\"output_components\":3,\"includes_pole_ring_override\":true,\"weights_source\":\"solver_final_assembly\",\"operator_version\":1},{\"name\":\"cell_scalar_to_node\",\"operator_version\":1}],\n  \"fields\": [";
     bool first=true;int index=0;for(const auto&name:o.constant_fields){if(!fields.has_field(name))continue;const auto&d=fields.descriptor(name);if(!first)f<<',';first=false;std::ostringstream key;key<<"field_"<<std::setw(4)<<std::setfill('0')<<index++;f<<"{\"name\":\""<<json_escape(name)<<"\",\"location\":\""<<location_name(d.location)<<"\",\"components\":"<<d.ncomp<<",\"section_prefix\":\""<<key.str()<<"\"}";}f<<"]\n}\n";
     if(!f)throw std::runtime_error("manifest.json write failed");
 }
@@ -358,7 +583,7 @@ void PostDataWriter::WriteStaticData(const std::filesystem::path&dir,WriteOption
     if(options.validate){validate_entity_partition(owner_rows(topology_,EntityDim::Node,rank_),node_count(topology_),"node");validate_entity_partition(owner_rows(topology_,EntityDim::Edge,rank_),edge_count(topology_),"edge");validate_entity_partition(owner_rows(topology_,EntityDim::Face,rank_),face_count(topology_),"face");validate_entity_partition(owner_rows(topology_,EntityDim::Cell,rank_),cell_count(topology_),"cell");}
     write_geometry(dir/chunk_name("geometry",rank_),grid_,topology_,fields_,singular_edges_,rank_,options);
     write_topology(dir/chunk_name("topology",rank_),grid_,topology_,rank_,options);
-    write_reconstruction(dir/chunk_name("reconstruction",rank_),grid_,topology_,fields_,rank_,options);
+    write_reconstruction(dir/chunk_name("reconstruction",rank_),grid_,topology_,fields_,singular_edges_,rank_,options);
     write_fields(dir/chunk_name("constant_field",rank_),FileType::ConstantField,grid_,topology_,fields_,rank_,options.constant_fields,options);
     PARALLEL::mpi_barrier();int size=1;PARALLEL::mpi_size(&size);int local_blocks=grid_.nblock,total_blocks=0;MPI_Allreduce(&local_blocks,&total_blocks,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);if(rank_==0)write_manifest(dir,grid_,fields_,size,total_blocks,options);PARALLEL::mpi_barrier();
 }

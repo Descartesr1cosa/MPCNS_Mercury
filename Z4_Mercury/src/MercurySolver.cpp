@@ -215,8 +215,26 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     post_write_options_.existing_flow_fields = {
         "U_H", "U_Na", "B_xi", "B_eta", "B_zeta"};
 
+#ifdef OUTPUT_DEC_JEDGE
+    if(par_->HasBoo("output_dec_jedge")&&par_->GetBoo("output_dec_jedge"))
+    {
+        io_.AddRestartField("J_xi");
+        io_.AddRestartField("J_eta");
+        io_.AddRestartField("J_zeta");
+        post_write_options_.existing_flow_fields.insert(
+            post_write_options_.existing_flow_fields.end(),
+            {"J_xi","J_eta","J_zeta"});
+    }
+#endif
+
     if (post_static_output_enabled_)
+    {
+        // Populate the synchronized production Jedge/Jcell fields before the
+        // exporter's operator-vs-solver validation. This is a completed
+        // derived-field evaluation, not an RK/SNES intermediate stage.
+        UpdateMagneticDerivedFields_();
         io_.WritePostStaticData(post_output_path_, post_write_options_);
+    }
 }
 
 MercurySolver::~MercurySolver()

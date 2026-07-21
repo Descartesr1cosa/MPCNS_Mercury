@@ -7,6 +7,9 @@ double  Archive_Output_Time     0.5
 
 // Offline static post-data output.
 bool    post_static_output      1
+// Debug only. Effective only with CMake -DOUTPUT_DEC_JEDGE=ON. When enabled,
+// J_xi/J_eta/J_zeta follow Bface in the normal restart output.
+bool    output_dec_jedge        0
 
 int     dimension               3
 

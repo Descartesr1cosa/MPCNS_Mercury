@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0069 NEW)
 project(MercuryZ4)
 option(MERCURY_SANITIZE_ADDRESS "Build MercuryZ4 with AddressSanitizer" OFF)
+option(OUTPUT_DEC_JEDGE "Allow debug-only solver-native DEC Jedge restart fields" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json" FORCE)
 
@@ -59,6 +60,9 @@ ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
 
 # Link MPI and PETSc.
 target_link_libraries(MercuryZ4 PRIVATE ${MPI_LIBRARIES} PkgConfig::PETSC stdc++fs)
+if(OUTPUT_DEC_JEDGE)
+    target_compile_definitions(MercuryZ4 PRIVATE OUTPUT_DEC_JEDGE=1)
+endif()
 
 if(MERCURY_SANITIZE_ADDRESS)
     target_compile_options(MercuryZ4 PRIVATE -O1 -g -fno-omit-frame-pointer -fsanitize=address)
