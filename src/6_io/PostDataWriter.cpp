@@ -603,7 +603,11 @@ void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const
             local_bj.push_back({gid(t,e),input.column_id,value,destination});
         }
     }
-    if(singular) for(const auto &s:singular->entries())
+    if(singular) for(const auto &s:singular->entries()){
+        int owner_orientation=0;
+        for(const auto &alias:s.aliases)if(alias.owner){owner_orientation=alias.orientation;break;}
+        if(owner_orientation!=1&&owner_orientation!=-1)
+            throw std::runtime_error("PostData singular edge registry has no valid owner orientation");
         for(const auto &inc:s.local_incident_faces){
             int incidence=0;
             for(const auto &x:adjoint_incident_faces(inc.source_alias))
@@ -611,11 +615,14 @@ void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const
             if(incidence==0)continue;
             const auto &input=storage.at(inc.entity);
             const auto &beta=fields.field(face_beta_name(inc.entity.axis),inc.entity.block);
-            const double value=s.inverse_hodge*inc.source_orientation*incidence*
+            // SingularEdgeRegistry writes owner_orientation * global_sum to
+            // the owner-local Jedge slot after reducing source-oriented face
+            // contributions. Preserve both signs in the serialized row.
+            const double value=s.inverse_hodge*owner_orientation*inc.source_orientation*incidence*
                                (input.quotient_id>=0?input.sign_to_owner:1.0)*
                                beta(inc.entity.i,inc.entity.j,inc.entity.k,0);
             local_bj.push_back({gid(t,s.owner),input.column_id,value,s.owner.rank});
-        }
+        }}
     const auto received_bj=route_triplets_to_row_owners(local_bj);
     std::map<I64,std::map<I64,double>> bj_rows;
     for(const auto &x:received_bj)bj_rows[x.row][x.column]+=x.value;
@@ -722,10 +729,17 @@ void write_reconstruction(const std::filesystem::path&path,const Grid&grid,const
         MPI_Allreduce(lbx.data(),gbx.data(),static_cast<int>(ncol),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
         MPI_Allreduce(lbxc.data(),gbxc.data(),static_cast<int>(ncol),MPI_INT,MPI_SUM,MPI_COMM_WORLD);
         for(std::size_t q=0;q<ncol;++q)if(gbxc[q]!=1)throw std::runtime_error("PostData B_face_to_J_edge validation missing/duplicate extended Bface column");
-        local_abs=0.0;local_scale=0.0;
-        for(const auto&r:owner_rows(t,EntityDim::Edge,rank)){double value=0.0;const auto it=bj_rows.find(r.gid);if(it!=bj_rows.end())for(const auto&[col,weight]:it->second)value+=weight*gbx[col];local_abs=std::max(local_abs,std::abs(value-gj[r.gid]));local_scale=std::max(local_scale,std::max(std::abs(value),std::abs(gj[r.gid])));}
+        local_abs=0.0;local_scale=0.0;I64 local_worst_gid=-1;double local_worst_value=0.0,local_worst_actual=0.0;
+        for(const auto&r:owner_rows(t,EntityDim::Edge,rank)){double value=0.0;const auto it=bj_rows.find(r.gid);if(it!=bj_rows.end())for(const auto&[col,weight]:it->second)value+=weight*gbx[col];const double error=std::abs(value-gj[r.gid]);if(error>local_abs){local_abs=error;local_worst_gid=r.gid;local_worst_value=value;local_worst_actual=gj[r.gid];}local_scale=std::max(local_scale,std::max(std::abs(value),std::abs(gj[r.gid])));}
         MPI_Allreduce(&local_abs,&global_abs,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);MPI_Allreduce(&local_scale,&global_scale,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
-        if(global_abs>2048.0*std::numeric_limits<double>::epsilon()*std::max(1.0,global_scale))throw std::runtime_error("PostData B_face_to_J_edge does not reproduce synchronized solver Jedge: max_abs="+std::to_string(global_abs));
+        if(global_abs>2048.0*std::numeric_limits<double>::epsilon()*std::max(1.0,global_scale)){
+            struct MaxLoc{double error;int rank;} local_max{local_abs,rank},global_max{};
+            MPI_Allreduce(&local_max,&global_max,1,MPI_DOUBLE_INT,MPI_MAXLOC,MPI_COMM_WORLD);
+            I64 worst_gid=local_worst_gid;double detail[2]={local_worst_value,local_worst_actual};
+            MPI_Bcast(&worst_gid,1,MPI_INT64_T,global_max.rank,MPI_COMM_WORLD);
+            MPI_Bcast(detail,2,MPI_DOUBLE,global_max.rank,MPI_COMM_WORLD);
+            throw std::runtime_error("PostData B_face_to_J_edge does not reproduce synchronized solver Jedge: max_abs="+std::to_string(global_abs)+", edge_gid="+std::to_string(worst_gid)+", recomputed="+std::to_string(detail[0])+", solver="+std::to_string(detail[1])+", singular="+(singular_rows.count(worst_gid)?"true":"false"));
+        }
         local_abs=0.0;local_scale=0.0;
         for(const auto&r:cells){Vec3 value{};for(const auto&[edge,weight]:jc_rows[r.gid])for(int a=0;a<3;++a)value[a]+=weight[a]*gj[edge];const auto&j=fields.field("J_cell",r.key.block);for(int a=0;a<3;++a){const double actual=j(r.key.i,r.key.j,r.key.k,a);local_abs=std::max(local_abs,std::abs(value[a]-actual));local_scale=std::max(local_scale,std::max(std::abs(value[a]),std::abs(actual)));}}
         MPI_Allreduce(&local_abs,&global_abs,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);MPI_Allreduce(&local_scale,&global_scale,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);

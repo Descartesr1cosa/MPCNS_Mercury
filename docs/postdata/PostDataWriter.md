@@ -124,8 +124,9 @@ inner/parallel/coupling patch descriptions used to classify those slots.
 
 `BfaceJedge_*` is routed to global Edge row owners and merges all shared-edge
 alias contributions; singular edges use the registry's corrected inverse
-Hodge. Its coefficients now include every real or ghost Face actually read by
-the solver curl stencil. `JedgeJcell_*` remains a three-output CSR from global
+Hodge and both the source-alias and final owner orientation signs used by the
+registry's owner writeback. Its coefficients now include every real or ghost
+Face actually read by the solver curl stencil. `JedgeJcell_*` remains a three-output CSR from global
 Edge IDs to global Cell IDs, containing the final 36-component cell weights
 and the Pole-ring least-squares override. Python must not reconstruct either
 operator from geometry or reapply boundary conditions.
