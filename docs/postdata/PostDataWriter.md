@@ -52,6 +52,12 @@ true, `J_xi/J_eta/J_zeta` are appended to the normal
 output cadence; there is no separate file or frequency control. Values are
 written after implicit convergence, owner/alias reconciliation, physical
 boundary handling, and `Jedge` sync, never from an intermediate RK/SNES stage.
+In this debug mode the restart reader auto-detects either the legacy format
+without Jedge or a complete `J_xi/J_eta/J_zeta` triplet. A partial triplet is
+rejected, and all MPI rank files must agree on whether the triplet is present.
+If the CMake option is disabled or `output_dec_jedge` is false, any
+restart containing a Jedge component is rejected and only the traditional
+restart layout is accepted.
 
 Jedge is the oriented covariant Edge 1-form `J·dr` computed from induced B
 only; prescribed `Badd` is excluded. Its physical scale is

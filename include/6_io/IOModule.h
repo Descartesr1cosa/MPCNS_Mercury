@@ -26,6 +26,10 @@ public:
     void SetRestartFields(const std::vector<std::string> &names);
     void AddRestartField(const std::string &name);
     void ClearRestartFields();
+    // When false (the production default), restart files containing any
+    // solver-native Jedge component are rejected. When true, both legacy
+    // files without Jedge and debug files with the complete triplet are read.
+    void SetRestartDecJedgeAllowed(bool allow) { restart_dec_jedge_allowed_ = allow; }
     // 读入写出field的bin文件
     void WriteRestartBinFile(int step, double time);
     void ReadRestartBinFile();
@@ -120,6 +124,7 @@ private:
     // ----- binary datas -----
     std::vector<std::string> restart_field_names_;
     std::string restart_path_;
+    bool restart_dec_jedge_allowed_{false};
     // ----- binary helpers -----
     static void WriteI32_(std::ofstream &out, int32_t v);
     static void WriteI64_(std::ofstream &out, int64_t v);

@@ -268,12 +268,25 @@ void IOModule::ReadRestartBinFile()
     par_->AddParam("Physic_Time", time);
 
     // ---- Fields ----
+    // A debug restart may contain all three solver-native Jedge components.
+    // The legacy production format contains none. A partial triplet is never
+    // accepted because it cannot represent an orientation-complete 1-form.
+    const std::unordered_set<std::string> jedge_names{"J_xi", "J_eta", "J_zeta"};
+    std::unordered_set<std::string> jedge_seen;
     for (int32_t ifld = 0; ifld < nfield_file; ++ifld)
     {
         std::string fname = ReadStr_(in);
         int32_t loc_i32 = ReadI32_(in);
         int32_t ncomp = ReadI32_(in);
         int32_t nghost = ReadI32_(in);
+
+        if (jedge_names.count(fname) != 0)
+        {
+            if (!restart_dec_jedge_allowed_)
+                Fail_("[IOModule] ReadRestart: DEC Jedge field is forbidden by the current build/setup: " + fname);
+            if (!jedge_seen.insert(fname).second)
+                Fail_("[IOModule] ReadRestart: duplicate DEC Jedge field: " + fname);
+        }
 
         const bool exists = fld_->has_field(fname);
         int fid = exists ? fld_->field_id(fname) : -1;
@@ -380,6 +393,26 @@ void IOModule::ReadRestartBinFile()
                             double v = ReadF64_(in);
                             fb(i, j, k, m) = v;
                         }
+        }
+    }
+
+    if (restart_dec_jedge_allowed_)
+    {
+        if (!jedge_seen.empty() && jedge_seen.size() != jedge_names.size())
+            Fail_("[IOModule] ReadRestart: incomplete DEC Jedge triplet; expected J_xi/J_eta/J_zeta together");
+
+        const int local_has_jedge = jedge_seen.empty() ? 0 : 1;
+        int min_has_jedge = 0, max_has_jedge = 0;
+        MPI_Allreduce(&local_has_jedge, &min_has_jedge, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(&local_has_jedge, &max_has_jedge, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+        if (min_has_jedge != max_has_jedge)
+            Fail_("[IOModule] ReadRestart: inconsistent DEC Jedge presence across rank files");
+
+        if (myid_ == 0)
+        {
+            std::printf("[IOModule] restart DEC Jedge: %s (both legacy and debug restart formats are allowed)\n",
+                        max_has_jedge == 0 ? "absent" : "present");
+            std::fflush(stdout);
         }
     }
 

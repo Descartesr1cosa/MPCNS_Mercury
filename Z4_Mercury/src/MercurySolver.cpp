@@ -33,6 +33,18 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         std::vector<std::string> bin_name = {"U_H", "U_Na", "B_xi", "B_eta", "B_zeta"};
         io_.ClearRestartFields();
         io_.SetRestartFields(bin_name);
+#ifdef OUTPUT_DEC_JEDGE
+        if(par_->HasBoo("output_dec_jedge")&&par_->GetBoo("output_dec_jedge"))
+        {
+            // Configure the read policy before a continuation restart is
+            // opened later in this constructor, and use the same condition
+            // for subsequent restart output.
+            io_.SetRestartDecJedgeAllowed(true);
+            io_.AddRestartField("J_xi");
+            io_.AddRestartField("J_eta");
+            io_.AddRestartField("J_zeta");
+        }
+#endif
 
         // Visualization output: write every variable at grid nodes.  Cell
         // fields are averaged to nodes by IOModule using the synchronized
@@ -218,9 +230,6 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 #ifdef OUTPUT_DEC_JEDGE
     if(par_->HasBoo("output_dec_jedge")&&par_->GetBoo("output_dec_jedge"))
     {
-        io_.AddRestartField("J_xi");
-        io_.AddRestartField("J_eta");
-        io_.AddRestartField("J_zeta");
         post_write_options_.existing_flow_fields.insert(
             post_write_options_.existing_flow_fields.end(),
             {"J_xi","J_eta","J_zeta"});
