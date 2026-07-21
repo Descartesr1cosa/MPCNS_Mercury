@@ -103,13 +103,32 @@ ID to be emitted exactly once.
 global face-orientation sign. Consequently a reader only performs the CSR
 multiply-add against global owner-oriented face values.
 
-PostData v2 adds `BfaceJedge_*`, a scalar CSR from global Face IDs to global
-Edge IDs, and `JedgeJcell_*`, a three-output CSR from global Edge IDs to global
-Cell IDs. The former is routed to row owners and merges all shared-edge alias
-contributions; singular edges use the registry's corrected inverse Hodge. The
-latter contains the final 36-component cell weights and expands the Pole-ring
-least-squares override. Python must not reconstruct either operator from
-geometry.
+PostData v3 extends the `BfaceJedge_*` scalar CSR input space so it exactly
+matches the complete Bface arrays stored in restart files. IDs below the
+quotient Face count remain owner-oriented physical Face IDs. Every allocated
+Face slot not represented by quotient topology, including physical-boundary,
+interface, parallel, and coupling ghosts, has an auxiliary globally unique
+storage ID. These auxiliary IDs are decomposition-scoped and are valid only
+with dynamic files having the same `mesh_uuid` and rank/block decomposition.
+
+The topology sections `Bstore_global_id`, `Bstore_quotient_id`,
+`Bstore_address`, `Bstore_sign`, `Bstore_owner`, and `Bstore_flags` map every
+solver Bface storage slot to this mixed column space. `Bstore_address` contains
+`[rank, rank_local_block, restart_location_code, i, j, k]`. For a quotient
+slot, use the owner-oriented value (`local * Bstore_sign`). For an auxiliary
+ghost slot, use the raw solver-native restart value with no orientation
+transform. The geometry chunks contain matching `Bghost_*` centers, area
+vectors, measures, flags, and storage addresses. `physical_patch_meta`,
+`physical_patch_names`, and `interface_patch_meta` preserve the physical and
+inner/parallel/coupling patch descriptions used to classify those slots.
+
+`BfaceJedge_*` is routed to global Edge row owners and merges all shared-edge
+alias contributions; singular edges use the registry's corrected inverse
+Hodge. Its coefficients now include every real or ghost Face actually read by
+the solver curl stencil. `JedgeJcell_*` remains a three-output CSR from global
+Edge IDs to global Cell IDs, containing the final 36-component cell weights
+and the Pole-ring least-squares override. Python must not reconstruct either
+operator from geometry or reapply boundary conditions.
 
 Long field names are represented by stable per-file section prefixes
 `field_NNNN`; `manifest.json` maps constant-field names to these prefixes.
