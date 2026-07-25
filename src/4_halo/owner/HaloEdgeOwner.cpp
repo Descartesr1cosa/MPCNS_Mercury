@@ -3,80 +3,12 @@
 
 #include <algorithm>
 #include <stdexcept>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace HALO_OWNER
 {
     namespace
     {
-        struct EdgeMemberCandidate
-        {
-            TOPO::EdgeKey key;
-            TOPO::EntityKey rep;
-            int8_t sign_to_canonical; // ±1
-        };
-
-        inline void pack_node(std::vector<int> &buf, const TOPO::EntityKey &x)
-        {
-            buf.push_back(x.rank);
-            buf.push_back(x.block);
-            buf.push_back(x.i);
-            buf.push_back(x.j);
-            buf.push_back(x.k);
-        }
-
-        inline TOPO::EntityKey unpack_node_eq(const int *p)
-        {
-            return TOPO::make_node(p[0], p[1], p[2], p[3], p[4]);
-        }
-
-        inline void pack_edge_key(std::vector<int> &buf, const TOPO::EdgeKey &key)
-        {
-            pack_node(buf, key.a);
-            pack_node(buf, key.b);
-        }
-
-        inline TOPO::EdgeKey unpack_edge_key(const int *p)
-        {
-            return TOPO::EdgeKey{
-                unpack_node_eq(p + 0),
-                unpack_node_eq(p + 5)};
-        }
-
-        inline void pack_edge_local(std::vector<int> &buf, const TOPO::EntityKey &e)
-        {
-            buf.push_back(e.rank);
-            buf.push_back(e.block);
-            buf.push_back(e.i);
-            buf.push_back(e.j);
-            buf.push_back(e.k);
-            buf.push_back(TOPO::axis_number(e.axis));
-        }
-
-        inline TOPO::EntityKey unpack_edge_local(const int *p)
-        {
-            return TOPO::make_edge(p[0], p[1], p[2], p[3], p[4], TOPO::entity_axis(p[5]));
-        }
-
-        inline void pack_edge_member_candidate(std::vector<int> &buf,
-                                               const EdgeMemberCandidate &c)
-        {
-            pack_edge_key(buf, c.key);
-            pack_edge_local(buf, c.rep);
-            buf.push_back((int)c.sign_to_canonical);
-        }
-
-        inline EdgeMemberCandidate unpack_edge_member_candidate(const int *p)
-        {
-            EdgeMemberCandidate c;
-            c.key = unpack_edge_key(p + 0);
-            c.rep = unpack_edge_local(p + 10);
-            c.sign_to_canonical = static_cast<int8_t>(p[16]);
-            return c;
-        }
-
         inline int8_t factor_from_signs(int8_t s_rep, int8_t s_owner)
         {
             // factor = s_rep / s_owner = s_rep * s_owner, because s_owner = ±1
@@ -96,174 +28,79 @@ namespace HALO_OWNER
         PARALLEL::mpi_size(&nrank);
 
         // ------------------------------------------------------------
-        // 1) 打包本 rank 所有 local edge members
+        // 1) 直接使用 topology 已经收集好的全局共享边成员表。
+        //
+        // select_edge_owner_parallel() 已在每个 rank 上生成相同的
+        // qkey_to_members/qkey_to_owner/local_to_qsign。这里若再次
+        // Allgatherv，会把每个成员重复 nrank 次，令内存及同步条目
+        // 都产生 O(nrank) 的额外放大。
         // ------------------------------------------------------------
-        std::vector<int> send_buf;
-        send_buf.reserve(1024);
-
-        for (const auto &[key, members] : equiv.edges.qkey_to_members)
+        for (const auto &[key, members_all] : equiv.edges.qkey_to_members)
         {
-            for (const auto &rep : members)
+            auto it_owner = equiv.edges.qkey_to_owner.find(key);
+            if (it_owner == equiv.edges.qkey_to_owner.end())
             {
-                auto it_sign = equiv.edges.local_to_qsign.find(rep);
-                if (it_sign == equiv.edges.local_to_qsign.end())
-                {
-                    throw std::runtime_error(
-                        "build_edge_owner_sync_pattern: local rep missing in equiv.edges.local_to_qsign.");
-                }
-
-                EdgeMemberCandidate c;
-                c.key = key;
-                c.rep = rep;
-                c.sign_to_canonical = it_sign->second;
-                pack_edge_member_candidate(send_buf, c);
+                throw std::runtime_error(
+                    "build_edge_owner_sync_pattern: shared edge key missing owner.");
             }
-        }
 
-        // ------------------------------------------------------------
-        // 2) gather counts + bcast counts + allgatherv data
-        // ------------------------------------------------------------
-        int send_count = static_cast<int>(send_buf.size());
-
-        std::vector<int> recv_counts(nrank, 0);
-        std::vector<int> displs(nrank, 0);
-
-        PARALLEL::mpi_gather(&send_count, 1, recv_counts.data(), 1, 0);
-        PARALLEL::mpi_bcast(recv_counts.data(), nrank, 0);
-
-        int total_recv = 0;
-        for (int r = 0; r < nrank; ++r)
-        {
-            displs[r] = total_recv;
-            total_recv += recv_counts[r];
-        }
-
-        std::vector<int> recv_buf(total_recv, 0);
-
-        PARALLEL::mpi_allgatherv(
-            send_count > 0 ? send_buf.data() : nullptr,
-            send_count,
-            total_recv > 0 ? recv_buf.data() : nullptr,
-            recv_counts.data(),
-            displs.data());
-
-        if (total_recv % 17 != 0)
-        {
-            throw std::runtime_error(
-                "build_edge_owner_sync_pattern: gathered member int count is not multiple of 17.");
-        }
-
-        // ------------------------------------------------------------
-        // 3) 重建全局成员表：EdgeKey -> all global members
-        // ------------------------------------------------------------
-        std::unordered_map<TOPO::EdgeKey,
-                           std::vector<EdgeMemberCandidate>,
-                           TOPO::EdgeKey::Hash>
-            global_members;
-
-        const int ncand = total_recv / 17;
-        for (int c = 0; c < ncand; ++c)
-        {
-            const int *base = recv_buf.data() + 17 * c;
-            EdgeMemberCandidate cand = unpack_edge_member_candidate(base);
-            global_members[cand.key].push_back(cand);
-        }
-
-        // ------------------------------------------------------------
-        // 4) 针对“本 rank 涉及到的 key”，构造 local_alias / send / recv
-        // ------------------------------------------------------------
-        // ------------------------------------------------------------
-        // 4) 针对“本 rank 涉及到的 key”，构造 local_alias / send / recv
-        //    关键：不能只遍历 equiv.edges.qkey_to_members，
-        //         因为 non-owner rank 可能没有 local edges.qkey_to_members[key]，
-        //         但一定有 local edges.local_to_qkey[rep]。
-        // ------------------------------------------------------------
-        {
-            std::unordered_set<TOPO::EdgeKey, TOPO::EdgeKey::Hash> local_keys;
-            local_keys.reserve(equiv.edges.local_to_qkey.size());
-
-            for (const auto &[rep, key] : equiv.edges.local_to_qkey)
-                local_keys.insert(key);
-
-            for (const auto &key : local_keys)
+            const TOPO::EntityKey &owner = it_owner->second;
+            if (owner.rank < 0 || owner.rank >= nrank)
             {
-                auto it_owner = equiv.edges.qkey_to_owner.find(key);
-                if (it_owner == equiv.edges.qkey_to_owner.end())
+                throw std::runtime_error(
+                    "build_edge_owner_sync_pattern: owner rank is out of range.");
+            }
+
+            auto it_owner_sign = equiv.edges.local_to_qsign.find(owner);
+            if (it_owner_sign == equiv.edges.local_to_qsign.end())
+            {
+                throw std::runtime_error(
+                    "build_edge_owner_sync_pattern: owner sign missing in topology.");
+            }
+            const int8_t owner_sign = it_owner_sign->second;
+
+            for (const auto &rep : members_all)
+            {
+                if (rep.rank < 0 || rep.rank >= nrank)
                 {
-                    // edges.local_to_qkey also contains private local edges.  Those
-                    // edges do not participate in owner-alias sync and have
-                    // no entry in edges.qkey_to_owner by construction.
+                    throw std::runtime_error(
+                        "build_edge_owner_sync_pattern: member rank is out of range.");
+                }
+
+                if (rep == owner)
                     continue;
-                }
 
-                const TOPO::EntityKey &owner = it_owner->second;
-
-                auto it_global = global_members.find(key);
-                if (it_global == global_members.end())
+                auto it_rep_sign = equiv.edges.local_to_qsign.find(rep);
+                if (it_rep_sign == equiv.edges.local_to_qsign.end())
                 {
                     throw std::runtime_error(
-                        "build_edge_owner_sync_pattern: local key missing in global member table.");
+                        "build_edge_owner_sync_pattern: member sign missing in topology.");
                 }
+                const int8_t sign = factor_from_signs(it_rep_sign->second, owner_sign);
 
-                const auto &members_all = it_global->second;
-
-                // 找 owner 对应的 sign_to_canonical
-                bool owner_sign_found = false;
-                int8_t owner_sign = 0;
-
-                for (const auto &m : members_all)
+                if (owner.rank == my_rank)
                 {
-                    if (m.rep == owner)
+                    if (rep.rank == my_rank)
                     {
-                        owner_sign = m.sign_to_canonical;
-                        owner_sign_found = true;
-                        break;
-                    }
-                }
-
-                if (!owner_sign_found)
-                {
-                    throw std::runtime_error(
-                        "build_edge_owner_sync_pattern: owner sign not found in global members.");
-                }
-
-                for (const auto &m : members_all)
-                {
-                    if (m.rep == owner)
-                        continue;
-
-                    const int8_t sign = factor_from_signs(m.sign_to_canonical, owner_sign);
-
-                    if (owner.rank == my_rank)
-                    {
-                        if (m.rep.rank == my_rank)
-                        {
-                            // owner 和 rep 都在本 rank：本地 alias
-                            pattern.local_alias.push_back(
-                                EdgeOwnerLocalAliasItem{owner, m.rep, sign});
-                        }
-                        else
-                        {
-                            // 本 rank 是 owner，给远端 rep 所在 rank 发送
-                            pattern.send_items.push_back(
-                                EdgeOwnerSendItem{m.rep.rank, key, owner});
-                        }
+                        pattern.local_alias.push_back(
+                            EdgeOwnerLocalAliasItem{owner, rep, sign});
                     }
                     else
                     {
-                        if (m.rep.rank == my_rank)
-                        {
-                            // owner 在远端，本 rank 持有本地 non-owner rep：需要 recv
-                            pattern.recv_items.push_back(
-                                EdgeOwnerRecvItem{owner.rank, key, m.rep, sign});
-                        }
+                        pattern.send_items.push_back(
+                            EdgeOwnerSendItem{rep.rank, key, owner});
                     }
+                }
+                else if (rep.rank == my_rank)
+                {
+                    pattern.recv_items.push_back(
+                        EdgeOwnerRecvItem{owner.rank, key, rep, sign});
                 }
             }
         }
 
         // ------------------------------------------------------------
-        // 5) 为 send/recv items 按 tar_id 排序，并生成 counts/displs
+        // 2) 为 send/recv items 按 tar_id 排序，并生成 counts/displs
         // ------------------------------------------------------------
         std::sort(pattern.send_items.begin(), pattern.send_items.end(),
                   [](const EdgeOwnerSendItem &a, const EdgeOwnerSendItem &b)
@@ -298,7 +135,7 @@ namespace HALO_OWNER
         }
 
         // ------------------------------------------------------------
-        // 6) runtime caches: allocate once
+        // 3) runtime caches: allocate once
         // ------------------------------------------------------------
         pattern.send_buf_cache.clear();
         pattern.recv_buf_cache.clear();
