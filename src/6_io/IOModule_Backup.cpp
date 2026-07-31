@@ -8,10 +8,10 @@ void IOModule::CopyCurrentCheckpointToDirectory_(const std::string &dst_dir) con
 {
     namespace fs = std::filesystem;
 
-    if (myid_ == 0)
-    {
-        fs::create_directories(dst_dir);
-    }
+    // Let every rank make the idempotent call.  On a multi-node shared
+    // filesystem, an MPI barrier does not by itself make directory metadata
+    // created by rank 0 immediately visible on the other nodes.
+    fs::create_directories(dst_dir);
 
     PARALLEL::mpi_barrier();
 
@@ -43,16 +43,9 @@ void IOModule::CopyCurrentCheckpointToDirectory_(const std::string &dst_dir) con
 
 void IOModule::BackupDataDirectory(const std::string &backup_dir)
 {
-    namespace fs = std::filesystem;
-
-    if (myid_ == 0)
-    {
-        fs::remove_all(backup_dir);
-        fs::create_directories(backup_dir);
-    }
-
-    PARALLEL::mpi_barrier();
-
+    // Keep the previous backup directory and overwrite each rank's checkpoint
+    // in place.  Removing and immediately recreating the same shared directory
+    // can leave other compute nodes with stale directory metadata.
     CopyCurrentCheckpointToDirectory_(backup_dir);
 
     if (myid_ == 0)
