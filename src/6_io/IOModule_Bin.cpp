@@ -167,7 +167,12 @@ std::vector<int> IOModule::BuildRestartFids_() const
 
 void IOModule::WriteRestartBinFile(int step, double time)
 {
-    std::string path = restart_path_;
+    WriteRestartBinFileToPath_(step, time, restart_path_);
+}
+
+void IOModule::WriteRestartBinFileToPath_(int step, double time,
+                                          const std::string &path)
+{
     std::ofstream out(path, std::ios::binary);
     if (!out)
         Fail_("[IOModule] WriteRestart: cannot open " + path);

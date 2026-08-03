@@ -149,6 +149,7 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 
     run_data_ = &io_.Run();
     runtime_data_ = &io_.Runtime();
+    io_.SetArchivePhysicalTimeOrigin(run_data_->time);
 
     auto count_global_cells = [&]() -> int64_t
     {

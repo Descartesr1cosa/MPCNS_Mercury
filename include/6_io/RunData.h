@@ -104,7 +104,11 @@ public:
     // ni(i32) + [ key(str) + val(i32) ] * ni
     void WriteBinary() const
     {
-        std::string path = rundata_path_;
+        WriteBinary(rundata_path_);
+    }
+
+    void WriteBinary(const std::string &path) const
+    {
         std::ofstream out(path, std::ios::binary);
         if (!out)
             Fail_("RunData::WriteBinary cannot open " + path);

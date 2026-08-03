@@ -105,6 +105,10 @@ public:
     //=========================================================================
     // 5) Output Checkpoint protection and archive
     void BackupDataDirectory(const std::string &backup_dir = "./DATA_backup");
+    void SetArchivePhysicalTimeOrigin(double time);
+    bool IsArchiveDue(double time);
+    std::string ArchiveDataDirectory(int step, double time);
+    void CopyCheckpointToCurrentData(const std::string &src_dir);
     void MaybeArchiveDataDirectory(int step, double time);
 
     // 6) On-demand offline post-data export. No output occurs until one of
@@ -242,11 +246,16 @@ private:
     // checkpoint backup / archive
     double archive_output_interval_s_ = 0.0;
     double last_archive_wall_s_ = 0.0;
+    bool archive_output_by_phy_time_ = false;
+    double archive_output_phy_interval_ = 0.0;
+    double next_archive_phy_time_ = 0.0;
 
     std::string data_dir_ = "./DATA";
     std::string archive_root_dir_ = "./DATA_archive";
 
     void CopyCurrentCheckpointToDirectory_(const std::string &dst_dir) const;
+    void WriteRestartBinFileToPath_(int step, double time,
+                                    const std::string &path);
     std::string MakeArchiveDirectoryName_(int step, double time) const;
     //=========================================================================
 

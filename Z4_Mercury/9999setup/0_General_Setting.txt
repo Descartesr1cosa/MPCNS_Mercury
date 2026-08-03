@@ -3,7 +3,9 @@ double  yee                     0.125
 double  max_Time                20.0
 int     output_step             1000
 int     output_residual         50
-double  Archive_Output_Time     0.5
+double  Archive_Output_Time        0.5 // CPU computing hours
+double  Archive_Output_PhyTime     2.0 // nondimensional time
+bool    Archive_Output_By_PhyTime  0   // 0: CPU time; 1: physic_time
 
 // Offline static post-data output.
 bool    post_static_output      1

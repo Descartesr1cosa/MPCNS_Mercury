@@ -63,6 +63,7 @@ bool MercurySolver::StepOnce()
 bool MercurySolver::UpdateControlAndOutput()
 {
     RunData &run = io_.Run();
+    const bool archive_due = io_.IsArchiveDue(run.time);
 
     if (control_.if_outres)
     {
@@ -72,18 +73,28 @@ bool MercurySolver::UpdateControlAndOutput()
         PrintMinMaxDiagnostics_();
     }
 
+    // Archive channel: serialize directly into a new DATA_archive directory.
+    // It never reads or writes DATA or DATA_backup and does not produce .plt.
+    std::string archive_dir;
+    if (archive_due)
+        archive_dir = io_.ArchiveDataDirectory(run.step, run.time);
+
+    // Normal output channel: write DATA, then mirror the newly completed
+    // restart checkpoint to DATA_backup. If both channels are due, reuse the
+    // archive checkpoint so the field data are serialized only once.
     if (control_.if_outfile)
     {
-        // 写新 DATA 前，先保护旧 DATA
-        io_.BackupDataDirectory("./DATA_backup");
-
-        // 写当前 checkpoint
         io_.WriteTecplotBinFile(run.step, run.time);
-        io_.WriteRestartBinFile(run.step, run.time);
-        io_.WriteRunDataFile();
-
-        // 当前 checkpoint 写完之后，再判断是否需要长期归档
-        io_.MaybeArchiveDataDirectory(run.step, run.time);
+        if (archive_due)
+        {
+            io_.CopyCheckpointToCurrentData(archive_dir);
+        }
+        else
+        {
+            io_.WriteRestartBinFile(run.step, run.time);
+            io_.WriteRunDataFile();
+        }
+        io_.BackupDataDirectory("./DATA_backup");
     }
 
     return control_.if_stop;
