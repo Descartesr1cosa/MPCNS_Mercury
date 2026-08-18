@@ -1,0 +1,3 @@
+bool    is_Hall_Efield             1
+bool    is_Ambipolar_Efield        1
+END_OF_FILE

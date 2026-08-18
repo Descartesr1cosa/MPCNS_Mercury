@@ -1,0 +1,26 @@
+double  CFL                     0.5
+double  max_Time                20.0
+int     output_step             1000
+int     output_residual         50
+double  Archive_Output_Time     0.5
+double  Archive_Output_PhyTime  2.0
+bool    Archive_Output_By_PhyTime 0
+
+int     dimension               3
+int     ngg                     3
+bool    continue_calc           0
+bool    continue_calc_index     0
+int     Read_Method             2
+int     max_Nstep               80000000
+int     corner_treat            2
+int     ns                      10
+
+LIST==================================================================
+constant        5
+(double)
+gamma           NA              R_uni       mu_mag             q_e
+1.4             6.02214076E23    8.314462618 1.256637061e-6     1.602176634E-19
+LIST==================================================================
+
+double  scale                   1.0
+END_OF_FILE
