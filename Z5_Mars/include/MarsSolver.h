@@ -89,5 +89,6 @@ private:
     void AssembleElectricAndCT();
     void ApplyUpdate();
     void ApplyFloors();
-    void PrintDiagnostics() const;
+    void UpdateDivB();
+    void PrintDiagnostics();
 };

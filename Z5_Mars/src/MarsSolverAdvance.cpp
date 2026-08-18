@@ -335,14 +335,127 @@ void MarsSolver::ApplyFloors()
     for(int ib=0;ib<field_->num_blocks();++ib)for(std::size_t s=0;s<MARS::NumSpecies;++s){FieldBlock &u=field_->field(U_[s],ib);if(!u.is_allocated())continue;const Int3 lo=u.inner_lo(),hi=u.inner_hi();for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k){double rho=u(i,j,k,0);if(!std::isfinite(rho)||rho<DensityFloor){const double scale=DensityFloor/std::max(rho,1e-30);for(int m=1;m<4;++m)u(i,j,k,m)*=scale;u(i,j,k,0)=DensityFloor;rho=DensityFloor;}const double ke=0.5*(u(i,j,k,1)*u(i,j,k,1)+u(i,j,k,2)*u(i,j,k,2)+u(i,j,k,3)*u(i,j,k,3))/rho;u(i,j,k,4)=std::max(u(i,j,k,4),ke+PressureFloor/(gamma_-1.0));}}
 }
 
-void MarsSolver::PrintDiagnostics() const
+void MarsSolver::UpdateDivB()
 {
-    double local=0.0;for(int ib=0;ib<field_->num_blocks();++ib)for(std::size_t s=0;s<MARS::NumSpecies;++s){const FieldBlock &u=field_->field(U_[s],ib);if(!u.is_allocated())continue;const Int3 lo=u.inner_lo(),hi=u.inner_hi();for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k)local=std::max(local,std::abs(u(i,j,k,0)));}double global=0;PARALLEL::mpi_max(&local,&global,1);if(param_->GetInt("myid")==0)std::printf("[MarsZ5] step=%lld time=%.8e dt=%.3e max(rho)=%.6e\n",static_cast<long long>(io_.Run().step),io_.Run().time,dt_,global);
+    for(int ib=0;ib<field_->num_blocks();++ib)
+    {
+        FieldBlock &divb=field_->field(divb_,ib),&bx=field_->field(B_.xi,ib),
+                   &by=field_->field(B_.eta,ib),&bz=field_->field(B_.zeta,ib),
+                   &jac=field_->field(jac_,ib);
+        if(!divb.is_allocated()) continue;
+        const Int3 lo=divb.inner_lo(),hi=divb.inner_hi();
+        for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+        {
+            const double cell_jacobian=CheckedCellJacobian(jac,ib,i,j,k,"UpdateDivB");
+            divb(i,j,k,0)=((bx(i+1,j,k,0)-bx(i,j,k,0))+
+                           (by(i,j+1,k,0)-by(i,j,k,0))+
+                           (bz(i,j,k+1,0)-bz(i,j,k,0)))/cell_jacobian;
+        }
+    }
+}
+
+void MarsSolver::PrintDiagnostics()
+{
+    constexpr std::size_t fluid_values=3*MARS::NumSpecies;
+    std::array<double,fluid_values> fluid_min_l,fluid_max_l,fluid_min_g,fluid_max_g;
+    fluid_min_l.fill(std::numeric_limits<double>::infinity());
+    fluid_max_l.fill(-std::numeric_limits<double>::infinity());
+
+    std::array<double,3> bmin_l,bmax_l,jmin_l,jmax_l,bmin_g,bmax_g,jmin_g,jmax_g;
+    bmin_l.fill(std::numeric_limits<double>::infinity());
+    jmin_l.fill(std::numeric_limits<double>::infinity());
+    bmax_l.fill(-std::numeric_limits<double>::infinity());
+    jmax_l.fill(-std::numeric_limits<double>::infinity());
+    double pmag_min_l=std::numeric_limits<double>::infinity(),pmag_max_l=-std::numeric_limits<double>::infinity();
+    double babs_max_l=0.0,jabs_max_l=0.0,divb_max_l=0.0;
+
+    for(int ib=0;ib<field_->num_blocks();++ib)
+    {
+        for(std::size_t s=0;s<MARS::NumSpecies;++s)
+        {
+            FieldBlock &u=field_->field(U_[s],ib),&pv=field_->field(PV_[s],ib);
+            if(!u.is_allocated()) continue;
+            const Int3 lo=u.inner_lo(),hi=u.inner_hi();
+            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+            {
+                const double speed=std::sqrt(pv(i,j,k,0)*pv(i,j,k,0)+pv(i,j,k,1)*pv(i,j,k,1)+pv(i,j,k,2)*pv(i,j,k,2));
+                const double values[3]={u(i,j,k,0),pv(i,j,k,3),speed};
+                for(int q=0;q<3;++q)
+                {
+                    const std::size_t n=3*s+static_cast<std::size_t>(q);
+                    fluid_min_l[n]=std::min(fluid_min_l[n],values[q]);
+                    fluid_max_l[n]=std::max(fluid_max_l[n],values[q]);
+                }
+            }
+        }
+
+        FieldBlock &b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&divb=field_->field(divb_,ib);
+        if(b.is_allocated() && jv.is_allocated() && divb.is_allocated())
+        {
+            const Int3 lo=b.inner_lo(),hi=b.inner_hi();
+            for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+            {
+                double b2=0.0,j2=0.0;
+                for(int d=0;d<3;++d)
+                {
+                    const double bv=b(i,j,k,d),jvalue=jv(i,j,k,d);
+                    bmin_l[d]=std::min(bmin_l[d],bv);bmax_l[d]=std::max(bmax_l[d],bv);
+                    jmin_l[d]=std::min(jmin_l[d],jvalue);jmax_l[d]=std::max(jmax_l[d],jvalue);
+                    b2+=bv*bv;j2+=jvalue*jvalue;
+                }
+                const double pmag=0.5*b2;
+                pmag_min_l=std::min(pmag_min_l,pmag);pmag_max_l=std::max(pmag_max_l,pmag);
+                babs_max_l=std::max(babs_max_l,std::sqrt(b2));
+                jabs_max_l=std::max(jabs_max_l,std::sqrt(j2));
+                divb_max_l=std::max(divb_max_l,std::abs(divb(i,j,k,0)));
+            }
+        }
+
+    }
+
+    PARALLEL::mpi_min(fluid_min_l.data(),fluid_min_g.data(),static_cast<int>(fluid_values));
+    PARALLEL::mpi_max(fluid_max_l.data(),fluid_max_g.data(),static_cast<int>(fluid_values));
+    PARALLEL::mpi_min(bmin_l.data(),bmin_g.data(),3);PARALLEL::mpi_max(bmax_l.data(),bmax_g.data(),3);
+    PARALLEL::mpi_min(jmin_l.data(),jmin_g.data(),3);PARALLEL::mpi_max(jmax_l.data(),jmax_g.data(),3);
+    double scalar_min_l[1]={pmag_min_l},scalar_min_g[1];
+    double scalar_max_l[4]={pmag_max_l,babs_max_l,jabs_max_l,divb_max_l},scalar_max_g[4];
+    PARALLEL::mpi_min(scalar_min_l,scalar_min_g,1);PARALLEL::mpi_max(scalar_max_l,scalar_max_g,4);
+
+    if(param_->GetInt("myid")!=0) return;
+    const RunData &run=io_.Run();
+    const double cpu_time=run.GetMonitorD("Perf/CPUInterval_s",0.0);
+    const double speed=run.GetMonitorD("Perf/s_per_MCells_step",0.0);
+    const double mdofs=static_cast<double>(run.GetMonitorI("Perf/Cells",0))*1.0e-6;
+    std::printf("[  Diag  ] Nstep   =%9d            t  =%12.5e        dt = %10.3e\n",
+                run.step,run.time,run.dt);
+    std::printf("           %8s=%10.4f s    %8s=%8.3fM    %8s=%10.3f   s/MDOF/step\n",
+                "CPU_Time",cpu_time,"DOFs",mdofs,"speed",speed);
+    for(std::size_t s=0;s<MARS::NumSpecies;++s)
+    {
+        const std::string name=std::string(MARS::SpeciesNames[s])+"+";
+        std::printf("           %-4s rho=[%.3e, %.3e]  p=[%.3e, %.3e]  |u|=[%.3e, %.3e]\n",
+                    name.c_str(),fluid_min_g[3*s],fluid_max_g[3*s],
+                    fluid_min_g[3*s+1],fluid_max_g[3*s+1],fluid_min_g[3*s+2],fluid_max_g[3*s+2]);
+    }
+    std::printf("           B    x=[%.3e, %.3e]  y=[%.3e, %.3e]  z=[%.3e, %.3e]\n",
+                bmin_g[0],bmax_g[0],bmin_g[1],bmax_g[1],bmin_g[2],bmax_g[2]);
+    std::printf("           J    x=[%.3e, %.3e]  y=[%.3e, %.3e]  z=[%.3e, %.3e]\n",
+                jmin_g[0],jmax_g[0],jmin_g[1],jmax_g[1],jmin_g[2],jmax_g[2]);
+    std::printf("           EM   Pmag=[%.3e, %.3e]  |B|max=%.3e  |J|max=%.3e  |divB|max=%.3e\n",
+                scalar_min_g[0],scalar_max_g[0],scalar_max_g[1],scalar_max_g[2],scalar_max_g[3]);
+    std::printf("\n");
+    std::fflush(stdout);
 }
 
 void MarsSolver::Advance()
 {
     auto &run=io_.Run();control_.UpdateSwitches(run);
+    if(control_.if_outres)
+    {
+        UpdateDivB();
+        io_.Runtime().UpdateOnOutres(run);
+        PrintDiagnostics();
+    }
     while(!control_.if_stop)
     {
         ComputeTimestep();ZeroRHS();AssembleFluidFlux();AddFortranSources();AssembleElectricAndCT();ApplyUpdate();ApplyFloors();
@@ -350,7 +463,8 @@ void MarsSolver::Advance()
         std::vector<std::string> names;for(auto n:MARS::SpeciesNames)names.push_back("U_"+std::string(n));SyncGroup("Ucell",names);SyncGroup("Bface",{"B_xi","B_eta","B_zeta"},true);
         UpdatePrimitive();UpdateIonVelocity();UpdateMagneticCell();UpdateCurrentCell();
         control_.UpdateSwitches(run);
-        if(control_.if_outres)PrintDiagnostics();
+        if(control_.if_outres || control_.if_outfile)UpdateDivB();
+        if(control_.if_outres){io_.Runtime().UpdateOnOutres(run);PrintDiagnostics();}
         if(control_.if_outfile){io_.WriteTecplotBinFile(run.step,run.time);io_.WriteRestartBinFile(run.step,run.time);io_.WriteRunDataFile();}
     }
 }

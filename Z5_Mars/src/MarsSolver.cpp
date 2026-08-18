@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -94,6 +95,19 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
     }
     Initialize();
     control_.Setup(param_);
+
+    int64_t local_cells=0;
+    for(int ib=0;ib<field_->num_blocks();++ib)
+    {
+        const FieldBlock &u=field_->field(U_[MARS::H],ib);
+        if(!u.is_allocated()) continue;
+        const Int3 lo=u.inner_lo(),hi=u.inner_hi();
+        local_cells+=int64_t(hi.i-lo.i)*int64_t(hi.j-lo.j)*int64_t(hi.k-lo.k);
+    }
+    double local_cells_d=static_cast<double>(local_cells);
+    double global_cells_d=0.0;
+    PARALLEL::mpi_sum(&local_cells_d,&global_cells_d,1);
+    io_.Runtime().Begin(io_.Run(),param_,static_cast<int64_t>(std::llround(global_cells_d)));
 }
 
 void MarsSolver::CacheFields()
