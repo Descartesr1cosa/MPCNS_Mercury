@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MarsAtmosphereModel.h"
 #include "MarsChemistry.h"
 #include "MarsSpecies.h"
 #include "3_Control.h"
@@ -8,6 +9,7 @@
 #include "operators/CTOperators.h"
 
 #include <array>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,6 +36,7 @@ private:
     Halo *halo_ = nullptr;
     Param *param_ = nullptr;
     BoundaryCore boundary_;
+    MARS::AtmosphereModel atmosphere_;
     IOModule io_;
     Control control_;
 
@@ -60,6 +63,9 @@ private:
     double pressure_scale_ = 0.0;
     bool hall_enabled_ = true;
     bool ambipolar_enabled_ = true;
+    double solar_wind_h_density_ = 0.0;
+    double wall_temperature_K_ = 1500.0;
+    std::map<std::array<int, 4>, std::array<double, MARS::NumSpecies>> wall_ion_cache_;
 
     void CacheFields();
     void ReadConstants();
@@ -67,7 +73,9 @@ private:
     void SyncGroup(const std::string &name, const std::vector<std::string> &fields,
                    bool owner_sync = false);
     void Initialize();
-    bool LoadAtmosphereRankFile();
+    void PopulateAnalyticAtmosphere();
+    void ApplyIonWall(FieldBlock &block, const BOUND::PhysicalRegion &region,
+                      int nghost, std::size_t species);
     void UpdatePrimitive();
     void UpdateIonVelocity();
     void UpdateMagneticCell();

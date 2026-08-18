@@ -1,0 +1,9 @@
+# Analytic Mars atmosphere/photoionization model. Coordinates are Mars-centred;
+# +x points from Mars toward the Sun by default.
+double  mars_radius_m             3.396E6
+double  mars_lower_boundary_km    100.0
+double  mars_orbit_au             1.524
+double  mars_sun_x                1.0
+double  mars_sun_y                0.0
+double  mars_sun_z                0.0
+END_OF_FILE

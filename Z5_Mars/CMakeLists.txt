@@ -46,3 +46,7 @@ enable_testing()
 add_executable(MarsChemistryTest tests/MarsChemistryTest.cpp src/MarsChemistry.cpp)
 target_include_directories(MarsChemistryTest PRIVATE include)
 add_test(NAME MarsChemistryTest COMMAND MarsChemistryTest)
+add_executable(MarsAtmosphereTest tests/MarsAtmosphereTest.cpp
+  src/MarsAtmosphereModel.cpp src/MarsChemistry.cpp)
+target_include_directories(MarsAtmosphereTest PRIVATE include)
+add_test(NAME MarsAtmosphereTest COMMAND MarsAtmosphereTest)

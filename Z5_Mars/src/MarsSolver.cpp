@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <stdexcept>
@@ -141,6 +140,23 @@ void MarsSolver::ReadConstants()
     ambipolar_enabled_ = !param_->HasBoo("is_Ambipolar_Efield") || param_->GetBoo("is_Ambipolar_Efield");
     hall_scale_ = magnetic_ref_ / (mu0_ * length_ref_ * charge_ * nref * velocity_ref_);
     pressure_scale_ = pressure_ref_ / (charge_ * nref * length_ref_ * velocity_ref_ * magnetic_ref_);
+
+    MARS::AtmosphereConfig atmosphere_config;
+    atmosphere_config.mars_radius_m = param_->HasDou("mars_radius_m")
+                                          ? param_->GetDou("mars_radius_m") : length_ref_;
+    atmosphere_config.lower_boundary_altitude_km = param_->HasDou("mars_lower_boundary_km")
+                                                        ? param_->GetDou("mars_lower_boundary_km") : 100.0;
+    atmosphere_config.heliocentric_distance_au = param_->HasDou("mars_orbit_au")
+                                                     ? param_->GetDou("mars_orbit_au") : 1.524;
+    atmosphere_config.sun_direction = {
+        param_->HasDou("mars_sun_x") ? param_->GetDou("mars_sun_x") : 1.0,
+        param_->HasDou("mars_sun_y") ? param_->GetDou("mars_sun_y") : 0.0,
+        param_->HasDou("mars_sun_z") ? param_->GetDou("mars_sun_z") : 0.0};
+    const auto wall = param_->GetDou_List("Boundary_Solid_Surface").data;
+    wall_temperature_K_ = wall.at("T");
+    atmosphere_config.ion_temperature_K = wall_temperature_K_;
+    atmosphere_config.electron_temperature_K = wall_temperature_K_;
+    atmosphere_ = MARS::AtmosphereModel(atmosphere_config);
 }
 
 void MarsSolver::SetupBoundary()
@@ -154,6 +170,15 @@ void MarsSolver::SetupBoundary()
     for (const std::string &name : names)
         for (const char *region : regions)
             boundary_.RegisterPhysical(name, region, copy);
+    for (std::size_t s = 0; s < MARS::NumSpecies; ++s)
+    {
+        const std::string field_name = "U_" + std::string(MARS::SpeciesNames[s]);
+        auto ion_wall = [this, s](FieldBlock &block, Field *,
+                                  const BOUND::PhysicalRegion &region, int nghost)
+        { ApplyIonWall(block, region, nghost, s); };
+        boundary_.RegisterPhysical(field_name, "Solid_Surface", ion_wall);
+        boundary_.RegisterPhysical(field_name, "Coupled-Solid", ion_wall);
+    }
     boundary_.CheckPhysicalHandlers(names);
 }
 
@@ -175,6 +200,7 @@ void MarsSolver::Initialize()
     const double nref = ref.at("n");
     const double molref = ref.at("Molecular_mass");
     const double rho_sw = (ini.at("n") / nref) * (ini.at("Molecular_mass") / molref);
+    solar_wind_h_density_ = rho_sw;
     const double cy = ini.at("c_y"), cz = ini.at("c_z");
     const double cx = -std::sqrt(std::max(0.0, 1.0 - cy * cy - cz * cz));
     const double ux = cx * ini.at("U") / velocity_ref_;
@@ -229,7 +255,7 @@ void MarsSolver::Initialize()
             }
         }
     }
-    LoadAtmosphereRankFile();
+    PopulateAnalyticAtmosphere();
     std::vector<std::string> ufields;
     for(auto n:MARS::SpeciesNames) ufields.push_back("U_"+std::string(n));
     SyncGroup("Ucell",ufields);
@@ -240,26 +266,63 @@ void MarsSolver::Initialize()
     UpdateCurrentCell();
 }
 
-bool MarsSolver::LoadAtmosphereRankFile()
+void MarsSolver::PopulateAnalyticAtmosphere()
 {
-    const int rank=param_->GetInt("myid");
-    char path[128];
-    std::snprintf(path,sizeof(path),"./CASE/input/atmosphere_rank%06d.dat",rank);
-    std::ifstream input(path);
-    if(!input) return false;
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
         FieldBlock &neutral=field_->field(neutral_,ib), &photo=field_->field(photo_,ib);
         if(!neutral.is_allocated()) continue;
-        const Int3 lo=neutral.inner_lo(), hi=neutral.inner_hi();
+        Block &grid_block=grid_->grids(ib);
+        const Int3 lo=neutral.get_lo(), hi=neutral.get_hi();
         for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
         {
-            for(std::size_t n=0;n<MARS::NumNeutral;++n) input>>neutral(i,j,k,n);
-            for(std::size_t n=0;n<MARS::NumPhoto;++n) input>>photo(i,j,k,n);
-            if(!input) throw std::runtime_error(std::string("short Mars atmosphere file: ")+path);
+            const std::array<double,3> position={
+                grid_block.dual_x(i+1,j+1,k+1)*length_ref_,
+                grid_block.dual_y(i+1,j+1,k+1)*length_ref_,
+                grid_block.dual_z(i+1,j+1,k+1)*length_ref_};
+            const auto state=atmosphere_.Evaluate(position);
+            for(std::size_t n=0;n<MARS::NumNeutral;++n) neutral(i,j,k,n)=state.neutral_cm3[n];
+            for(std::size_t n=0;n<MARS::NumPhoto;++n) photo(i,j,k,n)=state.photo_cm3_s[n];
         }
     }
-    return true;
+}
+
+void MarsSolver::ApplyIonWall(FieldBlock &block, const BOUND::PhysicalRegion &region,
+                              int nghost, std::size_t species)
+{
+    if (!block.is_allocated()) return;
+    const Box3 ghost=BoundaryCore::MakeGhostSlabFromInner(region.inner_slab,region.direction,nghost);
+    const Box3 &inner=region.inner_slab;
+    const int axis=std::abs(region.direction);
+    const int sign=region.direction>0?1:-1;
+    const int iref=axis==1?(sign<0?inner.lo.i:inner.hi.i-1):0;
+    const int jref=axis==2?(sign<0?inner.lo.j:inner.hi.j-1):0;
+    const int kref=axis==3?(sign<0?inner.lo.k:inner.hi.k-1):0;
+    Block &grid_block=grid_->grids(region.this_block);
+    for(int i=ghost.lo.i;i<ghost.hi.i;++i)
+        for(int j=ghost.lo.j;j<ghost.hi.j;++j)
+            for(int k=ghost.lo.k;k<ghost.hi.k;++k)
+            {
+                const int ii=axis==1?iref:i;
+                const int jj=axis==2?jref:j;
+                const int kk=axis==3?kref:k;
+                const std::array<double,3> position={
+                    grid_block.dual_x(ii+1,jj+1,kk+1)*length_ref_,
+                    grid_block.dual_y(ii+1,jj+1,kk+1)*length_ref_,
+                    grid_block.dual_z(ii+1,jj+1,kk+1)*length_ref_};
+                const std::array<int,4> key={region.this_block,ii,jj,kk};
+                auto cached=wall_ion_cache_.find(key);
+                if(cached==wall_ion_cache_.end())
+                    cached=wall_ion_cache_.emplace(key,atmosphere_.WallIonDensity(position).ion_cm3).first;
+                double rho=cached->second[species]*1.0e6*MARS::ParticleMass[species]/density_ref_;
+                if(species==MARS::H) rho=0.3*solar_wind_h_density_;
+                rho=std::max(rho,DensityFloor);
+                const double number_m3=rho*density_ref_/MARS::ParticleMass[species];
+                const double pressure=std::max(number_m3*boltzmann_*wall_temperature_K_/pressure_ref_,PressureFloor);
+                block(i,j,k,0)=rho;
+                block(i,j,k,1)=0.0; block(i,j,k,2)=0.0; block(i,j,k,3)=0.0;
+                block(i,j,k,4)=pressure/(gamma_-1.0);
+            }
 }
 
 void MarsSolver::UpdatePrimitive()

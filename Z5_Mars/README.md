@@ -22,12 +22,10 @@ cmake --build build --target MarsZ5 -j
 Place the decomposed MPCNS grid/connectivity files in `Z5_Mars/CASE/geometry`.
 The setup directory is prepared automatically from `9999setup`.
 
-The neutral atmosphere and EUVAC input are optional per-rank ASCII files named
-`CASE/input/atmosphere_rankXXXXXX.dat`. Records follow local block order and
-then `(i,j,k)` inner-cell order. Each record contains the ten reactive neutral
-densities `Ar CO2 CO C H N2 N NO O O2` in cm^-3, followed by the two auxiliary
-neutral columns retained by the Fortran input,
-and then the fourteen Fortran EUVAC production rates in cm^-3 s^-1. The two
-auxiliary columns are transported for output but do not enter `source_species`,
-matching the serial code. Missing files select a source-free atmosphere,
-which is useful for parallel transport/CT validation.
+The neutral atmosphere, fourteen-channel EUVAC-equivalent photoionization and
+the lower ion boundary are evaluated analytically from each cell's physical
+position. No fixed-grid atmosphere file is read. The solid inner boundary uses
+the complete Fortran reaction network in local photochemical equilibrium; H+
+retains the original 0.3-upstream-density condition. Model equations,
+coefficients, references, parameters and limitations are documented in
+[`docs/mars/MarsAtmospherePhotoionization.md`](../docs/mars/MarsAtmospherePhotoionization.md).
