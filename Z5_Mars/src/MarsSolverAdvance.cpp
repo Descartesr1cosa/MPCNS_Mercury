@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <sstream>
+#include <stdexcept>
 
 namespace
 {
@@ -38,6 +40,7 @@ void MarsSolver::ComputeTimestep()
             if(!u.is_allocated()) continue;
             for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
             {
+                const double volume=std::abs(CheckedCellJacobian(jac,ib,i,j,k,"ComputeTimestep"));
                 const double rho=std::max(u(i,j,k,0),1e-10), p=std::max(pv(i,j,k,3),1e-10);
                 const double cs=std::sqrt(gamma_*p/rho);
                 auto term=[&](FieldBlock &a,int ii,int jj,int kk)
@@ -47,7 +50,7 @@ void MarsSolver::ComputeTimestep()
                     return std::abs(pv(i,j,k,0)*x+pv(i,j,k,1)*y+pv(i,j,k,2)*z)+cs*area;
                 };
                 const double denom=term(ax,i,j,k)+term(ax,i+1,j,k)+term(ay,i,j,k)+term(ay,i,j+1,k)+term(az,i,j,k)+term(az,i,j,k+1);
-                if(denom>0.0) local=std::min(local,cfl_*std::abs(jac(i,j,k,0))/denom);
+                if(denom>0.0) local=std::min(local,cfl_*volume/denom);
             }
         }
 
@@ -130,8 +133,12 @@ void MarsSolver::AssembleFluidFlux()
         }
         FieldBlock &fx=field_->field(flux_.xi,ib),&fy=field_->field(flux_.eta,ib),&fz=field_->field(flux_.zeta,ib);
         const Int3 lo=rhs.inner_lo(),hi=rhs.inner_hi();
-        for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k) for(int m=0;m<5;++m)
-            rhs(i,j,k,m)-=((fx(i+1,j,k,m)-fx(i,j,k,m))+(fy(i,j+1,k,m)-fy(i,j,k,m))+(fz(i,j,k+1,m)-fz(i,j,k,m)))/jac(i,j,k,0);
+        for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+        {
+            const double cell_jacobian=CheckedCellJacobian(jac,ib,i,j,k,"AssembleFluidFlux");
+            for(int m=0;m<5;++m)
+                rhs(i,j,k,m)-=((fx(i+1,j,k,m)-fx(i,j,k,m))+(fy(i,j+1,k,m)-fy(i,j,k,m))+(fz(i,j,k+1,m)-fz(i,j,k,m)))/cell_jacobian;
+        }
     }
 }
 
@@ -160,7 +167,7 @@ void MarsSolver::AddFortranSources()
             input.electron_temperature_K=pe_dim/(std::max(ne_cm3*1e6,1.0)*boltzmann_);
             const auto rates=MARS::EvaluateChemistry(input);
 
-            const double V=std::max(std::abs(jac(i,jj,k,0)),1e-30);
+            const double V=std::abs(CheckedCellJacobian(jac,ib,i,jj,k,"AddFortranSources"));
             double gradp[3];
             const double dpi=0.5*(electron_pressure(i+1,jj,k)-electron_pressure(i-1,jj,k));
             const double dpj=0.5*(electron_pressure(i,jj+1,k)-electron_pressure(i,jj-1,k));
@@ -217,24 +224,57 @@ void MarsSolver::AddFortranSources()
 void MarsSolver::AssembleElectricAndCT()
 {
     const int ef[3]={E_.xi,E_.eta,E_.zeta},drf[3]={edge_dr_.xi,edge_dr_.eta,edge_dr_.zeta};
+    // Match Mercury's edge-native electron-pressure EMF.  The smooth floor is
+    // applied to the edge-averaged nondimensional electron density, not to a
+    // cell gradient reconstructed through ghost-cell Jacobians.
+    constexpr double electron_density_floor_nd=1.0e-2;
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
-        FieldBlock &b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&up=field_->field(uplus_,ib),&jac=field_->field(jac_,ib);
-        FieldBlock &ax=field_->field(metric_.xi,ib),&ay=field_->field(metric_.eta,ib),&az=field_->field(metric_.zeta,ib);
+        FieldBlock &b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&up=field_->field(uplus_,ib);
         if(!b.is_allocated()) continue;
-        auto pe=[&](int i,int j,int k){double value=0;for(std::size_t s=0;s<MARS::NumSpecies;++s)value+=field_->field(PV_[s],ib)(i,j,k,3);return value;};
+        const double nref=param_->GetDou_List("REF").data.at("n");
         auto ecell=[&](int i,int j,int k,double e[3])
         {
             double uxB[3],jxB[3];cross3(up(i,j,k,0),up(i,j,k,1),up(i,j,k,2),b(i,j,k,0),b(i,j,k,1),b(i,j,k,2),uxB[0],uxB[1],uxB[2]);
             cross3(jv(i,j,k,0),jv(i,j,k,1),jv(i,j,k,2),b(i,j,k,0),b(i,j,k,1),b(i,j,k,2),jxB[0],jxB[1],jxB[2]);
             double ne=0;for(std::size_t s=0;s<MARS::NumSpecies;++s) ne+=std::max(field_->field(U_[s],ib)(i,j,k,0),0.0)/MARS::ParticleMass[s];
-            const double nref=param_->GetDou_List("REF").data.at("n"),ne_nd=ne*density_ref_/nref;
-            const double V=std::max(std::abs(jac(i,j,k,0)),1e-30),dpi=0.5*(pe(i+1,j,k)-pe(i-1,j,k)),dpj=0.5*(pe(i,j+1,k)-pe(i,j-1,k)),dpk=0.5*(pe(i,j,k+1)-pe(i,j,k-1));
+            const double ne_nd=ne*density_ref_/nref;
             for(int d=0;d<3;++d)
+                e[d]=-uxB[d]+(hall_enabled_?hall_scale_*jxB[d]/std::max(ne_nd,1e-12):0.0);
+        };
+        auto pe_cell=[&](int i,int j,int k)
+        {
+            double value=0.0;
+            for(std::size_t s=0;s<MARS::NumSpecies;++s)
+                value+=field_->field(PV_[s],ib)(i,j,k,3);
+            return value;
+        };
+        auto pe_node=[&](int i,int j,int k)
+        {
+            double sum=0.0;
+            for(int di=-1;di<=0;++di) for(int dj=-1;dj<=0;++dj) for(int dk=-1;dk<=0;++dk)
+                sum+=pe_cell(i+di,j+dj,k+dk);
+            return 0.125*sum;
+        };
+        auto ne_cell_nd=[&](int i,int j,int k)
+        {
+            double ne=0.0;
+            for(std::size_t s=0;s<MARS::NumSpecies;++s)
+                ne+=std::max(field_->field(U_[s],ib)(i,j,k,0),0.0)/MARS::ParticleMass[s];
+            return ne*density_ref_/nref;
+        };
+        auto ne_edge_eff=[&](int d,int i,int j,int k)
+        {
+            double ne=0.0;
+            for(int a=0;a<2;++a) for(int c=0;c<2;++c)
             {
-                const double gp=(0.5*(ax(i,j,k,d)+ax(i+1,j,k,d))*dpi+0.5*(ay(i,j,k,d)+ay(i,j+1,k,d))*dpj+0.5*(az(i,j,k,d)+az(i,j,k+1,d))*dpk)/V;
-                e[d]=-uxB[d]+(hall_enabled_?hall_scale_*jxB[d]/std::max(ne_nd,1e-12):0.0)-(ambipolar_enabled_?pressure_scale_*gp/std::max(ne_nd,1e-12):0.0);
+                int ii=i,jj=j,kk=k;
+                if(d==0){jj=j-1+a;kk=k-1+c;}
+                else if(d==1){ii=i-1+a;kk=k-1+c;}
+                else{ii=i-1+a;jj=j-1+c;}
+                ne+=0.25*ne_cell_nd(ii,jj,kk);
             }
+            return std::sqrt(ne*ne+electron_density_floor_nd*electron_density_floor_nd);
         };
         for(int d=0;d<3;++d)
         {
@@ -248,6 +288,27 @@ void MarsSolver::AssembleElectricAndCT()
                     double e[3];ecell(ii,jj,kk,e);for(int q=0;q<3;++q)avg[q]+=0.25*e[q];
                 }
                 edge(i,j,k,0)=avg[0]*dr(i,j,k,0)+avg[1]*dr(i,j,k,1)+avg[2]*dr(i,j,k,2);
+                if(ambipolar_enabled_)
+                {
+                    // A node-to-node pressure difference is already the
+                    // covariant line integral required by CT; no metric/Jacobian
+                    // division is involved here.
+                    const double pe0=pe_node(i,j,k);
+                    const double pe1=d==0?pe_node(i+1,j,k):(d==1?pe_node(i,j+1,k):pe_node(i,j,k+1));
+                    const double ne_eff=ne_edge_eff(d,i,j,k);
+                    if(!std::isfinite(pe0) || !std::isfinite(pe1) || !std::isfinite(ne_eff) || ne_eff<=0.0)
+                    {
+                        std::ostringstream message;
+                        message << "MarsSolver: invalid electron state in edge pressure EMF"
+                                << " rank=" << param_->GetInt("myid")
+                                << " block=" << ib << " direction=" << d
+                                << " edge=(" << i << ',' << j << ',' << k << ')'
+                                << " pe0=" << pe0 << " pe1=" << pe1
+                                << " ne_eff=" << ne_eff;
+                        throw std::runtime_error(message.str());
+                    }
+                    edge(i,j,k,0)-=pressure_scale_*(pe1-pe0)/ne_eff;
+                }
             }
         }
     }

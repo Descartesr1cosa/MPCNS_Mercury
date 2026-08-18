@@ -70,6 +70,8 @@ private:
     void CacheFields();
     void ReadConstants();
     void SetupBoundary();
+    double CheckedCellJacobian(const FieldBlock &jac, int block, int i, int j, int k,
+                               const char *operation) const;
     void SyncGroup(const std::string &name, const std::vector<std::string> &fields,
                    bool owner_sync = false);
     void Initialize();

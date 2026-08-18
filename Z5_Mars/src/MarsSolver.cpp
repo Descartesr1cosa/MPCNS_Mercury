@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 
 namespace
@@ -180,6 +181,24 @@ void MarsSolver::SetupBoundary()
         boundary_.RegisterPhysical(field_name, "Coupled-Solid", ion_wall);
     }
     boundary_.CheckPhysicalHandlers(names);
+}
+
+double MarsSolver::CheckedCellJacobian(const FieldBlock &jac, int block,
+                                       int i, int j, int k,
+                                       const char *operation) const
+{
+    const double raw = jac(i, j, k, 0);
+    if (std::isfinite(raw) && std::abs(raw) > 0.0)
+        return raw;
+
+    std::ostringstream message;
+    message << "MarsSolver: invalid cell geometry in " << operation
+            << " rank=" << param_->GetInt("myid")
+            << " block=" << block
+            << " cell=(" << i << ',' << j << ',' << k << ')'
+            << " jac=" << raw
+            << ". A zero/non-finite Jacobian must not enter a physical operator.";
+    throw std::runtime_error(message.str());
 }
 
 void MarsSolver::SyncGroup(const std::string &name, const std::vector<std::string> &fields,
@@ -381,8 +400,16 @@ void MarsSolver::UpdateMagneticCell()
                          ay(i,j+1,k,0),ay(i,j+1,k,1),ay(i,j+1,k,2),
                          az(i,j,k+1,0),az(i,j,k+1,1),az(i,j,k+1,2)}, inv[9];
             const double phi[3]={bx(i+1,j,k,0),by(i,j+1,k,0),bz(i,j,k+1,0)};
-            if(invert3(a,inv)) for(int d=0;d<3;++d) bc(i,j,k,d)=inv[3*d]*phi[0]+inv[3*d+1]*phi[1]+inv[3*d+2]*phi[2];
-            else for(int d=0;d<3;++d) bc(i,j,k,d)=0.0;
+            if(!invert3(a,inv))
+            {
+                std::ostringstream message;
+                message << "MarsSolver: singular/non-finite face metric matrix in UpdateMagneticCell"
+                        << " rank=" << param_->GetInt("myid")
+                        << " block=" << ib
+                        << " cell=(" << i << ',' << j << ',' << k << ')';
+                throw std::runtime_error(message.str());
+            }
+            for(int d=0;d<3;++d) bc(i,j,k,d)=inv[3*d]*phi[0]+inv[3*d+1]*phi[1]+inv[3*d+2]*phi[2];
         }
     }
     SyncGroup("Bcell",{"B_cell"});
@@ -398,7 +425,7 @@ void MarsSolver::UpdateCurrentCell()
         const Int3 lo=jv.inner_lo(), hi=jv.inner_hi();
         for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
         {
-            const double V=std::max(std::abs(jac(i,j,k,0)),1e-30);
+            const double V=std::abs(CheckedCellJacobian(jac,ib,i,j,k,"UpdateCurrentCell"));
             double g[9];
             for(int c=0;c<3;++c)
             {
