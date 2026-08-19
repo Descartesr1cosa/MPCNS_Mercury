@@ -122,4 +122,157 @@ ChemistryRates EvaluateChemistry(const ChemistryInput &in)
                                      y[O] * k62 + y[O2] * k60);
     return out;
 }
+
+namespace
+{
+using SpeciesVector = std::array<double, NumSpecies>;
+using SpeciesMatrix = std::array<std::array<double, NumSpecies>, NumSpecies>;
+
+double ChemistryResidual(const ChemistryInput &base, const SpeciesVector &state,
+                         const SpeciesVector &initial, double dt_seconds,
+                         const SpeciesVector &density_floor,
+                         SpeciesVector &residual, ChemistryRates *rates_out,
+                         std::array<bool,NumSpecies> *active_out=nullptr)
+{
+    ChemistryInput input=base;
+    input.ion_cm3=state;
+    const ChemistryRates rates=EvaluateChemistry(input);
+    double norm=0.0;
+    for(std::size_t s=0;s<NumSpecies;++s)
+    {
+        const double backward_euler_residual=state[s]-initial[s]-dt_seconds*(
+            rates.production_cm3_s[s]-rates.loss_cm3_s[s]);
+        const bool active=state[s]<=density_floor[s]*(1.0+1.0e-8)+1.0e-30 &&
+                          backward_euler_residual>0.0;
+        residual[s]=active?state[s]-density_floor[s]:backward_euler_residual;
+        if(active_out) (*active_out)[s]=active;
+        const double scale=1.0+std::abs(initial[s])+std::abs(state[s]);
+        norm=std::max(norm,std::abs(residual[s])/scale);
+    }
+    if(rates_out) *rates_out=rates;
+    return norm;
+}
+
+bool SolveDenseSystem(SpeciesMatrix matrix, SpeciesVector rhs, SpeciesVector &solution)
+{
+    for(std::size_t column=0;column<NumSpecies;++column)
+    {
+        std::size_t pivot=column;
+        for(std::size_t row=column+1;row<NumSpecies;++row)
+            if(std::abs(matrix[row][column])>std::abs(matrix[pivot][column])) pivot=row;
+        if(!std::isfinite(matrix[pivot][column]) || std::abs(matrix[pivot][column])<1.0e-14)
+            return false;
+        if(pivot!=column){std::swap(matrix[pivot],matrix[column]);std::swap(rhs[pivot],rhs[column]);}
+        const double diagonal=matrix[column][column];
+        for(std::size_t row=column+1;row<NumSpecies;++row)
+        {
+            const double factor=matrix[row][column]/diagonal;
+            matrix[row][column]=0.0;
+            for(std::size_t q=column+1;q<NumSpecies;++q) matrix[row][q]-=factor*matrix[column][q];
+            rhs[row]-=factor*rhs[column];
+        }
+    }
+    for(int row=static_cast<int>(NumSpecies)-1;row>=0;--row)
+    {
+        double value=rhs[static_cast<std::size_t>(row)];
+        for(std::size_t q=static_cast<std::size_t>(row)+1;q<NumSpecies;++q)
+            value-=matrix[static_cast<std::size_t>(row)][q]*solution[q];
+        solution[static_cast<std::size_t>(row)]=value/matrix[static_cast<std::size_t>(row)][static_cast<std::size_t>(row)];
+    }
+    return true;
+}
+}
+
+PointImplicitChemistryResult SolvePointImplicitChemistry(
+    const ChemistryInput &input, double dt_seconds,
+    const std::array<double, NumSpecies> &density_floor_cm3,
+    int max_iterations, double relative_tolerance)
+{
+    PointImplicitChemistryResult result;
+    SpeciesVector initial=input.ion_cm3;
+    for(std::size_t s=0;s<NumSpecies;++s)
+        initial[s]=std::max(initial[s],density_floor_cm3[s]);
+    result.ion_cm3=initial;
+    result.rates=EvaluateChemistry(input);
+    if(!(dt_seconds>0.0) || !std::isfinite(dt_seconds))
+    {
+        result.converged=dt_seconds==0.0;
+        return result;
+    }
+
+    // Positive Patankar predictor: destruction is implicit from the outset.
+    for(std::size_t s=0;s<NumSpecies;++s)
+    {
+        const double loss_coefficient=result.rates.loss_cm3_s[s]/std::max(initial[s],1.0e-300);
+        result.ion_cm3[s]=std::max(density_floor_cm3[s],
+            (initial[s]+dt_seconds*result.rates.production_cm3_s[s])/
+            (1.0+dt_seconds*loss_coefficient));
+    }
+
+    SpeciesVector residual{},trial_residual{};
+    for(int iteration=0;iteration<max_iterations;++iteration)
+    {
+        ChemistryRates rates;
+        std::array<bool,NumSpecies> active{};
+        const double norm=ChemistryResidual(input,result.ion_cm3,initial,dt_seconds,
+                                             density_floor_cm3,residual,&rates,&active);
+        result.iterations=iteration+1;
+        result.rates=rates;
+        if(std::isfinite(norm) && norm<=relative_tolerance)
+        {
+            result.converged=true;
+            return result;
+        }
+        if(!std::isfinite(norm)) return result;
+
+        SpeciesMatrix jacobian{};
+        for(std::size_t column=0;column<NumSpecies;++column)
+        {
+            SpeciesVector perturbed=result.ion_cm3;
+            const double step=1.0e-7*std::max(std::abs(perturbed[column]),1.0e-6);
+            perturbed[column]+=step;
+            SpeciesVector perturbed_residual{};
+            ChemistryResidual(input,perturbed,initial,dt_seconds,density_floor_cm3,
+                              perturbed_residual,nullptr);
+            for(std::size_t row=0;row<NumSpecies;++row)
+                jacobian[row][column]=active[row]?(row==column?1.0:0.0):
+                    (perturbed_residual[row]-residual[row])/step;
+        }
+
+        SpeciesVector delta{};
+        SpeciesVector rhs{};
+        for(std::size_t s=0;s<NumSpecies;++s) rhs[s]=-residual[s];
+        if(!SolveDenseSystem(jacobian,rhs,delta)) return result;
+
+        double alpha=1.0;
+        for(std::size_t s=0;s<NumSpecies;++s)
+            if(delta[s]<0.0)
+                alpha=std::min(alpha,(result.ion_cm3[s]-density_floor_cm3[s])/(-delta[s]));
+        alpha=std::clamp(alpha,1.0e-6,1.0);
+
+        bool accepted=false;
+        for(int line_search=0;line_search<16;++line_search)
+        {
+            SpeciesVector trial=result.ion_cm3;
+            for(std::size_t s=0;s<NumSpecies;++s)
+                trial[s]=std::max(density_floor_cm3[s],trial[s]+alpha*delta[s]);
+            const double trial_norm=ChemistryResidual(input,trial,initial,dt_seconds,
+                                                       density_floor_cm3,trial_residual,nullptr);
+            if(std::isfinite(trial_norm) && trial_norm<norm)
+            {
+                result.ion_cm3=trial;
+                accepted=true;
+                break;
+            }
+            alpha*=0.5;
+        }
+        if(!accepted) return result;
+    }
+
+    SpeciesVector final_residual{};
+    const double final_norm=ChemistryResidual(input,result.ion_cm3,initial,dt_seconds,
+                                               density_floor_cm3,final_residual,&result.rates);
+    result.converged=std::isfinite(final_norm) && final_norm<=std::max(relative_tolerance,1.0e-8);
+    return result;
+}
 }

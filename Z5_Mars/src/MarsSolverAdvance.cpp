@@ -54,29 +54,6 @@ void MarsSolver::ComputeTimestep()
             }
         }
 
-        // The original Fortran source is explicit. Keep its loss time scale in
-        // the global CFL decision so chemistry cannot remove more than 20% of
-        // a species in one step.
-        FieldBlock &neutral=field_->field(neutral_,ib), &photo=field_->field(photo_,ib);
-        if(neutral.is_allocated()) for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-        {
-            MARS::ChemistryInput input;
-            for(std::size_t n=0;n<MARS::NumNeutral;++n) input.neutral_cm3[n]=std::max(neutral(i,j,k,n),0.0);
-            for(std::size_t n=0;n<MARS::NumPhoto;++n) input.photo_cm3_s[n]=std::max(photo(i,j,k,n),0.0);
-            double pe=0.0,ne=0.0;
-            for(std::size_t s=0;s<MARS::NumSpecies;++s)
-            {
-                FieldBlock &u=field_->field(U_[s],ib), &pv=field_->field(PV_[s],ib);
-                input.ion_cm3[s]=std::max(u(i,j,k,0),0.0)*density_ref_/MARS::ParticleMass[s]*1e-6;
-                input.ion_temperature_K[s]=pv(i,j,k,4);
-                pe+=pv(i,j,k,3)*pressure_ref_; ne+=input.ion_cm3[s]*1e6;
-            }
-            input.electron_temperature_K=pe/(std::max(ne,1.0)*boltzmann_);
-            const auto rates=MARS::EvaluateChemistry(input);
-            for(std::size_t s=0;s<MARS::NumSpecies;++s)
-                if(rates.loss_cm3_s[s]>0.0 && input.ion_cm3[s]>0.0)
-                    local=std::min(local,0.2*input.ion_cm3[s]/rates.loss_cm3_s[s]*velocity_ref_/length_ref_);
-        }
     }
     PARALLEL::mpi_min(&local,&dt_,1);
     if(!std::isfinite(dt_) || dt_<=0.0)
@@ -147,7 +124,7 @@ void MarsSolver::AddFortranSources()
     const double time_ref=length_ref_/velocity_ref_;
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
-        FieldBlock &neutral=field_->field(neutral_,ib),&photo=field_->field(photo_,ib),&up=field_->field(uplus_,ib),&b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&jac=field_->field(jac_,ib);
+        FieldBlock &neutral=field_->field(neutral_,ib),&up=field_->field(uplus_,ib),&b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&jac=field_->field(jac_,ib);
         FieldBlock &ax=field_->field(metric_.xi,ib),&ay=field_->field(metric_.eta,ib),&az=field_->field(metric_.zeta,ib);
         if(!neutral.is_allocated()) continue;
         const Int3 lo=jac.inner_lo(),hi=jac.inner_hi();
@@ -156,16 +133,12 @@ void MarsSolver::AddFortranSources()
         {
             MARS::ChemistryInput input; double ne_cm3=0.0;
             for(std::size_t n=0;n<MARS::NumNeutral;++n) input.neutral_cm3[n]=std::max(neutral(i,jj,k,n),0.0);
-            for(std::size_t n=0;n<MARS::NumPhoto;++n) input.photo_cm3_s[n]=std::max(photo(i,jj,k,n),0.0);
-            double pe_dim=0.0;
             for(std::size_t s=0;s<MARS::NumSpecies;++s)
             {
-                FieldBlock &u=field_->field(U_[s],ib),&pv=field_->field(PV_[s],ib);
+                FieldBlock &u=field_->field(U_[s],ib);
                 input.ion_cm3[s]=std::max(u(i,jj,k,0),0.0)*density_ref_/MARS::ParticleMass[s]*1e-6;
-                input.ion_temperature_K[s]=pv(i,jj,k,4);ne_cm3+=input.ion_cm3[s];pe_dim+=pv(i,jj,k,3)*pressure_ref_;
+                ne_cm3+=input.ion_cm3[s];
             }
-            input.electron_temperature_K=pe_dim/(std::max(ne_cm3*1e6,1.0)*boltzmann_);
-            const auto rates=MARS::EvaluateChemistry(input);
 
             const double V=std::abs(CheckedCellJacobian(jac,ib,i,jj,k,"AddFortranSources"));
             double gradp[3];
@@ -186,18 +159,15 @@ void MarsSolver::AddFortranSources()
             {
                 FieldBlock &u=field_->field(U_[s],ib),&pv=field_->field(PV_[s],ib),&rhs=field_->field(RHS_[s],ib);
                 const double rho=std::max(u(i,jj,k,0),0.0),ns=input.ion_cm3[s],fraction=ns/std::max(ne_cm3,1e-30);
-                const double mass_source=(rates.production_cm3_s[s]-rates.loss_cm3_s[s])*1e6*MARS::ParticleMass[s]/density_ref_*time_ref;
-                rhs(i,jj,k,0)+=mass_source;
                 double relxb[3];cross3(pv(i,jj,k,0)-up(i,jj,k,0),pv(i,jj,k,1)-up(i,jj,k,1),pv(i,jj,k,2)-up(i,jj,k,2),b(i,jj,k,0),b(i,jj,k,1),b(i,jj,k,2),relxb[0],relxb[1],relxb[2]);
                 const double gyro=charge_*magnetic_ref_*length_ref_/(MARS::ParticleMass[s]*velocity_ref_);
                 const double lorentz=magnetic_ref_*magnetic_ref_/(mu0_*density_ref_*velocity_ref_*velocity_ref_);
-                const double loss_mass=rates.loss_cm3_s[s]*1e6*MARS::ParticleMass[s]/density_ref_*time_ref;
                 double electromagnetic_force[3];
                 double force[3];
                 for(int d=0;d<3;++d)
                 {
                     electromagnetic_force[d]=rho*gyro*relxb[d]+fraction*lorentz*jxb[d]-fraction*gradp[d];
-                    force[d]=electromagnetic_force[d]-rho*time_ref*collision*pv(i,jj,k,d)-loss_mass*pv(i,jj,k,d);
+                    force[d]=electromagnetic_force[d]-rho*time_ref*collision*pv(i,jj,k,d);
                     rhs(i,jj,k,d+1)+=force[d];
                 }
                 const double speed2=pv(i,jj,k,0)*pv(i,jj,k,0)+pv(i,jj,k,1)*pv(i,jj,k,1)+pv(i,jj,k,2)*pv(i,jj,k,2);
@@ -210,12 +180,152 @@ void MarsSolver::AddFortranSources()
                 }
                 b1*=(185.0-std::max(pv(i,jj,k,4),50.0));
                 const double a5=3.0e6*length_ref_*boltzmann_/(density_ref_*velocity_ref_*velocity_ref_*velocity_ref_);
-                const double a6=1.0e6*length_ref_*boltzmann_/(density_ref_*velocity_ref_*velocity_ref_*velocity_ref_*(gamma_-1.0));
                 rhs(i,jj,k,4)+=electromagnetic_force[0]*pv(i,jj,k,0)+electromagnetic_force[1]*pv(i,jj,k,1)+electromagnetic_force[2]*pv(i,jj,k,2);
                 rhs(i,jj,k,4)+=a5*ns*b1+time_ref*rho*speed2*b2;
-                rhs(i,jj,k,4)+=a6*(rates.production_cm3_s[s]*185.0-rates.loss_cm3_s[s]*std::max(pv(i,jj,k,4),50.0));
-                rhs(i,jj,k,4)-=0.5*loss_mass*speed2;
-                rhs(i,jj,k,4)+=a6*ns*(rates.electron_production_cm3_s*185.0-rates.electron_loss_cm3_s*input.electron_temperature_K)/std::max(ne_cm3,1.0e-30);
+            }
+        }
+    }
+}
+
+void MarsSolver::ApplyPointImplicitChemistry()
+{
+    const double time_ref=length_ref_/velocity_ref_;
+    const double dt_seconds=dt_*time_ref;
+    const double energy_source_scale=1.0e6*length_ref_*boltzmann_/
+        (density_ref_*velocity_ref_*velocity_ref_*velocity_ref_*(gamma_-1.0));
+
+    for(int ib=0;ib<field_->num_blocks();++ib)
+    {
+        FieldBlock &neutral=field_->field(neutral_,ib),&photo=field_->field(photo_,ib);
+        if(!neutral.is_allocated()) continue;
+        const Int3 lo=neutral.inner_lo(),hi=neutral.inner_hi();
+        for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+        {
+            MARS::ChemistryInput input;
+            std::array<double,MARS::NumSpecies> density_floor_cm3{};
+            std::array<double,MARS::NumSpecies> energy_star{};
+            std::array<double,MARS::NumSpecies> speed2_star{};
+            double electron_density_m3=0.0;
+            double electron_pressure_Pa=0.0;
+
+            for(std::size_t n=0;n<MARS::NumNeutral;++n)
+                input.neutral_cm3[n]=std::max(neutral(i,j,k,n),0.0);
+            for(std::size_t n=0;n<MARS::NumPhoto;++n)
+                input.photo_cm3_s[n]=std::max(photo(i,j,k,n),0.0);
+
+            for(std::size_t s=0;s<MARS::NumSpecies;++s)
+            {
+                FieldBlock &u=field_->field(U_[s],ib);
+                const double rho=std::max(u(i,j,k,0),DensityFloor);
+                const double mx=u(i,j,k,1),my=u(i,j,k,2),mz=u(i,j,k,3);
+                const double speed2=(mx*mx+my*my+mz*mz)/(rho*rho);
+                const double kinetic=0.5*rho*speed2;
+                const double total_energy=std::max(u(i,j,k,4),kinetic+PressureFloor/(gamma_-1.0));
+                const double pressure=std::max((gamma_-1.0)*(total_energy-kinetic),PressureFloor);
+                const double number_density_m3=rho*density_ref_/MARS::ParticleMass[s];
+
+                input.ion_cm3[s]=number_density_m3*1.0e-6;
+                density_floor_cm3[s]=DensityFloor*density_ref_/MARS::ParticleMass[s]*1.0e-6;
+                input.ion_temperature_K[s]=pressure*pressure_ref_/
+                    (std::max(number_density_m3,1.0)*boltzmann_);
+                energy_star[s]=total_energy;
+                speed2_star[s]=speed2;
+                electron_density_m3+=number_density_m3;
+                electron_pressure_Pa+=pressure*pressure_ref_;
+            }
+            input.electron_temperature_K=electron_pressure_Pa/
+                (std::max(electron_density_m3,1.0)*boltzmann_);
+
+            MARS::PointImplicitChemistryResult chemistry=
+                MARS::SolvePointImplicitChemistry(input,dt_seconds,density_floor_cm3,16,1.0e-8);
+            for(int subdivisions=2;!chemistry.converged && subdivisions<=16;subdivisions*=2)
+            {
+                MARS::ChemistryInput substep_input=input;
+                bool converged=true;
+                int total_iterations=0;
+                MARS::PointImplicitChemistryResult substep_result;
+                MARS::ChemistryRates averaged_rates;
+                for(int substep=0;substep<subdivisions;++substep)
+                {
+                    substep_input.ion_cm3=substep==0?input.ion_cm3:substep_result.ion_cm3;
+                    substep_result=MARS::SolvePointImplicitChemistry(
+                        substep_input,dt_seconds/static_cast<double>(subdivisions),
+                        density_floor_cm3,16,1.0e-8);
+                    total_iterations+=substep_result.iterations;
+                    if(!substep_result.converged){converged=false;break;}
+                    for(std::size_t s=0;s<MARS::NumSpecies;++s)
+                    {
+                        averaged_rates.production_cm3_s[s]+=substep_result.rates.production_cm3_s[s]/subdivisions;
+                        averaged_rates.loss_cm3_s[s]+=substep_result.rates.loss_cm3_s[s]/subdivisions;
+                    }
+                    averaged_rates.electron_production_cm3_s+=
+                        substep_result.rates.electron_production_cm3_s/subdivisions;
+                    averaged_rates.electron_loss_cm3_s+=
+                        substep_result.rates.electron_loss_cm3_s/subdivisions;
+                }
+                if(converged)
+                {
+                    chemistry=substep_result;
+                    chemistry.iterations=total_iterations;
+                    chemistry.rates=averaged_rates;
+                }
+            }
+            if(!chemistry.converged)
+            {
+                std::ostringstream message;
+                message << "MarsSolver: point-implicit chemistry failed"
+                        << " rank=" << param_->GetInt("myid")
+                        << " block=" << ib << " cell=(" << i << ',' << j << ',' << k << ')'
+                        << " dt=" << dt_ << " dt_seconds=" << dt_seconds
+                        << " iterations=" << chemistry.iterations
+                        << " attempted_substeps=16";
+                throw std::runtime_error(message.str());
+            }
+
+            double electron_density_new_cm3=0.0;
+            for(double value:chemistry.ion_cm3) electron_density_new_cm3+=value;
+            for(std::size_t s=0;s<MARS::NumSpecies;++s)
+            {
+                FieldBlock &u=field_->field(U_[s],ib);
+                const double number_density_new=chemistry.ion_cm3[s];
+                const double loss_coefficient_s=chemistry.rates.loss_cm3_s[s]/
+                    std::max(number_density_new,1.0e-300);
+                const double momentum_denominator=1.0+dt_seconds*loss_coefficient_s;
+                for(int d=1;d<4;++d) u(i,j,k,d)/=momentum_denominator;
+                const bool momentum_finite=std::isfinite(u(i,j,k,1)) &&
+                    std::isfinite(u(i,j,k,2)) && std::isfinite(u(i,j,k,3));
+
+                const double loss_mass_rhs=chemistry.rates.loss_cm3_s[s]*1.0e6*
+                    MARS::ParticleMass[s]/density_ref_*time_ref;
+                const double electron_fraction=number_density_new/
+                    std::max(electron_density_new_cm3,1.0e-300);
+                const double positive_energy_rhs=energy_source_scale*(
+                    chemistry.rates.production_cm3_s[s]*185.0+
+                    electron_fraction*chemistry.rates.electron_production_cm3_s*185.0);
+                const double negative_energy_rhs=energy_source_scale*(
+                    chemistry.rates.loss_cm3_s[s]*std::max(input.ion_temperature_K[s],50.0)+
+                    electron_fraction*chemistry.rates.electron_loss_cm3_s*
+                        std::max(input.electron_temperature_K,50.0))+
+                    0.5*loss_mass_rhs*speed2_star[s];
+                const double energy_denominator=1.0+dt_*negative_energy_rhs/
+                    std::max(energy_star[s],PressureFloor/(gamma_-1.0));
+
+                u(i,j,k,0)=number_density_new*1.0e6*MARS::ParticleMass[s]/density_ref_;
+                u(i,j,k,4)=(energy_star[s]+dt_*positive_energy_rhs)/energy_denominator;
+                if(!std::isfinite(u(i,j,k,0)) || !momentum_finite ||
+                   !std::isfinite(u(i,j,k,4)) ||
+                   !(momentum_denominator>0.0) || !(energy_denominator>0.0))
+                {
+                    std::ostringstream message;
+                    message << "MarsSolver: invalid point-implicit chemistry state"
+                            << " rank=" << param_->GetInt("myid")
+                            << " block=" << ib << " cell=(" << i << ',' << j << ',' << k << ')'
+                            << " species=" << MARS::SpeciesNames[s]
+                            << " rho=" << u(i,j,k,0) << " E=" << u(i,j,k,4)
+                            << " momentum_denominator=" << momentum_denominator
+                            << " energy_denominator=" << energy_denominator;
+                    throw std::runtime_error(message.str());
+                }
             }
         }
     }
@@ -458,7 +568,7 @@ void MarsSolver::Advance()
     }
     while(!control_.if_stop)
     {
-        ComputeTimestep();ZeroRHS();AssembleFluidFlux();AddFortranSources();AssembleElectricAndCT();ApplyUpdate();ApplyFloors();
+        ComputeTimestep();ZeroRHS();AssembleFluidFlux();AddFortranSources();AssembleElectricAndCT();ApplyUpdate();ApplyPointImplicitChemistry();ApplyFloors();
         run.dt=dt_;run.time+=dt_;++run.step;
         std::vector<std::string> names;for(auto n:MARS::SpeciesNames)names.push_back("U_"+std::string(n));SyncGroup("Ucell",names);SyncGroup("Bface",{"B_xi","B_eta","B_zeta"},true);
         UpdatePrimitive();UpdateIonVelocity();UpdateMagneticCell();UpdateCurrentCell();

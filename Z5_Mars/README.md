@@ -12,6 +12,14 @@ an edge electric 1-form (CT). The electric field contains ideal, Hall and
 electron-pressure terms. MarsZ5 intentionally has no PETSc dependency and no
 Mercury internal-resistance implicit solve.
 
+The ten-species photochemistry is advanced by a cell-local, coupled backward-
+Euler solve with an active density lower bound. Chemical momentum and energy
+losses use positive diagonal point-implicit updates. Consequently chemistry no
+longer limits the global time step; the intercell Euler flux remains explicit
+and determines the CFL step. Cells that fail the full local nonlinear solve
+retry with up to sixteen chemistry-only substeps without reducing the global
+fluid step.
+
 Build from the MPCNS repository root:
 
 ```sh

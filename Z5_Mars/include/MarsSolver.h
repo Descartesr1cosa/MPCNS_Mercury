@@ -86,6 +86,7 @@ private:
     void ZeroRHS();
     void AssembleFluidFlux();
     void AddFortranSources();
+    void ApplyPointImplicitChemistry();
     void AssembleElectricAndCT();
     void ApplyUpdate();
     void ApplyFloors();
