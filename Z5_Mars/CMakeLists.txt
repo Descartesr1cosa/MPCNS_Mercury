@@ -8,7 +8,6 @@ find_package(MPI REQUIRED COMPONENTS CXX)
 include_directories(${MPI_CXX_INCLUDE_DIRS})
 include_directories(../include)
 include_directories(include)
-include_directories(../Z4_Mercury/include)
 
 aux_source_directory(../src/0_basic DIRSRCS0)
 aux_source_directory(../src/1_grid DIRSRCS1)
@@ -31,7 +30,6 @@ add_executable(MarsZ5 main.cpp
   ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
   ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
   ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8}
-  ../Z4_Mercury/src/operators/CTOperators.cpp
   ${MARS_SRC})
 
 target_link_libraries(MarsZ5 PRIVATE MPI::MPI_CXX stdc++fs)

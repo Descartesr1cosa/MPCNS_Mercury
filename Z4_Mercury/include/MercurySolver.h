@@ -6,7 +6,7 @@
 #include "1_Boundary.h"
 #include "0_SolverFields.h"
 #include "2_Initial.h"
-#include "3_Control.h"
+#include "6_io/RunControl.h"
 #include "MercuryPhysicsTypes.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "7_metric/SingularEdgeRegistry.h"

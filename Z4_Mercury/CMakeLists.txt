@@ -45,7 +45,6 @@ aux_source_directory(../src/8_dec  DIRSRCS8)
 # Mercury solver sources.
 aux_source_directory(./src  SRC)
 aux_source_directory(./src/boundary  SRC_BOUND)
-aux_source_directory(./src/operators  SRC_OPERATOR)
 aux_source_directory(./src/physics  SRC_PHY)
 aux_source_directory(./src/tools  SRC_TOOL)
 set(SRC_IMP ./src/implicit/Mercury_ImplicitResistive.cpp)
@@ -56,7 +55,7 @@ ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
  ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
  ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
- ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
+ ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
 
 # Link MPI and PETSc.
 target_link_libraries(MercuryZ4 PRIVATE ${MPI_LIBRARIES} PkgConfig::PETSC stdc++fs)

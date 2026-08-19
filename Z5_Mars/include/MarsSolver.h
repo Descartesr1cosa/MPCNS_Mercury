@@ -3,10 +3,10 @@
 #include "MarsAtmosphereModel.h"
 #include "MarsChemistry.h"
 #include "MarsSpecies.h"
-#include "3_Control.h"
 #include "5_boundary/Boundary.h"
 #include "6_io/IOModule.h"
-#include "operators/CTOperators.h"
+#include "6_io/RunControl.h"
+#include "8_dec/CTOperators.h"
 
 #include <array>
 #include <map>

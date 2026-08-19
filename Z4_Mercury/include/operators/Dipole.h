@@ -6,7 +6,7 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "3_field/Field.h"
 
-#include "operators/CTOperators.h"
+#include "8_dec/CTOperators.h"
 #include "operators/Vector.h"
 
 class DipoleField

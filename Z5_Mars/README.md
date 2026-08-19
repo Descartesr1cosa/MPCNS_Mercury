@@ -20,11 +20,14 @@ and determines the CFL step. Cells that fail the full local nonlinear solve
 retry with up to sixteen chemistry-only substeps without reducing the global
 fluid step.
 
-Build from the MPCNS repository root:
+Build Mars independently from the MPCNS repository root. Disabling the Mercury
+target also means that configuring Mars does not require PETSc:
 
 ```sh
-cmake -S . -B build -DCMAKE_CXX_COMPILER=mpicxx
-cmake --build build --target MarsZ5 -j
+cmake -S . -B build-mars -DCMAKE_CXX_COMPILER=mpicxx \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMPCNS_BUILD_MERCURY=OFF -DMPCNS_BUILD_MARS=ON
+cmake --build build-mars --target MarsZ5 -j
 ```
 
 Place the decomposed MPCNS grid/connectivity files in `Z5_Mars/CASE/geometry`.
