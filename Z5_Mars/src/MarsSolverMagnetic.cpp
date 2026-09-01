@@ -93,6 +93,30 @@ void MarsSolver::CacheOverriddenNonResistiveEdges()
         if(patch.bc_name=="Solid_Surface" || patch.bc_name=="Coupled-Solid" ||
            patch.bc_name=="Coupled-Fluid")
             mark_wall(patch.this_block,patch.this_box_node,patch.direction);
+
+    // Hall imposes an additional exact zero on tangential Pole edges.  Cache
+    // those aliases once instead of scanning all physical patches per edge and
+    // per time step.
+    for(const auto &patch:topology_->physical_patches)if(patch.bc_name=="Pole")
+    {
+        const int normal=std::abs(patch.direction)-1;
+        if(patch.this_block<0 || patch.this_block>=field_->num_blocks() ||
+           normal<0 || normal>2)continue;
+        for(int axis=0;axis<3;++axis)if(axis!=normal)
+        {
+            FieldBlock &edge=field_->field(axis==0?E_.xi:(axis==1?E_.eta:E_.zeta),
+                                           patch.this_block);
+            if(!edge.is_allocated())continue;
+            Box3 box=LAYOUT::node_box_to_dof_box(locations[axis],patch.this_box_node);
+            const Int3 lo=edge.inner_lo(),hi=edge.inner_hi();
+            box.lo.i=std::max(box.lo.i,lo.i);box.lo.j=std::max(box.lo.j,lo.j);box.lo.k=std::max(box.lo.k,lo.k);
+            box.hi.i=std::min(box.hi.i,hi.i);box.hi.j=std::min(box.hi.j,hi.j);box.hi.k=std::min(box.hi.k,hi.k);
+            for(int i=box.lo.i;i<box.hi.i;++i)for(int j=box.lo.j;j<box.hi.j;++j)
+                for(int k=box.lo.k;k<box.hi.k;++k)
+                    hall_pole_edges_.insert({TOPO::EntityDim::Edge,rank,patch.this_block,
+                                             i,j,k,static_cast<TOPO::EntityAxis>(axis)});
+        }
+    }
     for(const auto &patch:topology_->inner_patches)
         if(patch.is_coupling &&
            (patch.this_block_name=="Solid" || patch.nb_block_name=="Solid"))
@@ -115,6 +139,14 @@ bool MarsSolver::NonResistiveEdgeIsOverridden(int block,int axis,int i,int j,int
     return overridden_edges_.find(key)!=overridden_edges_.end();
 }
 
+bool MarsSolver::HallPoleEdge(int block,int axis,int i,int j,int k)
+{
+    CacheOverriddenNonResistiveEdges();
+    const TOPO::EntityKey key{TOPO::EntityDim::Edge,overridden_edge_rank_,block,i,j,k,
+                              static_cast<TOPO::EntityAxis>(axis)};
+    return hall_pole_edges_.find(key)!=hall_pole_edges_.end();
+}
+
 void MarsSolver::AssembleIdealUCTFromFaces()
 {
     constexpr double Cuct=0.5;
@@ -127,6 +159,15 @@ void MarsSolver::AssembleIdealUCTFromFaces()
         FieldBlock *b[3]={&field_->field(B_.xi,ib),&field_->field(B_.eta,ib),&field_->field(B_.zeta,ib)};
         FieldBlock *a[3]={&field_->field(metric_.xi,ib),&field_->field(metric_.eta,ib),&field_->field(metric_.zeta,ib)};
         FieldBlock *face[3]={&field_->field(Eface_.xi,ib),&field_->field(Eface_.eta,ib),&field_->field(Eface_.zeta,ib)};
+
+        // The diagonal Eface component is not a physical face candidate.  Use
+        // it as a block-local cell cache for u^axis; this removes dozens of
+        // identical metric/Jacobian projections per cell without adding a
+        // field or changing any arithmetic expression.
+        const Int3 cell_lo=jac.get_lo(),cell_hi=jac.get_hi();
+        for(int axis=0;axis<3;++axis)
+            for(int i=cell_lo.i;i<cell_hi.i;++i)for(int j=cell_lo.j;j<cell_hi.j;++j)
+                for(int k=cell_lo.k;k<cell_hi.k;++k)(*face[axis])(i,j,k,axis)=unset;
 
         // Each face component is consumed only by edges parallel to that
         // component.  Initialise exactly its one-transverse-layer demand slab;
@@ -155,12 +196,15 @@ void MarsSolver::AssembleIdealUCTFromFaces()
         {return (*a[axis])(i,j,k,component);};
         auto ucontra=[&](int axis,int i,int j,int k,const char *operation)
         {
+            double &cached=(*face[axis])(i,j,k,axis);
+            if(!std::isnan(cached))return cached;
             int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
             const double kx=0.5*(metric(axis,i,j,k,0)+metric(axis,ip,jp,kp,0));
             const double ky=0.5*(metric(axis,i,j,k,1)+metric(axis,ip,jp,kp,1));
             const double kz=0.5*(metric(axis,i,j,k,2)+metric(axis,ip,jp,kp,2));
             const double volume=std::abs(CheckedCellJacobian(jac,ib,i,j,k,operation));
-            return (kx*up(i,j,k,0)+ky*up(i,j,k,1)+kz*up(i,j,k,2))/volume;
+            cached=(kx*up(i,j,k,0)+ky*up(i,j,k,1)+kz*up(i,j,k,2))/volume;
+            return cached;
         };
         auto face_component=[&](int flux_axis,int component,int i,int j,int k)
         {
@@ -238,6 +282,13 @@ void MarsSolver::AssembleIdealUCTFromFaces()
                                      0.5*aeta*(face_beta(0,i,j,k)-face_beta(0,i,j-1,k)));
             }
         }
+
+        // The diagonal work components were zero before this optimization and
+        // are not part of the UCT tensor.  Restore them so diagnostic/output
+        // state remains unchanged.
+        for(int axis=0;axis<3;++axis)
+            for(int i=cell_lo.i;i<cell_hi.i;++i)for(int j=cell_lo.j;j<cell_hi.j;++j)
+                for(int k=cell_lo.k;k<cell_hi.k;++k)(*face[axis])(i,j,k,axis)=0.0;
     }
 }
 
@@ -247,10 +298,10 @@ void MarsSolver::AssembleAmbipolarEdgeEMF()
     const int eids[3]={E_.xi,E_.eta,E_.zeta};
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
+        FieldBlock &electron=field_->field(hall_ecell_,ib);
         auto pe_cell=[&](int i,int j,int k)
         {
-            double p=0.0;for(std::size_t s=0;s<MARS::NumSpecies;++s)p+=field_->field(PV_[s],ib)(i,j,k,3);
-            return p;
+            return electron(i,j,k,2);
         };
         auto pe_node=[&](int i,int j,int k)
         {
@@ -263,7 +314,7 @@ void MarsSolver::AssembleAmbipolarEdgeEMF()
             {
                 int ii=i,jj=j,kk=k;
                 if(d==0){jj=j-1+a;kk=k-1+c;}else if(d==1){ii=i-1+a;kk=k-1+c;}else{ii=i-1+a;jj=j-1+c;}
-                ne+=0.25*ElectronDensityAtCell(ib,ii,jj,kk).ne_true;
+                ne+=0.25*electron(ii,jj,kk,0);
             }
             return std::sqrt(ne*ne+electron_density_floor_nd_*electron_density_floor_nd_);
         };
@@ -297,11 +348,13 @@ void MarsSolver::AssembleHallRusanovEdgeEMF()
         FieldBlock &bc=field_->field(bcell_,ib),&jc=field_->field(jcell_,ib);
         if(!bc.is_allocated())continue;
         FieldBlock &ehc=field_->field(hall_ecell_,ib),&beta=field_->field(hall_beta_,ib);
-        const Int3 clo=bc.get_lo(),chi=bc.get_hi();
+        Int3 clo=bc.inner_lo(),chi=bc.inner_hi();
+        const Int3 alloc_lo=bc.get_lo(),alloc_hi=bc.get_hi();
+        clo.i=std::max(clo.i-1,alloc_lo.i);clo.j=std::max(clo.j-1,alloc_lo.j);clo.k=std::max(clo.k-1,alloc_lo.k);
+        chi.i=std::min(chi.i+1,alloc_hi.i);chi.j=std::min(chi.j+1,alloc_hi.j);chi.k=std::min(chi.k+1,alloc_hi.k);
         for(int i=clo.i;i<chi.i;++i)for(int j=clo.j;j<chi.j;++j)for(int k=clo.k;k<chi.k;++k)
         {
-            const ElectronDensityInfo density=ElectronDensityAtCell(ib,i,j,k);
-            const double alpha=hall_scale_/density.ne_eff;
+            const double alpha=hall_scale_/ehc(i,j,k,1);
             const double jx=jc(i,j,k,0),jy=jc(i,j,k,1),jz=jc(i,j,k,2);
             const double bx=bc(i,j,k,0),by=bc(i,j,k,1),bz=bc(i,j,k,2);
             ehc(i,j,k,0)=alpha*(jy*bz-jz*by);
@@ -311,17 +364,6 @@ void MarsSolver::AssembleHallRusanovEdgeEMF()
         }
         auto avg4=[](double a,double b,double c,double d){return 0.25*(a+b+c+d);};
         auto max4=[](double a,double b,double c,double d){return std::max(std::max(a,b),std::max(c,d));};
-        auto pole_edge=[&](int d,int i,int j,int k)
-        {
-            const StaggerLocation loc=d==0?StaggerLocation::EdgeXi:(d==1?StaggerLocation::EdgeEt:StaggerLocation::EdgeZe);
-            for(const auto &p:topology_->physical_patches)if(p.this_block==ib&&p.bc_name=="Pole")
-            {
-                const int normal=std::abs(p.direction)-1;
-                if(d==normal)continue;
-                if(InBox(LAYOUT::node_box_to_dof_box(loc,p.this_box_node),i,j,k))return true;
-            }
-            return false;
-        };
         for(int d=0;d<3;++d)
         {
             FieldBlock &edge=field_->field(hids[d],ib),&dr=field_->field(drids[d],ib),
@@ -331,7 +373,7 @@ void MarsSolver::AssembleHallRusanovEdgeEMF()
             const Int3 lo=edge.inner_lo(),hi=edge.inner_hi();
             for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k)
             {
-                if(NonResistiveEdgeIsOverridden(ib,d,i,j,k) || pole_edge(d,i,j,k))
+                if(NonResistiveEdgeIsOverridden(ib,d,i,j,k) || HallPoleEdge(ib,d,i,j,k))
                 {edge(i,j,k,0)=0.0;continue;}
                 int ci[4],cj[4],ck[4];
                 if(d==0){int ti[4]={i,i,i,i},tj[4]={j-1,j-1,j,j},tk[4]={k-1,k,k-1,k};std::copy(ti,ti+4,ci);std::copy(tj,tj+4,cj);std::copy(tk,tk+4,ck);}
@@ -427,7 +469,8 @@ void MarsSolver::AssembleSingularEdgeEMFNonHall()
             ShiftCell(axis,-1,im,jm,km);ShiftCell(axis,1,ip,jp,kp);
             auto pe=[&](int i,int j,int k){double p=0.0;for(std::size_t s=0;s<MARS::NumSpecies;++s)p+=field_->field(PV_[s],c.block)(i,j,k,3);return p;};
             const double dp=0.5*(pe(ip,jp,kp)-pe(im,jm,km));
-            emf-=pressure_scale_*inc.source_orientation*dp/ElectronDensityAtCell(c.block,c.i,c.j,c.k).ne_eff;
+            emf-=pressure_scale_*inc.source_orientation*dp/
+                 field_->field(hall_ecell_,c.block)(c.i,c.j,c.k,1);
         }
         return emf;
     };

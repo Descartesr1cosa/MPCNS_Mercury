@@ -48,6 +48,8 @@ private:
     std::array<int, MARS::NumSpecies> U_{};
     std::array<int, MARS::NumSpecies> PV_{};
     std::array<int, MARS::NumSpecies> RHS_{};
+    std::vector<std::string> ucell_names_, bface_names_, uplus_names_, bcell_names_,
+                             jcell_names_, ehall_names_, eedge_names_;
     int neutral_ = -1, photo_ = -1, uplus_ = -1, bcell_ = -1, jcell_ = -1, divb_ = -1;
     int hall_ecell_ = -1, hall_beta_ = -1;
     int jac_ = -1;
@@ -58,6 +60,7 @@ private:
     double length_ref_ = 3.396e6;
     double velocity_ref_ = 1.0;
     double density_ref_ = 1.0;
+    double number_density_ref_ = 1.0;
     double pressure_ref_ = 1.0;
     double magnetic_ref_ = 1.0;
     double temperature_ref_ = 1.0;
@@ -106,6 +109,7 @@ private:
     bool overridden_edge_cache_ready_ = false;
     int overridden_edge_rank_ = 0;
     std::unordered_set<TOPO::EntityKey, TOPO::EntityKey::Hash> overridden_edges_;
+    std::unordered_set<TOPO::EntityKey, TOPO::EntityKey::Hash> hall_pole_edges_;
 
     void CacheFields();
     void ReadConstants();
@@ -136,6 +140,7 @@ private:
     void AssembleIdealUCTFromFaces();
     void CacheOverriddenNonResistiveEdges();
     bool NonResistiveEdgeIsOverridden(int block, int axis, int i, int j, int k);
+    bool HallPoleEdge(int block, int axis, int i, int j, int k);
     void AssembleAmbipolarEdgeEMF();
     void AssembleHallRusanovEdgeEMF();
     void ReduceEdgeAliasCandidatesToOwners(const Triplet &edge_fields);

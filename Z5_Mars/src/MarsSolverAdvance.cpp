@@ -177,11 +177,31 @@ void MarsSolver::AddFortranSources()
     const double time_ref=length_ref_/velocity_ref_;
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
-        FieldBlock &neutral=field_->field(neutral_,ib),&up=field_->field(uplus_,ib),&b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&jac=field_->field(jac_,ib);
+        FieldBlock &neutral=field_->field(neutral_,ib),&up=field_->field(uplus_,ib),&b=field_->field(bcell_,ib),&jv=field_->field(jcell_,ib),&jac=field_->field(jac_,ib),&electron=field_->field(hall_ecell_,ib);
         FieldBlock &ax=field_->field(metric_.xi,ib),&ay=field_->field(metric_.eta,ib),&az=field_->field(metric_.zeta,ib);
         if(!neutral.is_allocated()) continue;
+        std::array<FieldBlock *,MARS::NumSpecies> pv_fields{};
+        for(std::size_t s=0;s<MARS::NumSpecies;++s)
+            pv_fields[s]=&field_->field(PV_[s],ib);
+
+        // Cache electron scalars only for the duration of this step.  Hall
+        // overwrites this work field before output, preserving its externally
+        // visible end-of-step contents while removing repeated stencil sums.
+        const Int3 electron_lo=electron.get_lo(),electron_hi=electron.get_hi();
+        for(int i=electron_lo.i;i<electron_hi.i;++i)
+            for(int jj=electron_lo.j;jj<electron_hi.j;++jj)
+                for(int k=electron_lo.k;k<electron_hi.k;++k)
+                {
+                    const ElectronDensityInfo density=ElectronDensityAtCell(ib,i,jj,k);
+                    double pressure=0.0;
+                    for(std::size_t s=0;s<MARS::NumSpecies;++s)
+                        pressure+=(*pv_fields[s])(i,jj,k,3);
+                    electron(i,jj,k,0)=density.ne_true;
+                    electron(i,jj,k,1)=density.ne_eff;
+                    electron(i,jj,k,2)=pressure;
+                }
         const Int3 lo=jac.inner_lo(),hi=jac.inner_hi();
-        auto electron_pressure=[&](int i,int jj,int k){double p=0;for(std::size_t s=0;s<MARS::NumSpecies;++s)p+=field_->field(PV_[s],ib)(i,jj,k,3);return p;};
+        auto electron_pressure=[&](int i,int jj,int k){return electron(i,jj,k,2);};
         for(int i=lo.i;i<hi.i;++i) for(int jj=lo.j;jj<hi.j;++jj) for(int k=lo.k;k<hi.k;++k)
         {
             MARS::ChemistryInput input;
@@ -403,7 +423,7 @@ void MarsSolver::AssembleElectricAndCT()
     {
         AssembleHallRusanovEdgeEMF();
         AssembleSingularEdgeEMFHall();
-        SyncGroup("Ehall",{"Ehall_xi","Ehall_eta","Ehall_zeta"},true);
+        SyncGroup("Ehall",ehall_names_,true);
         const int eids[3]={E_.xi,E_.eta,E_.zeta};
         const int hids[3]={Ehall_.xi,Ehall_.eta,Ehall_.zeta};
         for(int ib=0;ib<field_->num_blocks();++ib) for(int d=0;d<3;++d)
@@ -415,9 +435,23 @@ void MarsSolver::AssembleElectricAndCT()
                 edge(i,j,k,0)+=hall(i,j,k,0);
         }
     }
+    else
+    {
+        // Without Hall this work field was historically left at its zero
+        // initialization.  Remove the temporary electron cache before output.
+        for(int ib=0;ib<field_->num_blocks();++ib)
+        {
+            FieldBlock &electron=field_->field(hall_ecell_,ib);
+            if(!electron.is_allocated())continue;
+            const Int3 lo=electron.get_lo(),hi=electron.get_hi();
+            for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)
+                for(int k=lo.k;k<hi.k;++k)for(int m=0;m<3;++m)
+                    electron(i,j,k,m)=0.0;
+        }
+    }
 
     ApplyStationaryWallEMF();
-    SyncGroup("Eedge",{"E_xi","E_eta","E_zeta"},true);
+    SyncGroup("Eedge",eedge_names_,true);
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
         FieldBlock &ex=field_->field(E_.xi,ib),&ey=field_->field(E_.eta,ib),&ez=field_->field(E_.zeta,ib);
@@ -565,7 +599,7 @@ void MarsSolver::Advance()
     {
         ComputeTimestep();ZeroRHS();AssembleFluidFlux();AddFortranSources();AssembleElectricAndCT();ApplyUpdate();ApplyPointImplicitChemistry();ApplyFloors();
         run.dt=dt_;run.time+=dt_;++run.step;
-        std::vector<std::string> names;for(auto n:MARS::SpeciesNames)names.push_back("U_"+std::string(n));SyncGroup("Ucell",names);SyncGroup("Bface",{"B_xi","B_eta","B_zeta"},true);
+        SyncGroup("Ucell",ucell_names_);SyncGroup("Bface",bface_names_,true);
         UpdatePrimitive();UpdateIonVelocity();UpdateMagneticCell();UpdateCurrentCell();
         control_.UpdateSwitches(run);
         if(control_.if_outres || control_.if_outfile)UpdateDivB();

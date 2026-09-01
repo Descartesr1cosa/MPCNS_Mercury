@@ -95,7 +95,9 @@ inline void RegisterMarsFields(Field &field, int ngh)
         field.register_field(Descriptor(std::string("F_") + suffix[d], face_loc[d], 5, 0, "Fluid"));
     }
 
-    // Cell scratch used by Mercury's Hall Rusanov edge reconstruction.
+    // Cell scratch used by Mercury's Hall Rusanov edge reconstruction.  During
+    // a step it first caches (ne_true,ne_eff,Pe), then Hall overwrites it with
+    // its Cartesian cell electric field before output.
     field.register_field(Descriptor("E_hall_cell", StaggerLocation::Cell, 3, ngh, "Fluid"));
     field.register_field(Descriptor("Hall_beta", StaggerLocation::Cell, 1, ngh, "Fluid"));
 }

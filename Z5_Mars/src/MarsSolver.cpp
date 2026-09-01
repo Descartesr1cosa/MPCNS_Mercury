@@ -115,12 +115,14 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
 
 void MarsSolver::CacheFields()
 {
+    ucell_names_.reserve(MARS::NumSpecies);
     for (std::size_t s = 0; s < MARS::NumSpecies; ++s)
     {
         const std::string suffix(MARS::SpeciesNames[s]);
         U_[s] = field_->field_id("U_" + suffix);
         PV_[s] = field_->field_id("PV_" + suffix);
         RHS_[s] = field_->field_id("RHS_" + suffix);
+        ucell_names_.push_back("U_" + suffix);
     }
     neutral_ = field_->field_id("neutral_density");
     photo_ = field_->field_id("photo_rate");
@@ -145,6 +147,10 @@ void MarsSolver::CacheFields()
               field_->field_id("Ehall_zeta")};
     RHSB_ = {field_->field_id("RHS_B_xi"), field_->field_id("RHS_B_eta"), field_->field_id("RHS_B_zeta")};
     flux_ = {field_->field_id("F_xi"), field_->field_id("F_eta"), field_->field_id("F_zeta")};
+    bface_names_={"B_xi","B_eta","B_zeta"};
+    uplus_names_={"U_plus"};bcell_names_={"B_cell"};jcell_names_={"J_cell"};
+    ehall_names_={"Ehall_xi","Ehall_eta","Ehall_zeta"};
+    eedge_names_={"E_xi","E_eta","E_zeta"};
 }
 
 void MarsSolver::ReadConstants()
@@ -160,14 +166,14 @@ void MarsSolver::ReadConstants()
     velocity_ref_ = ref.at("U");
     temperature_ref_ = ref.at("T");
     magnetic_ref_ = ref.at("B_ref");
-    const double nref = ref.at("n");
-    density_ref_ = ref.at("Molecular_mass") / avogadro * nref;
+    number_density_ref_ = ref.at("n");
+    density_ref_ = ref.at("Molecular_mass") / avogadro * number_density_ref_;
     pressure_ref_ = density_ref_ * velocity_ref_ * velocity_ref_;
     cfl_ = param_->GetDou("CFL");
     hall_enabled_ = !param_->HasBoo("is_Hall_Efield") || param_->GetBoo("is_Hall_Efield");
     ambipolar_enabled_ = !param_->HasBoo("is_Ambipolar_Efield") || param_->GetBoo("is_Ambipolar_Efield");
-    hall_scale_ = magnetic_ref_ / (mu0_ * length_ref_ * charge_ * nref * velocity_ref_);
-    pressure_scale_ = pressure_ref_ / (charge_ * nref * length_ref_ * velocity_ref_ * magnetic_ref_);
+    hall_scale_ = magnetic_ref_ / (mu0_ * length_ref_ * charge_ * number_density_ref_ * velocity_ref_);
+    pressure_scale_ = pressure_ref_ / (charge_ * number_density_ref_ * length_ref_ * velocity_ref_ * magnetic_ref_);
     magnetic_force_scale_ = magnetic_ref_ * magnetic_ref_ /
                             (mu0_ * density_ref_ * velocity_ref_ * velocity_ref_);
     // Identical smooth Hall/ambipolar density regularization to Mercury.
@@ -253,13 +259,12 @@ MarsSolver::ElectronDensityInfo
 MarsSolver::ElectronDensityAtCell(int block, int i, int j, int k) const
 {
     ElectronDensityInfo result;
-    const double nref = param_->GetDou_List("REF").data.at("n");
     for (std::size_t s = 0; s < MARS::NumSpecies; ++s)
     {
         const FieldBlock &u = field_->field(U_[s], block);
         const double rho = std::max(u(i, j, k, 0), 0.0);
         result.species_nd[s] = rho * density_ref_ /
-                               (MARS::ParticleMass[s] * nref);
+                               (MARS::ParticleMass[s] * number_density_ref_);
         result.ne_true += result.species_nd[s];
     }
     result.ne_eff = std::sqrt(result.ne_true * result.ne_true +
@@ -354,10 +359,8 @@ void MarsSolver::Initialize()
         }
     }
     PopulateAnalyticAtmosphere();
-    std::vector<std::string> ufields;
-    for(auto n:MARS::SpeciesNames) ufields.push_back("U_"+std::string(n));
-    SyncGroup("Ucell",ufields);
-    SyncGroup("Bface",{"B_xi","B_eta","B_zeta"},true);
+    SyncGroup("Ucell",ucell_names_);
+    SyncGroup("Bface",bface_names_,true);
     UpdatePrimitive();
     UpdateIonVelocity();
     UpdateMagneticCell();
@@ -447,7 +450,10 @@ void MarsSolver::UpdateIonVelocity()
 {
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
-        FieldBlock &up=field_->field(uplus_,ib); if(!up.is_allocated()) continue;
+        FieldBlock &up=field_->field(uplus_,ib);
+        if(!up.is_allocated()) continue;
+        std::array<FieldBlock *,MARS::NumSpecies> pv{};
+        for(std::size_t s=0;s<MARS::NumSpecies;++s)pv[s]=&field_->field(PV_[s],ib);
         const Int3 lo=up.get_lo(), hi=up.get_hi();
         for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
         {
@@ -455,15 +461,14 @@ void MarsSolver::UpdateIonVelocity()
             double v[3]={0,0,0};
             for(std::size_t s=0;s<MARS::NumSpecies;++s)
             {
-                FieldBlock &pv=field_->field(PV_[s],ib);
                 for(int d=0;d<3;++d)
-                    v[d]+=density.species_nd[s]*pv(i,j,k,d);
+                    v[d]+=density.species_nd[s]*(*pv[s])(i,j,k,d);
             }
             const double inv=density.ne_true>1.0e-300?1.0/density.ne_true:0.0;
             for(int d=0;d<3;++d) up(i,j,k,d)=v[d]*inv;
         }
     }
-    SyncGroup("Uplus",{"U_plus"});
+    SyncGroup("Uplus",uplus_names_);
 }
 
 void MarsSolver::UpdateMagneticCell()
@@ -492,7 +497,7 @@ void MarsSolver::UpdateMagneticCell()
             for(int d=0;d<3;++d) bc(i,j,k,d)=inv[3*d]*phi[0]+inv[3*d+1]*phi[1]+inv[3*d+2]*phi[2];
         }
     }
-    SyncGroup("Bcell",{"B_cell"});
+    SyncGroup("Bcell",bcell_names_);
 }
 
 void MarsSolver::UpdateCurrentCell()
@@ -517,5 +522,5 @@ void MarsSolver::UpdateCurrentCell()
             jv(i,j,k,0)=g[7]-g[5]; jv(i,j,k,1)=g[2]-g[6]; jv(i,j,k,2)=g[3]-g[1];
         }
     }
-    SyncGroup("Jcell",{"J_cell"});
+    SyncGroup("Jcell",jcell_names_);
 }
