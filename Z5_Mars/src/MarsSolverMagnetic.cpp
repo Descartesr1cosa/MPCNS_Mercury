@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -42,149 +43,199 @@ void MarsSolver::ZeroEdgeElectricFields()
 
 void MarsSolver::AssembleIdealEdgeEMF()
 {
-    for(int ib=0;ib<field_->num_blocks();++ib)
-    {
-        FieldBlock &up=field_->field(uplus_,ib);
-        if(!up.is_allocated()) continue;
-        FieldBlock &bx=field_->field(B_.xi,ib),&by=field_->field(B_.eta,ib),&bz=field_->field(B_.zeta,ib);
-        FieldBlock &jac=field_->field(jac_,ib),&ax=field_->field(metric_.xi,ib),
-                   &ay=field_->field(metric_.eta,ib),&az=field_->field(metric_.zeta,ib);
-        AssembleOneDirectionIdealFaceEMF(ib,0,field_->field(Eface_.xi,ib),bx,by,bz,jac,ax,ay,az,up);
-        AssembleOneDirectionIdealFaceEMF(ib,1,field_->field(Eface_.eta,ib),bx,by,bz,jac,ax,ay,az,up);
-        AssembleOneDirectionIdealFaceEMF(ib,2,field_->field(Eface_.zeta,ib),bx,by,bz,jac,ax,ay,az,up);
-    }
-
-    // Eface components live in the receiver block's computational basis.  As
-    // in Mercury, fill the consumed ghost layer locally and never exchange it.
+    // As in Mercury, Eface components live in the receiver block's
+    // computational basis and are never exchanged.  AssembleIdealUCTFromFaces
+    // evaluates only the face components actually requested by regular edges;
+    // singular and stationary-wall edges use their dedicated assembly below.
     AssembleIdealUCTFromFaces();
 }
 
-void MarsSolver::AssembleOneDirectionIdealFaceEMF(
-    int block,int flux_axis,FieldBlock &eface,FieldBlock &bx,FieldBlock &by,FieldBlock &bz,
-    FieldBlock &jac,FieldBlock &ax,FieldBlock &ay,FieldBlock &az,FieldBlock &up)
+void MarsSolver::CacheOverriddenNonResistiveEdges()
 {
-    if(flux_axis<0 || flux_axis>2)
-        throw std::runtime_error("MarsSolver: invalid ideal EMF direction");
-
-    auto face_beta=[&](int axis,int i,int j,int k)->double
+    if(overridden_edge_cache_ready_) return;
+    const int rank=param_->GetInt("myid");
+    overridden_edge_rank_=rank;
+    auto insert=[&](int block,int axis,int i,int j,int k)
     {
-        return axis==0?bx(i,j,k,0):(axis==1?by(i,j,k,0):bz(i,j,k,0));
-    };
-    auto cell_beta=[&](int axis,int i,int j,int k)->double
-    {
-        int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
-        return 0.5*(face_beta(axis,i,j,k)+face_beta(axis,ip,jp,kp));
-    };
-    auto metric=[&](int axis,int i,int j,int k,int component)->double
-    {
-        return axis==0?ax(i,j,k,component):(axis==1?ay(i,j,k,component):az(i,j,k,component));
-    };
-    auto cell_u_contra=[&](int axis,int i,int j,int k)->double
-    {
-        int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
-        const double kx=0.5*(metric(axis,i,j,k,0)+metric(axis,ip,jp,kp,0));
-        const double ky=0.5*(metric(axis,i,j,k,1)+metric(axis,ip,jp,kp,1));
-        const double kz=0.5*(metric(axis,i,j,k,2)+metric(axis,ip,jp,kp,2));
-        const double volume=std::abs(CheckedCellJacobian(jac,block,i,j,k,
-                                                         "AssembleOneDirectionIdealFaceEMF"));
-        return (kx*up(i,j,k,0)+ky*up(i,j,k,1)+kz*up(i,j,k,2))/volume;
-    };
-    auto flux=[&](int beta_axis,int iL,int jL,int kL,int iR,int jR,int kR,
-                  double beta_normal)->double
-    {
-        const double betaL=cell_beta(beta_axis,iL,jL,kL),betaR=cell_beta(beta_axis,iR,jR,kR);
-        const double ufL=cell_u_contra(flux_axis,iL,jL,kL),ufR=cell_u_contra(flux_axis,iR,jR,kR);
-        const double ubL=cell_u_contra(beta_axis,iL,jL,kL),ubR=cell_u_contra(beta_axis,iR,jR,kR);
-        const double gL=ufL*betaL-ubL*beta_normal,gR=ufR*betaR-ubR*beta_normal;
-        return 0.5*(gL+gR)-0.5*std::max(std::abs(ufL),std::abs(ufR))*(betaR-betaL);
+        overridden_edges_.insert({TOPO::EntityDim::Edge,rank,block,i,j,k,
+                                  static_cast<TOPO::EntityAxis>(axis)});
     };
 
-    Int3 lo=eface.inner_lo(),hi=eface.inner_hi();
-    const Int3 alo=eface.get_lo(),ahi=eface.get_hi();
-    lo.i=std::max(lo.i-1,alo.i+1);lo.j=std::max(lo.j-1,alo.j+1);lo.k=std::max(lo.k-1,alo.k+1);
-    hi.i=std::min(hi.i+1,ahi.i-1);hi.j=std::min(hi.j+1,ahi.j-1);hi.k=std::min(hi.k+1,ahi.k-1);
-    for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
+    if(singular_edges_)
+        for(const auto &physical:singular_edges_->entries())
+            for(const auto &alias:physical.aliases)
+                if(alias.edge.rank==rank)
+                    overridden_edges_.insert(alias.edge);
+
+    const StaggerLocation locations[3]={StaggerLocation::EdgeXi,
+                                        StaggerLocation::EdgeEt,
+                                        StaggerLocation::EdgeZe};
+    auto mark_wall=[&](int block,const Box3 &node_box,int direction)
     {
-        int iL=i,jL=j,kL=k,iR=i,jR=j,kR=k;ShiftCell(flux_axis,-1,iL,jL,kL);
-        const double beta_normal=face_beta(flux_axis,i,j,k);
-        double e[3]={0.0,0.0,0.0};
-        if(flux_axis==0)
+        if(block<0 || block>=field_->num_blocks()) return;
+        const int normal=std::abs(direction)-1;
+        if(normal<0 || normal>2) return;
+        for(int axis=0;axis<3;++axis)
         {
-            e[1]=flux(2,iL,jL,kL,iR,jR,kR,beta_normal);
-            e[2]=-flux(1,iL,jL,kL,iR,jR,kR,beta_normal);
+            if(axis==normal) continue;
+            FieldBlock &edge=field_->field(axis==0?E_.xi:(axis==1?E_.eta:E_.zeta),block);
+            if(!edge.is_allocated()) continue;
+            Box3 box=LAYOUT::node_box_to_dof_box(locations[axis],node_box);
+            const Int3 lo=edge.inner_lo(),hi=edge.inner_hi();
+            box.lo.i=std::max(box.lo.i,lo.i);box.lo.j=std::max(box.lo.j,lo.j);box.lo.k=std::max(box.lo.k,lo.k);
+            box.hi.i=std::min(box.hi.i,hi.i);box.hi.j=std::min(box.hi.j,hi.j);box.hi.k=std::min(box.hi.k,hi.k);
+            for(int i=box.lo.i;i<box.hi.i;++i)for(int j=box.lo.j;j<box.hi.j;++j)
+                for(int k=box.lo.k;k<box.hi.k;++k)insert(block,axis,i,j,k);
         }
-        else if(flux_axis==1)
+    };
+
+    for(const auto &patch:topology_->physical_patches)
+        if(patch.bc_name=="Solid_Surface" || patch.bc_name=="Coupled-Solid" ||
+           patch.bc_name=="Coupled-Fluid")
+            mark_wall(patch.this_block,patch.this_box_node,patch.direction);
+    for(const auto &patch:topology_->inner_patches)
+        if(patch.is_coupling &&
+           (patch.this_block_name=="Solid" || patch.nb_block_name=="Solid"))
         {
-            e[0]=-flux(2,iL,jL,kL,iR,jR,kR,beta_normal);
-            e[2]=flux(0,iL,jL,kL,iR,jR,kR,beta_normal);
+            mark_wall(patch.this_block,patch.this_box_node,patch.direction);
+            mark_wall(patch.nb_block,patch.nb_box_node,patch.nb_direction);
         }
-        else
-        {
-            e[0]=flux(1,iL,jL,kL,iR,jR,kR,beta_normal);
-            e[1]=-flux(0,iL,jL,kL,iR,jR,kR,beta_normal);
-        }
-        for(int d=0;d<3;++d) eface(i,j,k,d)=e[d];
-    }
+    for(const auto &patch:topology_->parallel_patches)
+        if(patch.is_coupling &&
+           (patch.this_block_name=="Solid" || patch.nb_block_name=="Solid"))
+            mark_wall(patch.this_block,patch.this_box_node,patch.direction);
+    overridden_edge_cache_ready_=true;
+}
+
+bool MarsSolver::NonResistiveEdgeIsOverridden(int block,int axis,int i,int j,int k)
+{
+    CacheOverriddenNonResistiveEdges();
+    const TOPO::EntityKey key{TOPO::EntityDim::Edge,overridden_edge_rank_,block,i,j,k,
+                              static_cast<TOPO::EntityAxis>(axis)};
+    return overridden_edges_.find(key)!=overridden_edges_.end();
 }
 
 void MarsSolver::AssembleIdealUCTFromFaces()
 {
     constexpr double Cuct=0.5;
+    const double unset=std::numeric_limits<double>::quiet_NaN();
+    CacheOverriddenNonResistiveEdges();
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
         FieldBlock &up=field_->field(uplus_,ib),&jac=field_->field(jac_,ib);
         if(!up.is_allocated()) continue;
-        FieldBlock &bx=field_->field(B_.xi,ib),&by=field_->field(B_.eta,ib),&bz=field_->field(B_.zeta,ib);
-        FieldBlock &ax=field_->field(metric_.xi,ib),&ay=field_->field(metric_.eta,ib),&az=field_->field(metric_.zeta,ib);
-        FieldBlock &fx=field_->field(Eface_.xi,ib),&fy=field_->field(Eface_.eta,ib),&fz=field_->field(Eface_.zeta,ib);
-        auto metric=[&](int axis,int i,int j,int k,int c)->double
-        {return axis==0?ax(i,j,k,c):(axis==1?ay(i,j,k,c):az(i,j,k,c));};
-        auto ucontra=[&](int axis,int i,int j,int k)->double
+        FieldBlock *b[3]={&field_->field(B_.xi,ib),&field_->field(B_.eta,ib),&field_->field(B_.zeta,ib)};
+        FieldBlock *a[3]={&field_->field(metric_.xi,ib),&field_->field(metric_.eta,ib),&field_->field(metric_.zeta,ib)};
+        FieldBlock *face[3]={&field_->field(Eface_.xi,ib),&field_->field(Eface_.eta,ib),&field_->field(Eface_.zeta,ib)};
+
+        // Each face component is consumed only by edges parallel to that
+        // component.  Initialise exactly its one-transverse-layer demand slab;
+        // the normal direction is never extended.  NaN is an internal cache
+        // marker, not a numerical fallback.
+        for(int flux_axis=0;flux_axis<3;++flux_axis)for(int component=0;component<3;++component)
+        {
+            if(component==flux_axis) continue;
+            FieldBlock &f=*face[flux_axis];Int3 lo=f.inner_lo(),hi=f.inner_hi();
+            const Int3 alo=f.get_lo(),ahi=f.get_hi();
+            const int transverse=3-flux_axis-component;
+            if(transverse==0){lo.i=std::max(lo.i-1,alo.i);hi.i=std::min(hi.i+1,ahi.i);}
+            else if(transverse==1){lo.j=std::max(lo.j-1,alo.j);hi.j=std::min(hi.j+1,ahi.j);}
+            else{lo.k=std::max(lo.k-1,alo.k);hi.k=std::min(hi.k+1,ahi.k);}
+            for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k)
+                f(i,j,k,component)=unset;
+        }
+
+        auto face_beta=[&](int axis,int i,int j,int k){return (*b[axis])(i,j,k,0);};
+        auto cell_beta=[&](int axis,int i,int j,int k)
+        {
+            int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
+            return 0.5*(face_beta(axis,i,j,k)+face_beta(axis,ip,jp,kp));
+        };
+        auto metric=[&](int axis,int i,int j,int k,int component)
+        {return (*a[axis])(i,j,k,component);};
+        auto ucontra=[&](int axis,int i,int j,int k,const char *operation)
         {
             int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
             const double kx=0.5*(metric(axis,i,j,k,0)+metric(axis,ip,jp,kp,0));
             const double ky=0.5*(metric(axis,i,j,k,1)+metric(axis,ip,jp,kp,1));
             const double kz=0.5*(metric(axis,i,j,k,2)+metric(axis,ip,jp,kp,2));
-            const double volume=std::abs(CheckedCellJacobian(jac,ib,i,j,k,"AssembleIdealUCTFromFaces"));
+            const double volume=std::abs(CheckedCellJacobian(jac,ib,i,j,k,operation));
             return (kx*up(i,j,k,0)+ky*up(i,j,k,1)+kz*up(i,j,k,2))/volume;
+        };
+        auto face_component=[&](int flux_axis,int component,int i,int j,int k)
+        {
+            FieldBlock &f=*face[flux_axis];
+            if(!InBox(Box3{f.get_lo(),f.get_hi()},i,j,k))
+                throw std::runtime_error("MarsSolver: ideal UCT requested an unallocated face candidate");
+            double &cached=f(i,j,k,component);
+            if(!std::isnan(cached)) return cached;
+            int iL=i,jL=j,kL=k,iR=i,jR=j,kR=k;ShiftCell(flux_axis,-1,iL,jL,kL);
+            const double beta_normal=face_beta(flux_axis,i,j,k);
+            auto flux=[&](int beta_axis)
+            {
+                const double betaL=cell_beta(beta_axis,iL,jL,kL),betaR=cell_beta(beta_axis,iR,jR,kR);
+                const double ufL=ucontra(flux_axis,iL,jL,kL,"IdealFaceEMF"),
+                             ufR=ucontra(flux_axis,iR,jR,kR,"IdealFaceEMF");
+                const double ubL=ucontra(beta_axis,iL,jL,kL,"IdealFaceEMF"),
+                             ubR=ucontra(beta_axis,iR,jR,kR,"IdealFaceEMF");
+                const double gL=ufL*betaL-ubL*beta_normal,gR=ufR*betaR-ubR*beta_normal;
+                return 0.5*(gL+gR)-0.5*std::max(std::abs(ufL),std::abs(ufR))*(betaR-betaL);
+            };
+            if(flux_axis==0) cached=component==1?flux(2):-flux(1);
+            else if(flux_axis==1) cached=component==0?-flux(2):flux(0);
+            else cached=component==0?flux(1):-flux(0);
+            if(!std::isfinite(cached))
+            {
+                std::ostringstream message;message<<"MarsSolver: non-finite ideal face EMF rank="
+                    <<param_->GetInt("myid")<<" block="<<ib<<" face_axis="<<flux_axis
+                    <<" component="<<component<<" face=("<<i<<','<<j<<','<<k<<')';
+                throw std::runtime_error(message.str());
+            }
+            return cached;
         };
         auto speed4=[&](int axis,int i0,int j0,int k0,int i1,int j1,int k1,
                         int i2,int j2,int k2,int i3,int j3,int k3)->double
         {
-            return std::max(std::max(std::abs(ucontra(axis,i0,j0,k0)),std::abs(ucontra(axis,i1,j1,k1))),
-                            std::max(std::abs(ucontra(axis,i2,j2,k2)),std::abs(ucontra(axis,i3,j3,k3))));
+            return std::max(std::max(std::abs(ucontra(axis,i0,j0,k0,"IdealUCT")),std::abs(ucontra(axis,i1,j1,k1,"IdealUCT"))),
+                            std::max(std::abs(ucontra(axis,i2,j2,k2,"IdealUCT")),std::abs(ucontra(axis,i3,j3,k3,"IdealUCT"))));
         };
         {
             FieldBlock &e=field_->field(E_.xi,ib);const Int3 lo=e.inner_lo(),hi=e.inner_hi();
             for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
             {
-                const double ec=0.25*(fy(i,j,k,0)+fy(i,j,k-1,0)+fz(i,j,k,0)+fz(i,j-1,k,0));
+                if(NonResistiveEdgeIsOverridden(ib,0,i,j,k)) continue;
+                const double ec=0.25*(face_component(1,0,i,j,k)+face_component(1,0,i,j,k-1)+
+                                      face_component(2,0,i,j,k)+face_component(2,0,i,j-1,k));
                 const double aeta=speed4(1,i,j,k,i,j-1,k,i,j,k-1,i,j-1,k-1);
                 const double azeta=speed4(2,i,j,k,i,j-1,k,i,j,k-1,i,j-1,k-1);
-                e(i,j,k,0)=ec+Cuct*(0.5*aeta*(bz(i,j,k,0)-bz(i,j-1,k,0))-
-                                     0.5*azeta*(by(i,j,k,0)-by(i,j,k-1,0)));
+                e(i,j,k,0)=ec+Cuct*(0.5*aeta*(face_beta(2,i,j,k)-face_beta(2,i,j-1,k))-
+                                     0.5*azeta*(face_beta(1,i,j,k)-face_beta(1,i,j,k-1)));
             }
         }
         {
             FieldBlock &e=field_->field(E_.eta,ib);const Int3 lo=e.inner_lo(),hi=e.inner_hi();
             for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
             {
-                const double ec=0.25*(fx(i,j,k,1)+fx(i,j,k-1,1)+fz(i,j,k,1)+fz(i-1,j,k,1));
+                if(NonResistiveEdgeIsOverridden(ib,1,i,j,k)) continue;
+                const double ec=0.25*(face_component(0,1,i,j,k)+face_component(0,1,i,j,k-1)+
+                                      face_component(2,1,i,j,k)+face_component(2,1,i-1,j,k));
                 const double azeta=speed4(2,i,j,k,i-1,j,k,i,j,k-1,i-1,j,k-1);
                 const double axi=speed4(0,i,j,k,i-1,j,k,i,j,k-1,i-1,j,k-1);
-                e(i,j,k,0)=ec+Cuct*(0.5*azeta*(bx(i,j,k,0)-bx(i,j,k-1,0))-
-                                     0.5*axi*(bz(i,j,k,0)-bz(i-1,j,k,0)));
+                e(i,j,k,0)=ec+Cuct*(0.5*azeta*(face_beta(0,i,j,k)-face_beta(0,i,j,k-1))-
+                                     0.5*axi*(face_beta(2,i,j,k)-face_beta(2,i-1,j,k)));
             }
         }
         {
             FieldBlock &e=field_->field(E_.zeta,ib);const Int3 lo=e.inner_lo(),hi=e.inner_hi();
             for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
             {
-                const double ec=0.25*(fx(i,j,k,2)+fx(i,j-1,k,2)+fy(i,j,k,2)+fy(i-1,j,k,2));
+                if(NonResistiveEdgeIsOverridden(ib,2,i,j,k)) continue;
+                const double ec=0.25*(face_component(0,2,i,j,k)+face_component(0,2,i,j-1,k)+
+                                      face_component(1,2,i,j,k)+face_component(1,2,i-1,j,k));
                 const double axi=speed4(0,i,j,k,i-1,j,k,i,j-1,k,i-1,j-1,k);
                 const double aeta=speed4(1,i,j,k,i-1,j,k,i,j-1,k,i-1,j-1,k);
-                e(i,j,k,0)=ec+Cuct*(0.5*axi*(by(i,j,k,0)-by(i-1,j,k,0))-
-                                     0.5*aeta*(bx(i,j,k,0)-bx(i,j-1,k,0)));
+                e(i,j,k,0)=ec+Cuct*(0.5*axi*(face_beta(1,i,j,k)-face_beta(1,i-1,j,k))-
+                                     0.5*aeta*(face_beta(0,i,j,k)-face_beta(0,i,j-1,k)));
             }
         }
     }
@@ -222,6 +273,7 @@ void MarsSolver::AssembleAmbipolarEdgeEMF()
             const Int3 lo=e.inner_lo(),hi=e.inner_hi();
             for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k)
             {
+                if(NonResistiveEdgeIsOverridden(ib,d,i,j,k)) continue;
                 const double p0=pe_node(i,j,k);
                 const double p1=d==0?pe_node(i+1,j,k):(d==1?pe_node(i,j+1,k):pe_node(i,j,k+1));
                 const double ne=ne_edge(d,i,j,k);
@@ -279,7 +331,8 @@ void MarsSolver::AssembleHallRusanovEdgeEMF()
             const Int3 lo=edge.inner_lo(),hi=edge.inner_hi();
             for(int i=lo.i;i<hi.i;++i)for(int j=lo.j;j<hi.j;++j)for(int k=lo.k;k<hi.k;++k)
             {
-                if(pole_edge(d,i,j,k)){edge(i,j,k,0)=0.0;continue;}
+                if(NonResistiveEdgeIsOverridden(ib,d,i,j,k) || pole_edge(d,i,j,k))
+                {edge(i,j,k,0)=0.0;continue;}
                 int ci[4],cj[4],ck[4];
                 if(d==0){int ti[4]={i,i,i,i},tj[4]={j-1,j-1,j,j},tk[4]={k-1,k,k-1,k};std::copy(ti,ti+4,ci);std::copy(tj,tj+4,cj);std::copy(tk,tk+4,ck);}
                 else if(d==1){int ti[4]={i-1,i-1,i,i},tj[4]={j,j,j,j},tk[4]={k-1,k,k-1,k};std::copy(ti,ti+4,ci);std::copy(tj,tj+4,cj);std::copy(tk,tk+4,ck);}

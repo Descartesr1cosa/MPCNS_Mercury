@@ -13,6 +13,7 @@
 #include <array>
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class Grid;
@@ -102,6 +103,9 @@ private:
     std::vector<EdgeAliasTerm> edge_alias_local_terms_;
     std::vector<EdgeAliasOwnerWrite> edge_alias_owner_writes_;
     std::vector<double> edge_alias_local_sum_, edge_alias_global_sum_;
+    bool overridden_edge_cache_ready_ = false;
+    int overridden_edge_rank_ = 0;
+    std::unordered_set<TOPO::EntityKey, TOPO::EntityKey::Hash> overridden_edges_;
 
     void CacheFields();
     void ReadConstants();
@@ -129,12 +133,9 @@ private:
     void AssembleElectricAndCT();
     void ZeroEdgeElectricFields();
     void AssembleIdealEdgeEMF();
-    void AssembleOneDirectionIdealFaceEMF(int block, int direction, FieldBlock &eface,
-                                          FieldBlock &bx, FieldBlock &by, FieldBlock &bz,
-                                          FieldBlock &jac, FieldBlock &ax,
-                                          FieldBlock &ay, FieldBlock &az,
-                                          FieldBlock &uplus);
     void AssembleIdealUCTFromFaces();
+    void CacheOverriddenNonResistiveEdges();
+    bool NonResistiveEdgeIsOverridden(int block, int axis, int i, int j, int k);
     void AssembleAmbipolarEdgeEMF();
     void AssembleHallRusanovEdgeEMF();
     void ReduceEdgeAliasCandidatesToOwners(const Triplet &edge_fields);
