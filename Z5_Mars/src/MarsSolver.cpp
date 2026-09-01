@@ -65,8 +65,10 @@ void MarsSolver::RegisterHaloFields(Field *field, Halo *halo)
     MARS::RegisterMarsHalo(*field, *halo);
 }
 
-MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo *halo, Param *param)
-    : grid_(grid), topology_(topology), field_(field), halo_(halo), param_(param)
+MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo *halo,
+                       Param *param, METRIC::SingularEdgeRegistry *singular_edges)
+    : grid_(grid), topology_(topology), field_(field), halo_(halo), param_(param),
+      singular_edges_(singular_edges)
 {
     if (!grid_ || !topology_ || !field_ || !halo_ || !param_)
         throw std::invalid_argument("MarsSolver: null construction argument");
@@ -75,6 +77,7 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
     SetupBoundary();
 
     io_.Setup(param_, grid_, field_, static_cast<int>(MARS::NumSpecies * 5 + 3));
+    io_.SetTecplotSingularNodeContext(topology_, singular_edges_);
     std::vector<std::string> restart;
     for (std::string_view name : MARS::SpeciesNames)
         restart.push_back("U_" + std::string(name));
@@ -124,12 +127,22 @@ void MarsSolver::CacheFields()
     uplus_ = field_->field_id("U_plus");
     bcell_ = field_->field_id("B_cell");
     jcell_ = field_->field_id("J_cell");
+    hall_ecell_ = field_->field_id("E_hall_cell");
+    hall_beta_ = field_->field_id("Hall_beta");
     divb_ = field_->field_id("divB");
     jac_ = field_->field_id("Jac");
     metric_ = {field_->field_id("JDxi"), field_->field_id("JDet"), field_->field_id("JDze")};
+    face_area_ = {field_->field_id("Area_xi"), field_->field_id("Area_eta"),
+                  field_->field_id("Area_zeta")};
     edge_dr_ = {field_->field_id("dr_xi"), field_->field_id("dr_eta"), field_->field_id("dr_zeta")};
+    edge_dl_ = {field_->field_id("dl_xi"), field_->field_id("dl_eta"),
+                field_->field_id("dl_zeta")};
     B_ = {field_->field_id("B_xi"), field_->field_id("B_eta"), field_->field_id("B_zeta")};
     E_ = {field_->field_id("E_xi"), field_->field_id("E_eta"), field_->field_id("E_zeta")};
+    Eface_ = {field_->field_id("Eface_xi"), field_->field_id("Eface_eta"),
+              field_->field_id("Eface_zeta")};
+    Ehall_ = {field_->field_id("Ehall_xi"), field_->field_id("Ehall_eta"),
+              field_->field_id("Ehall_zeta")};
     RHSB_ = {field_->field_id("RHS_B_xi"), field_->field_id("RHS_B_eta"), field_->field_id("RHS_B_zeta")};
     flux_ = {field_->field_id("F_xi"), field_->field_id("F_eta"), field_->field_id("F_zeta")};
 }
@@ -155,6 +168,10 @@ void MarsSolver::ReadConstants()
     ambipolar_enabled_ = !param_->HasBoo("is_Ambipolar_Efield") || param_->GetBoo("is_Ambipolar_Efield");
     hall_scale_ = magnetic_ref_ / (mu0_ * length_ref_ * charge_ * nref * velocity_ref_);
     pressure_scale_ = pressure_ref_ / (charge_ * nref * length_ref_ * velocity_ref_ * magnetic_ref_);
+    magnetic_force_scale_ = magnetic_ref_ * magnetic_ref_ /
+                            (mu0_ * density_ref_ * velocity_ref_ * velocity_ref_);
+    // Identical smooth Hall/ambipolar density regularization to Mercury.
+    electron_density_floor_nd_ = 1.0e-2;
 
     MARS::AtmosphereConfig atmosphere_config;
     atmosphere_config.mars_radius_m = param_->HasDou("mars_radius_m")
@@ -213,6 +230,54 @@ double MarsSolver::CheckedCellJacobian(const FieldBlock &jac, int block,
             << " jac=" << raw
             << ". A zero/non-finite Jacobian must not enter a physical operator.";
     throw std::runtime_error(message.str());
+}
+
+double MarsSolver::CheckedPositiveGeometry(const FieldBlock &geometry, int block,
+                                           int i, int j, int k,
+                                           const char *operation) const
+{
+    const double value = geometry(i, j, k, 0);
+    if (std::isfinite(value) && value > 0.0)
+        return value;
+
+    std::ostringstream message;
+    message << "MarsSolver: invalid positive geometry in " << operation
+            << " rank=" << param_->GetInt("myid")
+            << " block=" << block
+            << " index=(" << i << ',' << j << ',' << k << ')'
+            << " value=" << value;
+    throw std::runtime_error(message.str());
+}
+
+MarsSolver::ElectronDensityInfo
+MarsSolver::ElectronDensityAtCell(int block, int i, int j, int k) const
+{
+    ElectronDensityInfo result;
+    const double nref = param_->GetDou_List("REF").data.at("n");
+    for (std::size_t s = 0; s < MARS::NumSpecies; ++s)
+    {
+        const FieldBlock &u = field_->field(U_[s], block);
+        const double rho = std::max(u(i, j, k, 0), 0.0);
+        result.species_nd[s] = rho * density_ref_ /
+                               (MARS::ParticleMass[s] * nref);
+        result.ne_true += result.species_nd[s];
+    }
+    result.ne_eff = std::sqrt(result.ne_true * result.ne_true +
+                              electron_density_floor_nd_ * electron_density_floor_nd_);
+    result.mhd_taper = result.ne_true / result.ne_eff;
+    if (!std::isfinite(result.ne_true) || !std::isfinite(result.ne_eff) ||
+        !(result.ne_eff > 0.0))
+    {
+        std::ostringstream message;
+        message << "MarsSolver: invalid electron density"
+                << " rank=" << param_->GetInt("myid")
+                << " block=" << block
+                << " cell=(" << i << ',' << j << ',' << k << ')'
+                << " ne_true=" << result.ne_true
+                << " ne_eff=" << result.ne_eff;
+        throw std::runtime_error(message.str());
+    }
+    return result;
 }
 
 void MarsSolver::SyncGroup(const std::string &name, const std::vector<std::string> &fields,
@@ -386,14 +451,15 @@ void MarsSolver::UpdateIonVelocity()
         const Int3 lo=up.get_lo(), hi=up.get_hi();
         for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
         {
-            double ne=0.0,v[3]={0,0,0};
+            const ElectronDensityInfo density=ElectronDensityAtCell(ib,i,j,k);
+            double v[3]={0,0,0};
             for(std::size_t s=0;s<MARS::NumSpecies;++s)
             {
-                FieldBlock &u=field_->field(U_[s],ib), &pv=field_->field(PV_[s],ib);
-                const double ns=std::max(u(i,j,k,0),0.0)/MARS::ParticleMass[s];
-                ne+=ns; for(int d=0;d<3;++d) v[d]+=ns*pv(i,j,k,d);
+                FieldBlock &pv=field_->field(PV_[s],ib);
+                for(int d=0;d<3;++d)
+                    v[d]+=density.species_nd[s]*pv(i,j,k,d);
             }
-            const double inv=1.0/std::max(ne,1.0e-30);
+            const double inv=density.ne_true>1.0e-300?1.0/density.ne_true:0.0;
             for(int d=0;d<3;++d) up(i,j,k,d)=v[d]*inv;
         }
     }

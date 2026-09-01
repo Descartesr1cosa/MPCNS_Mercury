@@ -79,9 +79,25 @@ inline void RegisterMarsFields(Field &field, int ngh)
                                         Sync("Eedge", true, true, HaloLevel::Corner3D,
                                              OwnerSyncPolicy::EdgeOwner, true),
                                         FieldValueKind::EdgeCovariant1Form));
+        // Mercury-compatible ideal-UCT work tensor.  Its three components are
+        // block-local covariant EMF candidates, so it must not be exchanged
+        // across rotated block interfaces.
+        field.register_field(Descriptor(std::string("Eface_") + suffix[d], face_loc[d], 3, ngh,
+                                        "Fluid"));
+        // Keep Hall separate until its own oriented edge synchronization has
+        // completed, matching Mercury's induction assembly order.
+        field.register_field(Descriptor(std::string("Ehall_") + suffix[d], edge_loc[d], 1, ngh,
+                                        "Fluid",
+                                        Sync("Ehall", true, true, HaloLevel::Corner3D,
+                                             OwnerSyncPolicy::EdgeOwner, true),
+                                        FieldValueKind::EdgeCovariant1Form));
         field.register_field(Descriptor(std::string("RHS_B_") + suffix[d], face_loc[d], 1, 0, "Fluid"));
         field.register_field(Descriptor(std::string("F_") + suffix[d], face_loc[d], 5, 0, "Fluid"));
     }
+
+    // Cell scratch used by Mercury's Hall Rusanov edge reconstruction.
+    field.register_field(Descriptor("E_hall_cell", StaggerLocation::Cell, 3, ngh, "Fluid"));
+    field.register_field(Descriptor("Hall_beta", StaggerLocation::Cell, 1, ngh, "Fluid"));
 }
 
 inline void RegisterMarsHalo(Field &field, Halo &halo)

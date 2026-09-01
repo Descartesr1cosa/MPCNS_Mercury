@@ -3,6 +3,7 @@
 #include "2_topology/TopologyBuilder.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
+#include "7_metric/SingularEdgeRegistry.h"
 #include "MarsCase.h"
 #include "MarsSolver.h"
 
@@ -23,10 +24,16 @@ int main(int argc, char **argv)
         const int ngh = param.GetInt("ngg");
         Field field(&grid, &param, ngh);
         MarsSolver::RegisterFields(&field, ngh);
+        METRIC::SingularEdgeRegistry singular_edges;
+        singular_edges.build(topology, field, grid, rank);
+        singular_edges.validate_or_abort();
+        if (rank == 0)
+            std::cout << "[SingularEdgeRegistry] physical singular edges="
+                      << singular_edges.size() << '\n';
         Halo halo(&field, &topology);
         halo.set_topology_equiv(&topology);
         MarsSolver::RegisterHaloFields(&field, &halo);
-        MarsSolver solver(&grid, &topology, &field, &halo, &param);
+        MarsSolver solver(&grid, &topology, &field, &halo, &param, &singular_edges);
         solver.Advance();
         if (rank == 0)
             std::cout << "MarsZ5 finished normally\n";

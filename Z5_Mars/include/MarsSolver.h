@@ -7,6 +7,8 @@
 #include "6_io/IOModule.h"
 #include "6_io/RunControl.h"
 #include "8_dec/CTOperators.h"
+#include "7_metric/SingularEdgeRegistry.h"
+#include "2_topology/Topology.h"
 
 #include <array>
 #include <map>
@@ -22,7 +24,8 @@ namespace TOPO { struct Topology; }
 class MarsSolver
 {
 public:
-    MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo *halo, Param *param);
+    MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo *halo, Param *param,
+               METRIC::SingularEdgeRegistry *singular_edges = nullptr);
     static void RegisterFields(Field *field, int nghost);
     static void RegisterHaloFields(Field *field, Halo *halo);
     void Advance();
@@ -35,6 +38,7 @@ private:
     Field *field_ = nullptr;
     Halo *halo_ = nullptr;
     Param *param_ = nullptr;
+    METRIC::SingularEdgeRegistry *singular_edges_ = nullptr;
     BoundaryCore boundary_;
     MARS::AtmosphereModel atmosphere_;
     IOModule io_;
@@ -44,8 +48,9 @@ private:
     std::array<int, MARS::NumSpecies> PV_{};
     std::array<int, MARS::NumSpecies> RHS_{};
     int neutral_ = -1, photo_ = -1, uplus_ = -1, bcell_ = -1, jcell_ = -1, divb_ = -1;
+    int hall_ecell_ = -1, hall_beta_ = -1;
     int jac_ = -1;
-    Triplet metric_, edge_dr_, B_, E_, RHSB_, flux_;
+    Triplet metric_, face_area_, edge_dr_, edge_dl_, B_, E_, Eface_, Ehall_, RHSB_, flux_;
 
     double gamma_ = 1.4;
     double cfl_ = 0.5;
@@ -59,19 +64,53 @@ private:
     double charge_ = 1.602e-19;
     double mu0_ = 1.256637061e-6;
     double dt_ = 0.0;
+    double dt_fluid_ = 0.0;
+    double dt_mhd_ = 0.0;
     double hall_scale_ = 0.0;
     double pressure_scale_ = 0.0;
+    double magnetic_force_scale_ = 0.0;
+    double electron_density_floor_nd_ = 1.0e-2;
     bool hall_enabled_ = true;
     bool ambipolar_enabled_ = true;
     double solar_wind_h_density_ = 0.0;
     double wall_temperature_K_ = 1500.0;
     std::map<std::array<int, 4>, std::array<double, MARS::NumSpecies>> wall_ion_cache_;
 
+    struct ElectronDensityInfo
+    {
+        std::array<double, MARS::NumSpecies> species_nd{};
+        double ne_true = 0.0;
+        double ne_eff = 0.0;
+        double mhd_taper = 0.0;
+    };
+
+    bool edge_alias_reduce_cache_ready_ = false;
+    std::vector<const TOPO::EquivClass *> edge_alias_reduce_classes_;
+    struct EdgeAliasTerm
+    {
+        std::size_t class_index = 0;
+        TOPO::EntityKey edge;
+        int orientation = 1;
+    };
+    struct EdgeAliasOwnerWrite
+    {
+        std::size_t class_index = 0;
+        TOPO::EntityKey edge;
+        int orientation = 1;
+        double member_count = 1.0;
+    };
+    std::vector<EdgeAliasTerm> edge_alias_local_terms_;
+    std::vector<EdgeAliasOwnerWrite> edge_alias_owner_writes_;
+    std::vector<double> edge_alias_local_sum_, edge_alias_global_sum_;
+
     void CacheFields();
     void ReadConstants();
     void SetupBoundary();
     double CheckedCellJacobian(const FieldBlock &jac, int block, int i, int j, int k,
                                const char *operation) const;
+    double CheckedPositiveGeometry(const FieldBlock &geometry, int block,
+                                   int i, int j, int k, const char *operation) const;
+    ElectronDensityInfo ElectronDensityAtCell(int block, int i, int j, int k) const;
     void SyncGroup(const std::string &name, const std::vector<std::string> &fields,
                    bool owner_sync = false);
     void Initialize();
@@ -88,6 +127,21 @@ private:
     void AddFortranSources();
     void ApplyPointImplicitChemistry();
     void AssembleElectricAndCT();
+    void ZeroEdgeElectricFields();
+    void AssembleIdealEdgeEMF();
+    void AssembleOneDirectionIdealFaceEMF(int block, int direction, FieldBlock &eface,
+                                          FieldBlock &bx, FieldBlock &by, FieldBlock &bz,
+                                          FieldBlock &jac, FieldBlock &ax,
+                                          FieldBlock &ay, FieldBlock &az,
+                                          FieldBlock &uplus);
+    void AssembleIdealUCTFromFaces();
+    void AssembleAmbipolarEdgeEMF();
+    void AssembleHallRusanovEdgeEMF();
+    void ReduceEdgeAliasCandidatesToOwners(const Triplet &edge_fields);
+    void AssembleSingularEdgeEMFNonHall();
+    void AssembleSingularEdgeEMFHall();
+    void ApplyStationaryWallEMF();
+    void ZeroPoleHallEdges(int block);
     void ApplyUpdate();
     void ApplyFloors();
     void UpdateDivB();

@@ -15,8 +15,9 @@ Mercury internal-resistance implicit solve.
 The ten-species photochemistry is advanced by a cell-local, coupled backward-
 Euler solve with an active density lower bound. Chemical momentum and energy
 losses use positive diagonal point-implicit updates. Consequently chemistry no
-longer limits the global time step; the intercell Euler flux remains explicit
-and determines the CFL step. Cells that fail the full local nonlinear solve
+longer limits the global time step. The explicit step is the minimum of the
+per-species fluid CFL and the total-charged-fluid fast-magnetosonic CFL; no Hall
+`h^2` timestep constraint is applied. Cells that fail the full local nonlinear solve
 retry with up to sixteen chemistry-only substeps without reducing the global
 fluid step.
 
@@ -40,3 +41,6 @@ the complete Fortran reaction network in local photochemical equilibrium; H+
 retains the original 0.3-upstream-density condition. Model equations,
 coefficients, references, parameters and limitations are documented in
 [`docs/mars/MarsAtmospherePhotoionization.md`](../docs/mars/MarsAtmospherePhotoionization.md).
+The Mercury-compatible ideal UCT, Hall Rusanov, electron-density limiter,
+timestep policy and remaining discretization differences are documented in
+[`docs/mars/MarsMercuryEMDiscretization.md`](../docs/mars/MarsMercuryEMDiscretization.md).
