@@ -77,6 +77,10 @@ private:
     bool hall_enabled_ = true;
     bool ambipolar_enabled_ = true;
     double solar_wind_h_density_ = 0.0;
+    double solar_wind_pressure_ = 0.0;
+    std::array<double, 3> solar_wind_velocity_{};
+    std::array<double, 3> solar_wind_imf_{};
+    bool repair_restart_farfield_bface_ = false;
     double wall_temperature_K_ = 1500.0;
     std::map<std::array<int, 4>, std::array<double, MARS::NumSpecies>> wall_ion_cache_;
 
@@ -114,6 +118,14 @@ private:
     void CacheFields();
     void ReadConstants();
     void SetupBoundary();
+    void ApplyIonFarfield(FieldBlock &block, const BOUND::PhysicalRegion &region,
+                          int nghost, std::size_t species);
+    void ApplyMagneticFarfieldFace(FieldBlock &block,
+                                   const BOUND::PhysicalRegion &region, int nghost);
+    void ApplyMagneticFarfieldCell(FieldBlock &block,
+                                   const BOUND::PhysicalRegion &region, int nghost);
+    void ApplyFarfieldElectricEdge(FieldBlock &block,
+                                   const BOUND::PhysicalRegion &region, int nghost);
     double CheckedCellJacobian(const FieldBlock &jac, int block, int i, int j, int k,
                                const char *operation) const;
     double CheckedPositiveGeometry(const FieldBlock &geometry, int block,
@@ -152,4 +164,5 @@ private:
     void ApplyFloors();
     void UpdateDivB();
     void PrintDiagnostics();
+    bool UpdateControlAndOutput();
 };

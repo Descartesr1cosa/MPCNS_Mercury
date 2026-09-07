@@ -95,9 +95,15 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
     {
         io_.ReadRestartBinFile();
         io_.ReadRunDataFile();
+        // Checkpoints written before the prescribed Farfield EMF fix may
+        // contain a drifted normal boundary flux. Repair it during the first
+        // Bface synchronization only; subsequent CT evolution follows the
+        // Mercury no-op Bface boundary policy.
+        repair_restart_farfield_bface_ = true;
     }
     Initialize();
     control_.Setup(param_);
+    io_.SetArchivePhysicalTimeOrigin(io_.Run().time);
 
     int64_t local_cells=0;
     for(int ib=0;ib<field_->num_blocks();++ib)
@@ -179,6 +185,21 @@ void MarsSolver::ReadConstants()
     // Identical smooth Hall/ambipolar density regularization to Mercury.
     electron_density_floor_nd_ = 1.0e-2;
 
+    const auto initial = param_->GetDou_List("INITIAL").data;
+    solar_wind_h_density_ =
+        (initial.at("n") / number_density_ref_) *
+        (initial.at("Molecular_mass") / ref.at("Molecular_mass"));
+    const double cy = initial.at("c_y");
+    const double cz = initial.at("c_z");
+    const double cx = -std::sqrt(std::max(0.0, 1.0 - cy * cy - cz * cz));
+    const double speed = initial.at("U") / velocity_ref_;
+    solar_wind_velocity_ = {cx * speed, cy * speed, cz * speed};
+    solar_wind_pressure_ =
+        initial.at("n") * boltzmann_ * initial.at("T") / pressure_ref_;
+    solar_wind_imf_ = {initial.at("Bx") / magnetic_ref_,
+                       initial.at("By") / magnetic_ref_,
+                       initial.at("Bz") / magnetic_ref_};
+
     MARS::AtmosphereConfig atmosphere_config;
     atmosphere_config.mars_radius_m = param_->HasDou("mars_radius_m")
                                           ? param_->GetDou("mars_radius_m") : length_ref_;
@@ -211,13 +232,138 @@ void MarsSolver::SetupBoundary()
     for (std::size_t s = 0; s < MARS::NumSpecies; ++s)
     {
         const std::string field_name = "U_" + std::string(MARS::SpeciesNames[s]);
+        auto ion_farfield = [this, s](FieldBlock &block, Field *,
+                                      const BOUND::PhysicalRegion &region, int nghost)
+        { ApplyIonFarfield(block, region, nghost, s); };
         auto ion_wall = [this, s](FieldBlock &block, Field *,
                                   const BOUND::PhysicalRegion &region, int nghost)
         { ApplyIonWall(block, region, nghost, s); };
+        boundary_.RegisterPhysical(field_name, "Farfield", ion_farfield);
         boundary_.RegisterPhysical(field_name, "Solid_Surface", ion_wall);
         boundary_.RegisterPhysical(field_name, "Coupled-Solid", ion_wall);
     }
+
+    auto magnetic_face_farfield = [this](FieldBlock &block, Field *,
+                                          const BOUND::PhysicalRegion &region, int nghost)
+    { ApplyMagneticFarfieldFace(block, region, nghost); };
+    boundary_.RegisterPhysical("B_xi", "Farfield", magnetic_face_farfield);
+    boundary_.RegisterPhysical("B_eta", "Farfield", magnetic_face_farfield);
+    boundary_.RegisterPhysical("B_zeta", "Farfield", magnetic_face_farfield);
+
+    auto magnetic_cell_farfield = [this](FieldBlock &block, Field *,
+                                          const BOUND::PhysicalRegion &region, int nghost)
+    { ApplyMagneticFarfieldCell(block, region, nghost); };
+    boundary_.RegisterPhysical("B_cell", "Farfield", magnetic_cell_farfield);
+
+    auto electric_farfield = [this](FieldBlock &block, Field *,
+                                     const BOUND::PhysicalRegion &region, int nghost)
+    { ApplyFarfieldElectricEdge(block, region, nghost); };
+    boundary_.RegisterPhysical("E_xi", "Farfield", electric_farfield);
+    boundary_.RegisterPhysical("E_eta", "Farfield", electric_farfield);
+    boundary_.RegisterPhysical("E_zeta", "Farfield", electric_farfield);
     boundary_.CheckPhysicalHandlers(names);
+}
+
+void MarsSolver::ApplyIonFarfield(FieldBlock &block,
+                                  const BOUND::PhysicalRegion &region,
+                                  int nghost, std::size_t species)
+{
+    const Box3 ghost = BoundaryCore::MakeGhostSlabFromInner(
+        region.inner_slab, region.direction, nghost);
+    const bool solar_wind = species == MARS::H;
+    const double rho = solar_wind ? solar_wind_h_density_ : DensityFloor;
+    const double ux = solar_wind ? solar_wind_velocity_[0] : 0.0;
+    const double uy = solar_wind ? solar_wind_velocity_[1] : 0.0;
+    const double uz = solar_wind ? solar_wind_velocity_[2] : 0.0;
+    const double pressure = solar_wind
+                                ? solar_wind_pressure_
+                                : std::max(PressureFloor,
+                                           solar_wind_pressure_ * 1.0e-6);
+    const double energy = pressure / (gamma_ - 1.0) +
+                          0.5 * rho * (ux * ux + uy * uy + uz * uz);
+    for(int i=ghost.lo.i;i<ghost.hi.i;++i)
+        for(int j=ghost.lo.j;j<ghost.hi.j;++j)
+            for(int k=ghost.lo.k;k<ghost.hi.k;++k)
+            {
+                block(i,j,k,0)=rho;
+                block(i,j,k,1)=rho*ux;
+                block(i,j,k,2)=rho*uy;
+                block(i,j,k,3)=rho*uz;
+                block(i,j,k,4)=energy;
+            }
+}
+
+void MarsSolver::ApplyMagneticFarfieldFace(
+    FieldBlock &block, const BOUND::PhysicalRegion &region, int nghost)
+{
+    if(!repair_restart_farfield_bface_)return;
+
+    int axis = -1, metric_id = -1;
+    const std::string &name = block.descriptor().name;
+    if(name=="B_xi"){axis=0;metric_id=metric_.xi;}
+    else if(name=="B_eta"){axis=1;metric_id=metric_.eta;}
+    else if(name=="B_zeta"){axis=2;metric_id=metric_.zeta;}
+    else throw std::runtime_error("MarsSolver: unexpected Farfield B-face field " + name);
+
+    FieldBlock &area=field_->field(metric_id,region.this_block);
+    auto impose=[&](const Box3 &box)
+    {
+        for(int i=box.lo.i;i<box.hi.i;++i)
+            for(int j=box.lo.j;j<box.hi.j;++j)
+                for(int k=box.lo.k;k<box.hi.k;++k)
+                    block(i,j,k,0)=dot3(solar_wind_imf_[0],solar_wind_imf_[1],
+                                        solar_wind_imf_[2],area(i,j,k,0),
+                                        area(i,j,k,1),area(i,j,k,2));
+    };
+    const Box3 ghost=BoundaryCore::MakeGhostSlabFromInner(
+        region.inner_slab,region.direction,nghost);
+    impose(ghost);
+
+    // The normal face is the magnetic boundary DOF itself.  Re-impose it as
+    // well so a checkpoint produced by the former copy boundary cannot carry
+    // a drifted incoming normal flux into a continued calculation.
+    if(axis==std::abs(region.direction)-1)impose(region.inner_slab);
+}
+
+void MarsSolver::ApplyMagneticFarfieldCell(
+    FieldBlock &block, const BOUND::PhysicalRegion &region, int nghost)
+{
+    const Box3 ghost=BoundaryCore::MakeGhostSlabFromInner(
+        region.inner_slab,region.direction,nghost);
+    for(int i=ghost.lo.i;i<ghost.hi.i;++i)
+        for(int j=ghost.lo.j;j<ghost.hi.j;++j)
+            for(int k=ghost.lo.k;k<ghost.hi.k;++k)
+                for(int d=0;d<3;++d)block(i,j,k,d)=solar_wind_imf_[d];
+}
+
+void MarsSolver::ApplyFarfieldElectricEdge(
+    FieldBlock &block, const BOUND::PhysicalRegion &region, int nghost)
+{
+    int axis=-1;
+    const std::string &name=block.descriptor().name;
+    if(name=="E_xi")axis=0;
+    else if(name=="E_eta")axis=1;
+    else if(name=="E_zeta")axis=2;
+    else throw std::runtime_error("MarsSolver: unexpected Farfield E-edge field " + name);
+
+    const double ex=solar_wind_imf_[1]*solar_wind_velocity_[2]-
+                    solar_wind_imf_[2]*solar_wind_velocity_[1];
+    const double ey=solar_wind_imf_[2]*solar_wind_velocity_[0]-
+                    solar_wind_imf_[0]*solar_wind_velocity_[2];
+    const double ez=solar_wind_imf_[0]*solar_wind_velocity_[1]-
+                    solar_wind_imf_[1]*solar_wind_velocity_[0];
+    Block &grid=grid_->grids(region.this_block);
+    const Box3 &inner=region.inner_slab;
+    for(int i=inner.lo.i;i<inner.hi.i;++i)
+        for(int j=inner.lo.j;j<inner.hi.j;++j)
+            for(int k=inner.lo.k;k<inner.hi.k;++k)
+            {
+                const int ip=i+(axis==0),jp=j+(axis==1),kp=k+(axis==2);
+                block(i,j,k,0)=ex*(grid.x(ip,jp,kp)-grid.x(i,j,k))+
+                               ey*(grid.y(ip,jp,kp)-grid.y(i,j,k))+
+                               ez*(grid.z(ip,jp,kp)-grid.z(i,j,k));
+            }
+    BoundaryCore::DefaultPhysicalCopy(block,field_,region,nghost);
 }
 
 double MarsSolver::CheckedCellJacobian(const FieldBlock &jac, int block,
@@ -298,20 +444,6 @@ void MarsSolver::SyncGroup(const std::string &name, const std::vector<std::strin
 void MarsSolver::Initialize()
 {
     const bool fresh = !param_->GetBoo("continue_calc");
-    const auto ref = param_->GetDou_List("REF").data;
-    const auto ini = param_->GetDou_List("INITIAL").data;
-    const double nref = ref.at("n");
-    const double molref = ref.at("Molecular_mass");
-    const double rho_sw = (ini.at("n") / nref) * (ini.at("Molecular_mass") / molref);
-    solar_wind_h_density_ = rho_sw;
-    const double cy = ini.at("c_y"), cz = ini.at("c_z");
-    const double cx = -std::sqrt(std::max(0.0, 1.0 - cy * cy - cz * cz));
-    const double ux = cx * ini.at("U") / velocity_ref_;
-    const double uy = cy * ini.at("U") / velocity_ref_;
-    const double uz = cz * ini.at("U") / velocity_ref_;
-    const double p = ini.at("n") * boltzmann_ * ini.at("T") / pressure_ref_;
-    const double b0[3] = {ini.at("Bx") / magnetic_ref_, ini.at("By") / magnetic_ref_,
-                          ini.at("Bz") / magnetic_ref_};
 
     if (fresh)
     {
@@ -322,11 +454,12 @@ void MarsSolver::Initialize()
                 FieldBlock &u = field_->field(U_[s], ib);
                 if (!u.is_allocated()) continue;
                 const bool solar_wind = s == MARS::H;
-                const double rho = solar_wind ? rho_sw : DensityFloor;
-                const double us = solar_wind ? ux : 0.0;
-                const double vs = solar_wind ? uy : 0.0;
-                const double ws = solar_wind ? uz : 0.0;
-                const double ps = solar_wind ? p : std::max(PressureFloor, p * 1.0e-6);
+                const double rho = solar_wind ? solar_wind_h_density_ : DensityFloor;
+                const double us = solar_wind ? solar_wind_velocity_[0] : 0.0;
+                const double vs = solar_wind ? solar_wind_velocity_[1] : 0.0;
+                const double ws = solar_wind ? solar_wind_velocity_[2] : 0.0;
+                const double ps = solar_wind ? solar_wind_pressure_
+                                             : std::max(PressureFloor, solar_wind_pressure_ * 1.0e-6);
                 const Int3 lo = u.get_lo(), hi = u.get_hi();
                 for (int i = lo.i; i < hi.i; ++i)
                     for (int j = lo.j; j < hi.j; ++j)
@@ -354,13 +487,15 @@ void MarsSolver::Initialize()
                 if(!face.is_allocated()) continue;
                 const Int3 lo=face.get_lo(), hi=face.get_hi();
                 for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                    face(i,j,k,0)=dot3(b0[0],b0[1],b0[2],area(i,j,k,0),area(i,j,k,1),area(i,j,k,2));
+                    face(i,j,k,0)=dot3(solar_wind_imf_[0],solar_wind_imf_[1],solar_wind_imf_[2],
+                                       area(i,j,k,0),area(i,j,k,1),area(i,j,k,2));
             }
         }
     }
     PopulateAnalyticAtmosphere();
     SyncGroup("Ucell",ucell_names_);
     SyncGroup("Bface",bface_names_,true);
+    repair_restart_farfield_bface_=false;
     UpdatePrimitive();
     UpdateIonVelocity();
     UpdateMagneticCell();

@@ -589,12 +589,7 @@ void MarsSolver::PrintDiagnostics()
 void MarsSolver::Advance()
 {
     auto &run=io_.Run();control_.UpdateSwitches(run);
-    if(control_.if_outres)
-    {
-        UpdateDivB();
-        io_.Runtime().UpdateOnOutres(run);
-        PrintDiagnostics();
-    }
+    UpdateControlAndOutput();
     while(!control_.if_stop)
     {
         ComputeTimestep();ZeroRHS();AssembleFluidFlux();AddFortranSources();AssembleElectricAndCT();ApplyUpdate();ApplyPointImplicitChemistry();ApplyFloors();
@@ -602,8 +597,35 @@ void MarsSolver::Advance()
         SyncGroup("Ucell",ucell_names_);SyncGroup("Bface",bface_names_,true);
         UpdatePrimitive();UpdateIonVelocity();UpdateMagneticCell();UpdateCurrentCell();
         control_.UpdateSwitches(run);
-        if(control_.if_outres || control_.if_outfile)UpdateDivB();
-        if(control_.if_outres){io_.Runtime().UpdateOnOutres(run);PrintDiagnostics();}
-        if(control_.if_outfile){io_.WriteTecplotBinFile(run.step,run.time);io_.WriteRestartBinFile(run.step,run.time);io_.WriteRunDataFile();}
+        UpdateControlAndOutput();
     }
+}
+
+bool MarsSolver::UpdateControlAndOutput()
+{
+    RunData &run=io_.Run();
+    const bool archive_due=io_.IsArchiveDue(run.time);
+
+    if(control_.if_outres || control_.if_outfile)UpdateDivB();
+    if(control_.if_outres)
+    {
+        io_.Runtime().UpdateOnOutres(run);
+        PrintDiagnostics();
+    }
+
+    std::string archive_dir;
+    if(archive_due)archive_dir=io_.ArchiveDataDirectory(run.step,run.time);
+
+    if(control_.if_outfile)
+    {
+        io_.WriteTecplotBinFile(run.step,run.time);
+        if(archive_due)io_.CopyCheckpointToCurrentData(archive_dir);
+        else
+        {
+            io_.WriteRestartBinFile(run.step,run.time);
+            io_.WriteRunDataFile();
+        }
+        io_.BackupDataDirectory("./DATA_backup");
+    }
+    return control_.if_stop;
 }
