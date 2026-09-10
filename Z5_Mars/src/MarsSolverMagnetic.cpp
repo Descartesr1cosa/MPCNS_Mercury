@@ -157,6 +157,7 @@ void MarsSolver::AssembleIdealUCTFromFaces()
         FieldBlock &up=field_->field(uplus_,ib),&jac=field_->field(jac_,ib);
         if(!up.is_allocated()) continue;
         FieldBlock *b[3]={&field_->field(B_.xi,ib),&field_->field(B_.eta,ib),&field_->field(B_.zeta,ib)};
+        FieldBlock *background[3]={&field_->field(Badd_.xi,ib),&field_->field(Badd_.eta,ib),&field_->field(Badd_.zeta,ib)};
         FieldBlock *a[3]={&field_->field(metric_.xi,ib),&field_->field(metric_.eta,ib),&field_->field(metric_.zeta,ib)};
         FieldBlock *face[3]={&field_->field(Eface_.xi,ib),&field_->field(Eface_.eta,ib),&field_->field(Eface_.zeta,ib)};
 
@@ -192,6 +193,14 @@ void MarsSolver::AssembleIdealUCTFromFaces()
             int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
             return 0.5*(face_beta(axis,i,j,k)+face_beta(axis,ip,jp,kp));
         };
+        // Mercury convention: central flux uses total B, dissipation uses Bind.
+        auto face_total=[&](int axis,int i,int j,int k)
+        {return face_beta(axis,i,j,k)+(*background[axis])(i,j,k,0);};
+        auto cell_total=[&](int axis,int i,int j,int k)
+        {
+            int ip=i,jp=j,kp=k;ShiftCell(axis,1,ip,jp,kp);
+            return 0.5*(face_total(axis,i,j,k)+face_total(axis,ip,jp,kp));
+        };
         auto metric=[&](int axis,int i,int j,int k,int component)
         {return (*a[axis])(i,j,k,component);};
         auto ucontra=[&](int axis,int i,int j,int k,const char *operation)
@@ -214,16 +223,17 @@ void MarsSolver::AssembleIdealUCTFromFaces()
             double &cached=f(i,j,k,component);
             if(!std::isnan(cached)) return cached;
             int iL=i,jL=j,kL=k,iR=i,jR=j,kR=k;ShiftCell(flux_axis,-1,iL,jL,kL);
-            const double beta_normal=face_beta(flux_axis,i,j,k);
+            const double beta_normal=face_total(flux_axis,i,j,k);
             auto flux=[&](int beta_axis)
             {
-                const double betaL=cell_beta(beta_axis,iL,jL,kL),betaR=cell_beta(beta_axis,iR,jR,kR);
+                const double betaL=cell_total(beta_axis,iL,jL,kL),betaR=cell_total(beta_axis,iR,jR,kR);
+                const double jump_ind=cell_beta(beta_axis,iR,jR,kR)-cell_beta(beta_axis,iL,jL,kL);
                 const double ufL=ucontra(flux_axis,iL,jL,kL,"IdealFaceEMF"),
                              ufR=ucontra(flux_axis,iR,jR,kR,"IdealFaceEMF");
                 const double ubL=ucontra(beta_axis,iL,jL,kL,"IdealFaceEMF"),
                              ubR=ucontra(beta_axis,iR,jR,kR,"IdealFaceEMF");
                 const double gL=ufL*betaL-ubL*beta_normal,gR=ufR*betaR-ubR*beta_normal;
-                return 0.5*(gL+gR)-0.5*std::max(std::abs(ufL),std::abs(ufR))*(betaR-betaL);
+                return 0.5*(gL+gR)-0.5*std::max(std::abs(ufL),std::abs(ufR))*jump_ind;
             };
             if(flux_axis==0) cached=component==1?flux(2):-flux(1);
             else if(flux_axis==1) cached=component==0?-flux(2):flux(0);

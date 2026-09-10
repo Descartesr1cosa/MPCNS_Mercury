@@ -48,6 +48,7 @@ python3 Z5_Mars/tools/make_demo_dipoles.py /tmp/Dipoles --count 4840
 ```text
 bool    is_Crustal_Bfield          1
 string  Crustal_Dipoles_File       CASE/setup/Dipoles
+bool    Read_Badd_Dipoles          1
 ```
 
 路径相对于 MarsZ5 的 CASE 工作目录；也可写绝对路径。旧配置没有开关时维持关闭。
@@ -103,7 +104,7 @@ ghost）之外；正 core 是可选的数值软化，会改变源附近的物理
 源求和使用补偿累加，完整叠加全部源，不使用空间硬截断。
 初始化复杂度为 O(边数×源数)，含 ghost；无需在每个时间步重复计算。
 
-流程为：
+缓存未命中或禁止读取缓存时，计算流程为：
 
 1. 计算全部 Edge（含 ghost）的 Aadd 环量。
 2. 用现有 orientation-aware EdgeOwner 和 Halo 同步，共享边采用同一有向值；
@@ -118,18 +119,49 @@ ghost）之外；正 core 是可选的数值软化，会改变源附近的物理
 Gauss 积分是否精确；它不代表场幅值已收敛。真正的离散散度为通量和除以单元体积。
 浮点抵消留下舍入误差。MPI/旋转接口必须先统一 A 的边方向和别名值。
 
-**MarsZ5 保留总场推进约定**：`B_xi/eta/zeta` 存总场，首次启动时
-`B_total = IMF·S + Badd`；Badd 独立固定保存，Aadd 保留用于检查。
-后续 CT 更新总场，`B_cell`、电流、理想 UCT、Hall、Lorentz 力和 divB 都沿用总场，
-不得在这些算子里再次加 Badd。本次没有引入 Mercury 的 Bind/Badd 背景场分裂，
-也没有从离散电流中扣除剩磁的离散 curl。因此解析无电流的剩磁仍可能产生
-有限网格误差电流；若需要消除此类背景电流，需另行统一修改感应场分裂离散。
-原有固定 IMF 远场 ghost/边电场约定保持，外边界应放到剩磁已充分衰减的位置。
+**MarsZ5 采用与 Mercury 相同的感应场/背景场含义**：
 
-重启文件继续只保存已有的总 B 面通量。续算时可以重建 Aadd/Badd 供检查，
-但**绝不重新叠加到已读入总场**。关闭开关不会删除检查点中原有剩磁；更改 Dipoles
-也不会替换检查点初场。应使用同一 Dipoles 和姿态续算；变更初场需 fresh run。
-`Badd_*`/`Aadd_*` 在 Field 中可访问，现有默认 Tecplot 仍输出总 `B_cell`。
+```text
+B_xi/eta/zeta    = Bind 的面通量（CT 推进的未知量）
+Badd_xi/eta/zeta = IMF·S + CT(A_dipoles)（固定背景）
+B_total         = Bind + Badd
+Bind_cell       = 感应场的单元中心重构
+B_cell          = 总场的单元中心重构
+```
+
+上面的 Edge → CT 流程只构造偶极部分；之后将当前 INITIAL 的 IMF 按面面积向量
+投影加入 Badd 一次，再同步并检查完整背景的六面闭合。关闭剩磁开关时仍保留 IMF。
+重算时 Aadd 保留偶极磁矢势环量；缓存命中时 Aadd 为零，不代表已重建磁矢势，
+也不包含 IMF 的磁矢势。
+
+电流由 `Bind_cell` 的离散 curl 计算。理想 UCT 中心物理通量、Hall 的 J×B、
+Lorentz 力及快磁声时间步使用总场；理想 UCT 与 Hall 的磁场跳跃耗散使用感应场。
+CT 只推进 Bind，背景不随时间演化。因此非均匀指定背景本身不产生求解电流，
+但会通过总场电动势驱动感应场。Mars 的三面磁场重构和单元中心电流差分仍与
+Mercury 的六面重构/DEC 电流算子不同，详见 [电磁离散对照](MarsMercuryEMDiscretization.md)。
+`divB` 诊断为感应场散度，`divB_total` 为总场散度；Tecplot 同时输出 `B_cell`、
+`Bind_cell` 及两种散度。Farfield 中 `Bind_cell` ghost=0、`B_cell` ghost=IMF，
+边电场仍为固定 `-u_inf×IMF`，与 Mercury 的分工一致；外边界应远离强剩磁区。
+
+无论从头运行还是续算，均根据**当前 setup** 重建完整 Badd：
+从头运行令 Bind=0；新版续算保留检查点 Bind 及离子状态，仅替换背景。
+相同配置不会重复加入 IMF 或偶极场，更换/关闭剩磁也不会清除已经演化的感应响应。
+**bin 同时保存十种离子守恒量、`B_xi/eta/zeta` 感应面通量和完整
+`Badd_xi/eta/zeta` 背景面通量，共 16 个字段。** 后处理可直接逐面相加得到
+该检查点时刻的总磁通，无需再读取 setup 或偶极缓存。
+
+**保存的 Badd 仅用于后处理，不参与续算背景的构造。** 续算读入字段后，
+先将 Badd 清零，再由当前 INITIAL 的 IMF 与当前偶极模型/有效缓存重建。
+不从感应场中加减保存的 Badd，也不读取任何旧 IMF 参数。
+`Read_Badd_Dipoles` 只控制独立偶极缓存，和 bin 中保存的完整 Badd 无关。
+
+这是一次不兼容旧火星结果的格式更新。Mars 检查点使用 `MPCNSRST` **version 2**，
+在原有 nblock/nfield 后、字段记录前写入长度前缀字符串
+`Mars_Bind_Badd_IMF_Dipoles_v1`，明确 B 为感应场、Badd 为 IMF 加偶极背景。
+旧 version 1 总场文件、不兼容标记及缺少任一必要字段的文件直接拒绝，
+不提供旧场转换或缺失背景的兼容分支。本次更新后应从头启动计算，后续可正常续算。
+后处理读取工具需识别此额外头字段；Mercury 自身仍使用原 version 1。
+续算应保持网格与归一化尺度不变。
 
 ## 验证
 
@@ -153,12 +185,86 @@ python3 Z5_Mars/tests/mars_dipoles_smoke.py build-mars/Z5_Mars/MarsZ5 --ranks 2 
 
 脚本只在临时目录生成两个 5×5×5 单元块，使用全部 4840 源。非周期接口的
 通信标记为偶数；`--rotated` 将第二块坐标轴旋转 90°，覆盖 Edge 方向与 Face
-分量交换。它只做初始化（`max_Nstep=0`），继而读取自身检查点，逐字节比较
-所有 rank 的 conserved/face-flux 场文件，检测重复叠加及 ghost 不一致。
+分量交换。它先做初始化（`max_Nstep=0`），继而读取自身检查点，逐字节比较
+所有 rank 的 conserved/face-flux 场文件，检测相同模型重复叠加及 ghost 不一致。
+随后将模型磁矩加倍，并在续算中关闭、再开启剩磁，检查感应场和离子守恒量保持不变、关闭后 Badd 仅含 IMF。还检查更换 IMF 时
+缓存命中且 IMF 只加入一次，以及单步推进生成非零感应场后更换背景仍保留感应场。
 `--ranks 1` 可使用同进程的两个块接口。临时直角网格使用 `corner_treat=0`，
 因此这些测试不覆盖球面极点或非规则多块奇异边，也不证明长期时间推进稳定性。
 
-本次验证结果：Debug 完整构建成功；3/3 CTest 通过；单源及 4840 源含 ghost
+本次验证结果：Debug 完整构建成功；4/4 CTest 通过；单源及 4840 源含 ghost
 倾斜网格闭合测试通过（多源相对残差 `2.03e-17`）；该测试的
 AddressSanitizer/UndefinedBehaviorSanitizer 检查通过；双 MPI 进程的同向和
 90° 旋转接口初始化/重启测试均通过，输出 Badd 闭合残差为 0，重启场文件一致。
+
+
+## 2000 偶极子的计算量与缓存
+
+两点 Gauss 每条边调用两次 Potential，每次累加所有偶极子，因此约有
+`2 × N_dipoles × N_edges` 次单源求值。大三维块忽略边界/ghost 时
+`N_edges ≈ 3 N_cells`，2000 个源约需 `12000 N_cells` 次求值。
+
+本机对生产 `DipoleModel::EdgeIntegral` 用 `c++ -O3 -std=c++20` 做单线程微基准：
+2000 源、20000 条边，耗时约 **0.288 s**（约 6.94 万边/s）。线性外推：
+10 万单元约 **4.3 s**，100 万单元约 **43 s**，1000 万单元约 **432 s**。
+这些是单核外推而非完整求解器计时，不包括 ghost、网格预处理、MPI 通信；并行
+分摊源求值，但分块 ghost 和通信会增加开销，不保证按核数线性加速。
+
+缓存三个方向的 double 面通量，忽略边界/ghost 约 `24 N_cells` 字节：
+百万单元约 **24 MB**。本机 24 MB 缓存微基准写入（含校验）约 **0.029 s**，
+读取（含内容校验）约 **0.035 s**；这是本地缓存文件系统结果，未计当前模型/网格
+指纹计算和同步，不能当成集群冷读性能。结论：**反复启动的大网格值得缓存最终
+偶极面通量；仅保存 2000 条偶极矩记录不能省掉主要求值成本。** 小网格只运行一次时收益有限。
+
+`3_MHD_Control.txt` 新开关：
+
+| 设置 | 行为 |
+|---|---|
+| `is_Crustal_Bfield=0` | 当前 Badd=IMF，不读取偶极模型或缓存 |
+| `is_Crustal_Bfield=1, Read_Badd_Dipoles=0` | 强制由当前 Dipoles 积分并 CT，写入/更新缓存 |
+| `is_Crustal_Bfield=1, Read_Badd_Dipoles=1` | 优先读取匹配缓存，失效则全部 rank 重算并更新 |
+
+`Read_Badd_Dipoles` 缺省为 0；示范 setup 也保持 0。启用缓存读取可直接设为 1，
+第一次没有缓存会自动生成，不需要先手动运行一次开关为 0 的版本。
+文件按 MPI rank 写到 `DATA/Badd_Dipoles/dipole0000.bin`、`dipole0001.bin` 等。
+这是已完成 CT/同步的 **仅偶极部分的面通量（含 ghost）**，不含 IMF，也不是源参数、总场或重启文件。
+IMF 总是在读缓存或计算偶极场之后加入；单独改变 IMF（归一化尺度不变）不使缓存失效。
+
+缓存校验覆盖：Dipoles 文件原始内容、L_ref/B_ref/μ0、MPI rank/进程数、活动块布局、
+全部 Edge 端点坐标、当前 rank 的 inner/parallel/physical 边界文件及边界名称文件，
+以及算法版本。缓存文件头包含标识、配置指纹、元素数量和数据校验和；读取时检查
+长度、有限值、尾部、内容校验和。使用 FNV-1a 64 位检测意外损坏/过期，非安全用途。
+为生成当前指纹，**即使命中缓存仍须提供当前 Dipoles 文本和网格**。
+
+任一 rank 缓存不匹配、损坏或缺失，都统一重算，避免部分读缓存、部分重算的
+通信顺序冲突。写缓存先写临时文件再 rename；写失败会提示，但继续使用有效的
+已计算场。二进制格式使用本机字节序，跨平台或修改算法后应强制重算；修改积分或
+CT 缓存约定时需递增代码中的 revision。缓存不随 checkpoint archive 自动复制，
+缺失时可重建；检查点同时保存感应场与完整背景供后处理；续算背景仍由当前 setup 与有效缓存或重算结果恢复。
+
+缓存命中后仍做偶极面通量的有向 Face 同步和单元闭合检查；加入 IMF 后再检查
+完整 Badd。缓存不绕开无散检验。
+日志输出 hit/miss 和各 rank 最大初始化耗时（含签名、读取/计算、同步及缓存写入，
+不含后续 IMF 加入和完整背景检查）。
+
+现在 Badd 的完整逻辑是：
+
+1. fresh 令 Bind=0；restart 读取并保留 Bind；旧总场检查点拒绝读取。
+2. 剩磁关闭则偶极部分为零；开启则按缓存开关读取或由当前模型重算。
+3. 同步并验证偶极面通量；仅将偶极部分写入缓存。
+4. 将当前 IMF·S 加入 Badd 一次，同步并验证完整背景无散。
+5. CT 推进 Bind，物理项使用 Bind+Badd；检查点保存离子守恒量、Bind 与完整 Badd，后者仅供后处理。
+
+新增 `MarsDipoleCacheTest` 验证缓存往返、错误签名/长度、截断、损坏、尾部数据和
+非有限值拒绝；双 MPI 旋转接口 smoke 测试覆盖缓存命中、更改模型自动失效、
+损坏或缺少单个 rank 缓存时统一重算，以及更换/关闭/重新开启背景、忽略保存的 Badd 和拒绝旧格式。
+
+此次 IMF/感应场分裂回归：Debug 构建、4/4 CTest、双 MPI rank 的 90° 旋转
+接口 smoke 测试通过。覆盖同配置续算不重复叠加、剩磁关闭后只保留 IMF、
+只改 IMF 仍命中偶极缓存，以及一时间步生成感应场后更换
+背景仍保留该感应场。静止均匀等离子体、非均匀偶极背景、Hall 开启时，
+单步感应面通量保持在 `1e-14` 绝对容差内；这不是长期稳定性验证。
+
+检查点回归还验证：bin 包含全部 16 个字段；将保存的 Badd 改为 `1e90` 后续算，
+输出仍与当前 setup 重建结果逐字节一致；旧 version 1 和缺少 Badd 分量的文件
+被拒绝。修改 IMF 后，输出的 Badd 通量差值等于 IMF 投影差值，感应场保持不变。

@@ -55,6 +55,7 @@ private:
     int jac_ = -1;
     Triplet metric_, face_area_, edge_dr_, edge_dl_, B_, E_, Eface_, Ehall_, RHSB_, flux_;
     Triplet Badd_, Aadd_;
+    int bindcell_ = -1, divb_total_ = -1;
 
     double gamma_ = 1.4;
     double cfl_ = 0.5;
@@ -132,7 +133,9 @@ private:
     void SyncGroup(const std::string &name, const std::vector<std::string> &fields,
                    bool owner_sync = false);
     void Initialize();
-    void InitializeCrustalField(bool fresh);
+    void InitializeMagneticBackground(bool fresh);
+    void InitializeCrustalField();
+    void CheckBackgroundFlux(const char *label);
     void PopulateAnalyticAtmosphere();
     void ApplyIonWall(FieldBlock &block, const BOUND::PhysicalRegion &region,
                       int nghost, std::size_t species);

@@ -1,5 +1,11 @@
 # Mars 续算边界与 Backup/Archive 诊断
 
+> 本文保留旧“B 面通量为总场”版本的边界诊断及历史数据。当前 Mars 已改为
+> `B=Bind`、`Badd=IMF+偶极场`；fresh 的感应面通量为零，version 1 旧总场
+> 检查点不再支持续算。当前行为见 [磁场分裂与重启说明](MarsCrustalDipoles.md)。
+> 下文历史面通量数值不能直接解释为新版感应场。
+
+
 ## 2026-09-10 修正落实：保持 CT 磁通，保留来流派生速度
 
 已删除 `repair_restart_farfield_bface_` 标志及 `ApplyMagneticFarfieldFace()` 的磁通重置逻辑。Farfield 的 `B_xi/B_eta/B_zeta` 统一注册 no-op，与 Mercury 一致：从零初始化仍使用 `B_imf·S`，续算保留已读入磁通，时间推进由给定边电场和 CT 更新控制。该改动消除了此前边界 handler 单面重置造成的散度增量；原有 halo/owner 同步继续执行。

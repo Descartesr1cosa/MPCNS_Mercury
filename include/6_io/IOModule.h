@@ -33,6 +33,9 @@ public:
     // 读入写出field的bin文件
     void WriteRestartBinFile(int step, double time);
     void ReadRestartBinFile();
+    // Nonempty convention requires/emits a version-2 interpretation tag.
+    void SetRestartMagneticConvention(const std::string &value)
+    { restart_magnetic_convention_=value; }
     // binary restart_path_;
     const std::string &Get_RestartPath() const { return restart_path_; }
     void Change_RestartPath(std::string bin_path) { restart_path_ = bin_path; }
@@ -127,6 +130,7 @@ private:
     //=========================================================================
     // ----- binary datas -----
     std::vector<std::string> restart_field_names_;
+    std::string restart_magnetic_convention_;
     std::string restart_path_;
     bool restart_dec_jedge_allowed_{false};
     // ----- binary helpers -----

@@ -482,6 +482,8 @@ void MarsSolver::UpdateDivB()
                    &by=field_->field(B_.eta,ib),&bz=field_->field(B_.zeta,ib),
                    &jac=field_->field(jac_,ib);
         if(!divb.is_allocated()) continue;
+        auto &divtotal=field_->field(divb_total_,ib);
+        const auto &adx=field_->field(Badd_.xi,ib),&ady=field_->field(Badd_.eta,ib),&adz=field_->field(Badd_.zeta,ib);
         const Int3 lo=divb.inner_lo(),hi=divb.inner_hi();
         for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
         {
@@ -489,6 +491,8 @@ void MarsSolver::UpdateDivB()
             divb(i,j,k,0)=((bx(i+1,j,k,0)-bx(i,j,k,0))+
                            (by(i,j+1,k,0)-by(i,j,k,0))+
                            (bz(i,j,k+1,0)-bz(i,j,k,0)))/cell_jacobian;
+            divtotal(i,j,k,0)=divb(i,j,k,0)+((adx(i+1,j,k,0)-adx(i,j,k,0))+
+                (ady(i,j+1,k,0)-ady(i,j,k,0))+(adz(i,j,k+1,0)-adz(i,j,k,0)))/cell_jacobian;
         }
     }
 }
@@ -580,7 +584,7 @@ void MarsSolver::PrintDiagnostics()
                 bmin_g[0],bmax_g[0],bmin_g[1],bmax_g[1],bmin_g[2],bmax_g[2]);
     std::printf("           J    x=[%.3e, %.3e]  y=[%.3e, %.3e]  z=[%.3e, %.3e]\n",
                 jmin_g[0],jmax_g[0],jmin_g[1],jmax_g[1],jmin_g[2],jmax_g[2]);
-    std::printf("           EM   Pmag=[%.3e, %.3e]  |B|max=%.3e  |J|max=%.3e  |divB|max=%.3e\n",
+    std::printf("           EM   Pmag=[%.3e, %.3e]  |B|max=%.3e  |J|max=%.3e  |divBind|max=%.3e\n",
                 scalar_min_g[0],scalar_max_g[0],scalar_max_g[1],scalar_max_g[2],scalar_max_g[3]);
     std::printf("\n");
     std::fflush(stdout);

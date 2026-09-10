@@ -54,3 +54,6 @@ add_executable(MarsDipolesTest tests/MarsDipolesTest.cpp src/MarsDipoles.cpp
 target_include_directories(MarsDipolesTest PRIVATE include)
 target_link_libraries(MarsDipolesTest PRIVATE MPI::MPI_CXX)
 add_test(NAME MarsDipolesTest COMMAND MarsDipolesTest ${CMAKE_CURRENT_SOURCE_DIR}/9999setup/Dipoles)
+add_executable(MarsDipoleCacheTest tests/MarsDipoleCacheTest.cpp src/MarsDipoleCache.cpp)
+target_include_directories(MarsDipoleCacheTest PRIVATE include)
+add_test(NAME MarsDipoleCacheTest COMMAND MarsDipoleCacheTest)

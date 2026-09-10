@@ -180,7 +180,7 @@ void IOModule::WriteRestartBinFileToPath_(int step, double time,
     // Header
     const char magic[8] = {'M', 'P', 'C', 'N', 'S', 'R', 'S', 'T'};
     out.write(magic, 8);
-    WriteI32_(out, 1); // version
+    WriteI32_(out, restart_magnetic_convention_.empty()?1:2);
     WriteI32_(out, static_cast<int32_t>(step));
     WriteF64_(out, time);
 
@@ -192,6 +192,7 @@ void IOModule::WriteRestartBinFileToPath_(int step, double time,
 
     WriteI32_(out, nblock);
     WriteI32_(out, nfield);
+    if(!restart_magnetic_convention_.empty())WriteStr_(out,restart_magnetic_convention_);
 
     for (int fid : fids)
     {
@@ -238,6 +239,7 @@ void IOModule::WriteRestartBinFileToPath_(int step, double time,
 
 void IOModule::ReadRestartBinFile()
 {
+    std::unordered_set<std::string> read_fields;
     std::string path = restart_path_;
     std::ifstream in(path, std::ios::binary);
     if (!in)
@@ -254,7 +256,8 @@ void IOModule::ReadRestartBinFile()
         Fail_("[IOModule] ReadRestart: magic mismatch");
 
     int32_t version = ReadI32_(in);
-    if (version != 1)
+    const int32_t expected_version=restart_magnetic_convention_.empty()?1:2;
+    if (version != expected_version)
         Fail_("[IOModule] ReadRestart: unsupported version=" + std::to_string(version));
 
     int32_t step = ReadI32_(in);
@@ -262,6 +265,12 @@ void IOModule::ReadRestartBinFile()
 
     int32_t nblock_file = ReadI32_(in);
     int32_t nfield_file = ReadI32_(in);
+    if(version==2)
+    {
+        const std::string convention=ReadStr_(in);
+        if(convention!=restart_magnetic_convention_)
+            Fail_("[IOModule] ReadRestart: unsupported magnetic convention: "+convention);
+    }
 
     const int32_t nblock = static_cast<int32_t>(fld_->num_blocks());
     if (nblock_file != nblock)
@@ -281,6 +290,8 @@ void IOModule::ReadRestartBinFile()
     for (int32_t ifld = 0; ifld < nfield_file; ++ifld)
     {
         std::string fname = ReadStr_(in);
+        if (!read_fields.insert(fname).second)
+            Fail_("[IOModule] ReadRestart: duplicate field: " + fname);
         int32_t loc_i32 = ReadI32_(in);
         int32_t ncomp = ReadI32_(in);
         int32_t nghost = ReadI32_(in);
@@ -332,7 +343,7 @@ void IOModule::ReadRestartBinFile()
                 Fail_("[IOModule] ReadRestart: negative extent field=" + fname +
                       " block=" + std::to_string((int)ib));
 
-            // 新格式：每个 block 都有 active flag（但 version 仍为 1）
+            // Each block record carries an active flag in both header versions.
             int32_t file_active = ReadI32_(in); // 0/1
 
             const std::size_t nval =
@@ -400,6 +411,13 @@ void IOModule::ReadRestartBinFile()
                         }
         }
     }
+
+    // Tagged formats define a complete checkpoint schema. In particular,
+    // Mars requires both induced and background triplets for postprocessing.
+    if(!restart_magnetic_convention_.empty())
+        for(const auto &name:restart_field_names_)
+            if(read_fields.count(name)==0)
+                Fail_("[IOModule] ReadRestart: missing required field: "+name);
 
     if (restart_dec_jedge_allowed_)
     {

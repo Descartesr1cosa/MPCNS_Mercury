@@ -60,9 +60,12 @@ inline void RegisterMarsFields(Field &field, int ngh)
                                     Sync("Uplus", true, true)));
     field.register_field(Descriptor("B_cell", StaggerLocation::Cell, 3, ngh, "Fluid",
                                     Sync("Bcell", true, true), FieldValueKind::CartesianVector));
+    field.register_field(Descriptor("Bind_cell", StaggerLocation::Cell, 3, ngh, "Fluid",
+                                    Sync("Bcell", true, true), FieldValueKind::CartesianVector));
     field.register_field(Descriptor("J_cell", StaggerLocation::Cell, 3, ngh, "Fluid",
                                     Sync("Jcell", true, true), FieldValueKind::CartesianVector));
     field.register_field(Descriptor("divB", StaggerLocation::Cell, 1, 1, "Fluid"));
+    field.register_field(Descriptor("divB_total", StaggerLocation::Cell, 1, 1, "Fluid"));
 
     const char *suffix[3] = {"xi", "eta", "zeta"};
     const StaggerLocation face_loc[3] = {StaggerLocation::FaceXi, StaggerLocation::FaceEt,
@@ -71,7 +74,7 @@ inline void RegisterMarsFields(Field &field, int ngh)
                                          StaggerLocation::EdgeZe};
     for (int d = 0; d < 3; ++d)
     {
-        // Prescribed crustal flux and its oriented vector-potential circulation.
+        // Badd = prescribed IMF + crustal flux; Aadd is crustal potential only.
         // No physical handler may overwrite an active Badd face after curl(A).
         field.register_field(Descriptor(std::string("Badd_") + suffix[d], face_loc[d], 1, ngh, "Fluid",
                                         Sync("Badd", false, true, HaloLevel::Corner3D,

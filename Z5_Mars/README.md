@@ -14,9 +14,18 @@ Mercury internal-resistance implicit solve.
 
 An optional crustal initial field is read from `CASE/setup/Dipoles`. Thousands
 of dipoles are summed as edge vector-potential integrals, synchronized, and
-curled with the existing CT operator into fixed `Badd_*` face fluxes. Fresh
-runs add these to the total magnetic field; restarts retain their saved total
-flux. The supplied 4840-source fixture is synthetic and disabled by default.
+curled with the existing CT operator. `Badd_*` contains IMF plus these dipole
+fluxes; `B_*` stores only the induced field, initialized to zero. Both fresh
+runs and restarts rebuild Badd from the current setup (IMF remains when dipoles
+are disabled). Restarts retain the evolved induced field. Current is computed
+from the induced field; physical EMFs and forces use the total field.
+Version-2 checkpoints save the ten ion states, three induced fluxes and three
+complete Badd fluxes, so postprocessing can recover total flux directly.
+On restart, saved Badd is overwritten using the current setup and dipole cache;
+it never alters the induced field. Old Mars checkpoint formats are rejected;
+start a fresh run after this update. The magnetic-convention header is explicit.
+`Read_Badd_Dipoles=1` reuses validated dipole-only face-flux caches in
+`DATA/Badd_Dipoles/dipoleXXXX.bin`; a stale/missing cache triggers recomputation. The supplied 4840-source fixture is synthetic and disabled by default.
 Input units, coordinates, literature and data provenance are documented in
 [`docs/mars/MarsCrustalDipoles.md`](../docs/mars/MarsCrustalDipoles.md).
 

@@ -15,6 +15,10 @@
 面工作量 `Eface_*` 始终在接收块的计算坐标基中本地构造，不跨块同步；真正的
 边 1-form `E_*`、`Ehall_*` 才按拓扑方向同步。这一点对旋转块接口尤其重要。
 
+磁场约定也与 Mercury 对齐：`B_xi/eta/zeta` 仅存感应场，`Badd` 为 IMF 加偶极
+背景，`B_cell` 为二者之和，`Bind_cell` 仅为感应场。下面物理通量中的 B 指总场，
+所有数值耗散的磁场跳跃均指 Bind。电流只由感应场计算，CT 只推进感应面通量。
+
 ## 2. 统一电子密度 limiter
 
 对 Mars 的十种单价离子，先由各组分无量纲质量密度求数密度：
@@ -50,7 +54,7 @@ $\xi$、被输运分量 $\beta$ 为例：
 F^{\xi}_{\beta}=
 \frac12\left[(u^\xi B^\beta-u^\beta B^\xi)_L+
 (u^\xi B^\beta-u^\beta B^\xi)_R\right]
--\frac12 a_\xi(B^\beta_R-B^\beta_L),
+-\frac12 a_\xi(B^\beta_{ind,R}-B^\beta_{ind,L}),
 \]
 
 其中 $a_\xi=\max(|u_L^\xi|,|u_R^\xi|)$。随后把相邻四个面候选平均到边上，
@@ -59,8 +63,8 @@ F^{\xi}_{\beta}=
 \[
 \mathcal E_\xi=\overline{\mathcal E}_\xi+
 C_{UCT}\left[
-\frac12a_\eta\Delta_\eta B^\zeta-
-\frac12a_\zeta\Delta_\zeta B^\eta\right].
+\frac12a_\eta\Delta_\eta B^\zeta_{ind}-
+\frac12a_\zeta\Delta_\zeta B^\eta_{ind}\right].
 \]
 
 最终仍以离散 curl 更新面 2-form 磁通，保持 CT 的拓扑散度约束。
@@ -83,8 +87,8 @@ Rusanov 修正为
 \[
 \mathcal E^H_\xi=
 \langle\boldsymbol E_H\rangle_4\cdot\Delta\boldsymbol l_\xi
-+\frac12\mu_\eta\Delta_\eta B^\zeta
--\frac12\mu_\zeta\Delta_\zeta B^\eta,
++\frac12\mu_\eta\Delta_\eta B^\zeta_{ind}
+-\frac12\mu_\zeta\Delta_\zeta B^\eta_{ind},
 \]
 
 \[
@@ -118,12 +122,12 @@ Hall 步长悄悄重新加入。
 | 项目 | Mercury | Mars | 处理结论 |
 |---|---|---|---|
 | 带电组分 | H+、Na+ | 十种单价离子 | 用统一求和公式推广 |
-| 外加/内部磁场 | `Bind + Badd` | 单一总磁场，可选剩磁初场 `Badd` | Mars fresh 初始化经 Edge A → CT 构造剩磁并加到总场；详见 [剩磁输入与来源](MarsCrustalDipoles.md) |
+| 外加/内部磁场 | `Bind + Badd` | 同样分裂，Badd=IMF+可选偶极场 | 从头/续算均按当前 setup 构造背景；详见 [剩磁输入与来源](MarsCrustalDipoles.md) |
 | Hall 径向 taper | 水星内部区域平滑关闭 | 无 | 不移植水星专用行星内部 taper |
 | 电阻项 | 物理/人工电阻及内部电阻隐式求解 | 无 | 按 Mars 需求保持关闭 |
 | Hall 时间步 | 当前 Mercury 时间步实现也未单列 Hall CFL | 仅 fluid/fast-MHD CFL | 不施加 $h^2$ 约束 |
 | 单元磁场重构 | 六面最小二乘权重 | 三个正向面的局部 $3\times3$ 重构 | 尚未统一 |
-| 电流离散 | face-to-edge DEC curl、Hodge 后重构 `J_cell` | 单元中心磁场的中心差分 curl | 尚未统一；Hall 中心项会受此差异影响 |
+| 电流离散 | face-to-edge DEC curl、Hodge 后重构 `J_cell` | 感应单元磁场 `Bind_cell` 的中心差分 curl | 尚未统一；Hall 中心项会受此差异影响 |
 | 化学 | 两组分水星源项 | Fortran Mars 十离子局部点隐式网络 | 保留 Mars 物理 |
 
 因此，本次已经统一的是理想 UCT、Hall Rusanov、电子密度 limiter、共享/奇异边

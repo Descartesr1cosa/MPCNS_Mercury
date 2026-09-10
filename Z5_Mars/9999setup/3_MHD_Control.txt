@@ -2,4 +2,5 @@ bool    is_Hall_Efield             1
 bool    is_Ambipolar_Efield        1
 bool    is_Crustal_Bfield          0
 string  Crustal_Dipoles_File       CASE/setup/Dipoles
+bool    Read_Badd_Dipoles          0
 END_OF_FILE

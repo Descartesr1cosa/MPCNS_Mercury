@@ -21,11 +21,6 @@ namespace
 constexpr double DensityFloor = 1.0e-10;
 constexpr double PressureFloor = 1.0e-10;
 
-double dot3(double ax, double ay, double az, double bx, double by, double bz)
-{
-    return ax * bx + ay * by + az * bz;
-}
-
 void cross3(double ax, double ay, double az, double bx, double by, double bz,
             double &cx, double &cy, double &cz)
 {
@@ -78,17 +73,20 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
 
     io_.Setup(param_, grid_, field_, static_cast<int>(MARS::NumSpecies * 5 + 3));
     io_.SetTecplotSingularNodeContext(topology_, singular_edges_);
+    io_.SetRestartMagneticConvention("Mars_Bind_Badd_IMF_Dipoles_v1");
     std::vector<std::string> restart;
     for (std::string_view name : MARS::SpeciesNames)
         restart.push_back("U_" + std::string(name));
-    restart.insert(restart.end(), {"B_xi", "B_eta", "B_zeta"});
+    // Save background for postprocessing; initialization always rebuilds it.
+    restart.insert(restart.end(), {"B_xi", "B_eta", "B_zeta",
+                                  "Badd_xi", "Badd_eta", "Badd_zeta"});
     io_.ClearRestartFields();
     io_.SetRestartFields(restart);
     io_.SetTecplotOutputMode(IOModule::TecplotMode::AllNode);
     std::vector<std::string> plot;
     for (std::string_view name : MARS::SpeciesNames)
         plot.push_back("PV_" + std::string(name));
-    plot.insert(plot.end(), {"B_cell", "J_cell", "neutral_density", "photo_rate", "divB"});
+    plot.insert(plot.end(), {"B_cell", "Bind_cell", "J_cell", "neutral_density", "photo_rate", "divB", "divB_total"});
     io_.SetTecplotPhysicalOutputs(plot);
 
     if (param_->GetBoo("continue_calc"))
@@ -129,6 +127,8 @@ void MarsSolver::CacheFields()
     photo_ = field_->field_id("photo_rate");
     uplus_ = field_->field_id("U_plus");
     bcell_ = field_->field_id("B_cell");
+    bindcell_ = field_->field_id("Bind_cell");
+    divb_total_ = field_->field_id("divB_total");
     jcell_ = field_->field_id("J_cell");
     hall_ecell_ = field_->field_id("E_hall_cell");
     hall_beta_ = field_->field_id("Hall_beta");
@@ -151,7 +151,7 @@ void MarsSolver::CacheFields()
     RHSB_ = {field_->field_id("RHS_B_xi"), field_->field_id("RHS_B_eta"), field_->field_id("RHS_B_zeta")};
     flux_ = {field_->field_id("F_xi"), field_->field_id("F_eta"), field_->field_id("F_zeta")};
     bface_names_={"B_xi","B_eta","B_zeta"};
-    uplus_names_={"U_plus"};bcell_names_={"B_cell"};jcell_names_={"J_cell"};
+    uplus_names_={"U_plus"};bcell_names_={"B_cell","Bind_cell"};jcell_names_={"J_cell"};
     ehall_names_={"Ehall_xi","Ehall_eta","Ehall_zeta"};
     eedge_names_={"E_xi","E_eta","E_zeta"};
 }
@@ -256,6 +256,7 @@ void MarsSolver::SetupBoundary()
                                           const BOUND::PhysicalRegion &region, int nghost)
     { ApplyMagneticFarfieldCell(block, region, nghost); };
     boundary_.RegisterPhysical("B_cell", "Farfield", magnetic_cell_farfield);
+    boundary_.RegisterPhysical("Bind_cell", "Farfield", magnetic_cell_farfield);
 
     auto electric_farfield = [this](FieldBlock &block, Field *,
                                      const BOUND::PhysicalRegion &region, int nghost)
@@ -303,7 +304,7 @@ void MarsSolver::ApplyMagneticFarfieldCell(
     for(int i=ghost.lo.i;i<ghost.hi.i;++i)
         for(int j=ghost.lo.j;j<ghost.hi.j;++j)
             for(int k=ghost.lo.k;k<ghost.hi.k;++k)
-                for(int d=0;d<3;++d)block(i,j,k,d)=solar_wind_imf_[d];
+                for(int d=0;d<3;++d)block(i,j,k,d)=block.descriptor().name=="Bind_cell"?0.0:solar_wind_imf_[d];
 }
 
 void MarsSolver::ApplyFarfieldElectricEdge(
@@ -450,22 +451,21 @@ void MarsSolver::Initialize()
                     for(std::size_t n=0;n<MARS::NumPhoto;++n) photo(i,j,k,n)=0.0;
                 }
             }
-            const int bf[3]={B_.xi,B_.eta,B_.zeta}, mf[3]={metric_.xi,metric_.eta,metric_.zeta};
+            const int bf[3]={B_.xi,B_.eta,B_.zeta};
             for(int d=0;d<3;++d)
             {
-                FieldBlock &face=field_->field(bf[d],ib), &area=field_->field(mf[d],ib);
+                FieldBlock &face=field_->field(bf[d],ib);
                 if(!face.is_allocated()) continue;
                 const Int3 lo=face.get_lo(), hi=face.get_hi();
                 for(int i=lo.i;i<hi.i;++i) for(int j=lo.j;j<hi.j;++j) for(int k=lo.k;k<hi.k;++k)
-                    face(i,j,k,0)=dot3(solar_wind_imf_[0],solar_wind_imf_[1],solar_wind_imf_[2],
-                                       area(i,j,k,0),area(i,j,k,1),area(i,j,k,2));
+                    face(i,j,k,0)=0.0; // induced field only; IMF belongs to Badd
             }
         }
     }
     PopulateAnalyticAtmosphere();
     SyncGroup("Ucell",ucell_names_);
+    InitializeMagneticBackground(fresh);
     SyncGroup("Bface",bface_names_,true);
-    InitializeCrustalField(fresh);
     UpdatePrimitive();
     UpdateIonVelocity();
     UpdateMagneticCell();
@@ -581,6 +581,8 @@ void MarsSolver::UpdateMagneticCell()
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
         FieldBlock &bc=field_->field(bcell_,ib), &bx=field_->field(B_.xi,ib), &by=field_->field(B_.eta,ib), &bz=field_->field(B_.zeta,ib);
+        FieldBlock &bi=field_->field(bindcell_,ib);
+        const FieldBlock &adx=field_->field(Badd_.xi,ib), &ady=field_->field(Badd_.eta,ib), &adz=field_->field(Badd_.zeta,ib);
         FieldBlock &ax=field_->field(metric_.xi,ib), &ay=field_->field(metric_.eta,ib), &az=field_->field(metric_.zeta,ib);
         if(!bc.is_allocated()) continue;
         const Int3 lo=bc.inner_lo(), hi=bc.inner_hi();
@@ -599,7 +601,12 @@ void MarsSolver::UpdateMagneticCell()
                         << " cell=(" << i << ',' << j << ',' << k << ')';
                 throw std::runtime_error(message.str());
             }
-            for(int d=0;d<3;++d) bc(i,j,k,d)=inv[3*d]*phi[0]+inv[3*d+1]*phi[1]+inv[3*d+2]*phi[2];
+            const double total[3]={phi[0]+adx(i+1,j,k,0),phi[1]+ady(i,j+1,k,0),phi[2]+adz(i,j,k+1,0)};
+            for(int d=0;d<3;++d)
+            {
+                bi(i,j,k,d)=inv[3*d]*phi[0]+inv[3*d+1]*phi[1]+inv[3*d+2]*phi[2];
+                bc(i,j,k,d)=inv[3*d]*total[0]+inv[3*d+1]*total[1]+inv[3*d+2]*total[2];
+            }
         }
     }
     SyncGroup("Bcell",bcell_names_);
@@ -609,7 +616,7 @@ void MarsSolver::UpdateCurrentCell()
 {
     for(int ib=0;ib<field_->num_blocks();++ib)
     {
-        FieldBlock &b=field_->field(bcell_,ib), &jv=field_->field(jcell_,ib), &jac=field_->field(jac_,ib);
+        FieldBlock &b=field_->field(bindcell_,ib), &jv=field_->field(jcell_,ib), &jac=field_->field(jac_,ib);
         FieldBlock &A=field_->field(metric_.xi,ib), &B=field_->field(metric_.eta,ib), &C=field_->field(metric_.zeta,ib);
         if(!b.is_allocated()) continue;
         const Int3 lo=jv.inner_lo(), hi=jv.inner_hi();
