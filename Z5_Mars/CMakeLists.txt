@@ -48,3 +48,9 @@ add_executable(MarsAtmosphereTest tests/MarsAtmosphereTest.cpp
   src/MarsAtmosphereModel.cpp src/MarsChemistry.cpp)
 target_include_directories(MarsAtmosphereTest PRIVATE include)
 add_test(NAME MarsAtmosphereTest COMMAND MarsAtmosphereTest)
+add_executable(MarsDipolesTest tests/MarsDipolesTest.cpp src/MarsDipoles.cpp
+  ../src/3_field/FieldBlock.cpp ../src/8_dec/CTOperators.cpp ../src/0_basic/LayoutTraits.cpp
+  ../src/0_basic/BoxOps.cpp ../src/0_basic/Error.cpp ../src/0_basic/MPI_WRAPPER.cpp)
+target_include_directories(MarsDipolesTest PRIVATE include)
+target_link_libraries(MarsDipolesTest PRIVATE MPI::MPI_CXX)
+add_test(NAME MarsDipolesTest COMMAND MarsDipolesTest ${CMAKE_CURRENT_SOURCE_DIR}/9999setup/Dipoles)

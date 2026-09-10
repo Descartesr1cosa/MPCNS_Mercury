@@ -54,6 +54,7 @@ private:
     int hall_ecell_ = -1, hall_beta_ = -1;
     int jac_ = -1;
     Triplet metric_, face_area_, edge_dr_, edge_dl_, B_, E_, Eface_, Ehall_, RHSB_, flux_;
+    Triplet Badd_, Aadd_;
 
     double gamma_ = 1.4;
     double cfl_ = 0.5;
@@ -131,6 +132,7 @@ private:
     void SyncGroup(const std::string &name, const std::vector<std::string> &fields,
                    bool owner_sync = false);
     void Initialize();
+    void InitializeCrustalField(bool fresh);
     void PopulateAnalyticAtmosphere();
     void ApplyIonWall(FieldBlock &block, const BOUND::PhysicalRegion &region,
                       int nghost, std::size_t species);

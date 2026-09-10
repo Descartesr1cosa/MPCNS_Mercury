@@ -141,6 +141,8 @@ void MarsSolver::CacheFields()
     edge_dl_ = {field_->field_id("dl_xi"), field_->field_id("dl_eta"),
                 field_->field_id("dl_zeta")};
     B_ = {field_->field_id("B_xi"), field_->field_id("B_eta"), field_->field_id("B_zeta")};
+    Badd_ = {field_->field_id("Badd_xi"), field_->field_id("Badd_eta"), field_->field_id("Badd_zeta")};
+    Aadd_ = {field_->field_id("Aadd_xi"), field_->field_id("Aadd_eta"), field_->field_id("Aadd_zeta")};
     E_ = {field_->field_id("E_xi"), field_->field_id("E_eta"), field_->field_id("E_zeta")};
     Eface_ = {field_->field_id("Eface_xi"), field_->field_id("Eface_eta"),
               field_->field_id("Eface_zeta")};
@@ -463,6 +465,7 @@ void MarsSolver::Initialize()
     PopulateAnalyticAtmosphere();
     SyncGroup("Ucell",ucell_names_);
     SyncGroup("Bface",bface_names_,true);
+    InitializeCrustalField(fresh);
     UpdatePrimitive();
     UpdateIonVelocity();
     UpdateMagneticCell();

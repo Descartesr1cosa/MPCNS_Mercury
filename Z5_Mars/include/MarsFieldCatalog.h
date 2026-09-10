@@ -71,6 +71,16 @@ inline void RegisterMarsFields(Field &field, int ngh)
                                          StaggerLocation::EdgeZe};
     for (int d = 0; d < 3; ++d)
     {
+        // Prescribed crustal flux and its oriented vector-potential circulation.
+        // No physical handler may overwrite an active Badd face after curl(A).
+        field.register_field(Descriptor(std::string("Badd_") + suffix[d], face_loc[d], 1, ngh, "Fluid",
+                                        Sync("Badd", false, true, HaloLevel::Corner3D,
+                                             OwnerSyncPolicy::FaceOwner, true),
+                                        FieldValueKind::FaceContravariant2Form));
+        field.register_field(Descriptor(std::string("Aadd_") + suffix[d], edge_loc[d], 1, ngh, "Fluid",
+                                        Sync("Aadd", false, true, HaloLevel::Corner3D,
+                                             OwnerSyncPolicy::EdgeOwner, true),
+                                        FieldValueKind::EdgeCovariant1Form));
         field.register_field(Descriptor(std::string("B_") + suffix[d], face_loc[d], 1, ngh, "Fluid",
                                         Sync("Bface", true, true, HaloLevel::Corner3D,
                                              OwnerSyncPolicy::FaceOwner, true),

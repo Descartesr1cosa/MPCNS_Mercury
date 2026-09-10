@@ -118,7 +118,7 @@ Hall 步长悄悄重新加入。
 | 项目 | Mercury | Mars | 处理结论 |
 |---|---|---|---|
 | 带电组分 | H+、Na+ | 十种单价离子 | 用统一求和公式推广 |
-| 外加/内部磁场 | `Bind + Badd` | 单一总磁场 | Mars 无水星偶极内部场 |
+| 外加/内部磁场 | `Bind + Badd` | 单一总磁场，可选剩磁初场 `Badd` | Mars fresh 初始化经 Edge A → CT 构造剩磁并加到总场；详见 [剩磁输入与来源](MarsCrustalDipoles.md) |
 | Hall 径向 taper | 水星内部区域平滑关闭 | 无 | 不移植水星专用行星内部 taper |
 | 电阻项 | 物理/人工电阻及内部电阻隐式求解 | 无 | 按 Mars 需求保持关闭 |
 | Hall 时间步 | 当前 Mercury 时间步实现也未单列 Hall CFL | 仅 fluid/fast-MHD CFL | 不施加 $h^2$ 约束 |

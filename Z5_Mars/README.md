@@ -12,6 +12,14 @@ an edge electric 1-form (CT). The electric field contains ideal, Hall and
 electron-pressure terms. MarsZ5 intentionally has no PETSc dependency and no
 Mercury internal-resistance implicit solve.
 
+An optional crustal initial field is read from `CASE/setup/Dipoles`. Thousands
+of dipoles are summed as edge vector-potential integrals, synchronized, and
+curled with the existing CT operator into fixed `Badd_*` face fluxes. Fresh
+runs add these to the total magnetic field; restarts retain their saved total
+flux. The supplied 4840-source fixture is synthetic and disabled by default.
+Input units, coordinates, literature and data provenance are documented in
+[`docs/mars/MarsCrustalDipoles.md`](../docs/mars/MarsCrustalDipoles.md).
+
 The ten-species photochemistry is advanced by a cell-local, coupled backward-
 Euler solve with an active density lower bound. Chemical momentum and energy
 losses use positive diagonal point-implicit updates. Consequently chemistry no
