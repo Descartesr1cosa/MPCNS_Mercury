@@ -95,11 +95,6 @@ MarsSolver::MarsSolver(Grid *grid, TOPO::Topology *topology, Field *field, Halo 
     {
         io_.ReadRestartBinFile();
         io_.ReadRunDataFile();
-        // Checkpoints written before the prescribed Farfield EMF fix may
-        // contain a drifted normal boundary flux. Repair it during the first
-        // Bface synchronization only; subsequent CT evolution follows the
-        // Mercury no-op Bface boundary policy.
-        repair_restart_farfield_bface_ = true;
     }
     Initialize();
     control_.Setup(param_);
@@ -243,12 +238,17 @@ void MarsSolver::SetupBoundary()
         boundary_.RegisterPhysical(field_name, "Coupled-Solid", ion_wall);
     }
 
-    auto magnetic_face_farfield = [this](FieldBlock &block, Field *,
-                                          const BOUND::PhysicalRegion &region, int nghost)
-    { ApplyMagneticFarfieldFace(block, region, nghost); };
-    boundary_.RegisterPhysical("B_xi", "Farfield", magnetic_face_farfield);
-    boundary_.RegisterPhysical("B_eta", "Farfield", magnetic_face_farfield);
-    boundary_.RegisterPhysical("B_zeta", "Farfield", magnetic_face_farfield);
+    auto nop = [](FieldBlock &, Field *, const BOUND::PhysicalRegion &, int) {};
+    // Match Mercury: preserve CT face fluxes, including on restart. Resetting
+    // only an active boundary face would inject divB into its adjacent cell.
+    // The prescribed Farfield edge EMF controls subsequent CT evolution.
+    boundary_.RegisterPhysical("B_xi", "Farfield", nop);
+    boundary_.RegisterPhysical("B_eta", "Farfield", nop);
+    boundary_.RegisterPhysical("B_zeta", "Farfield", nop);
+
+    // UpdateIonVelocity already derives the ghost velocity from prescribed
+    // ion states. Do not replace it with the neighboring interior velocity.
+    boundary_.RegisterPhysical("U_plus", "Farfield", nop);
 
     auto magnetic_cell_farfield = [this](FieldBlock &block, Field *,
                                           const BOUND::PhysicalRegion &region, int nghost)
@@ -291,38 +291,6 @@ void MarsSolver::ApplyIonFarfield(FieldBlock &block,
                 block(i,j,k,3)=rho*uz;
                 block(i,j,k,4)=energy;
             }
-}
-
-void MarsSolver::ApplyMagneticFarfieldFace(
-    FieldBlock &block, const BOUND::PhysicalRegion &region, int nghost)
-{
-    if(!repair_restart_farfield_bface_)return;
-
-    int axis = -1, metric_id = -1;
-    const std::string &name = block.descriptor().name;
-    if(name=="B_xi"){axis=0;metric_id=metric_.xi;}
-    else if(name=="B_eta"){axis=1;metric_id=metric_.eta;}
-    else if(name=="B_zeta"){axis=2;metric_id=metric_.zeta;}
-    else throw std::runtime_error("MarsSolver: unexpected Farfield B-face field " + name);
-
-    FieldBlock &area=field_->field(metric_id,region.this_block);
-    auto impose=[&](const Box3 &box)
-    {
-        for(int i=box.lo.i;i<box.hi.i;++i)
-            for(int j=box.lo.j;j<box.hi.j;++j)
-                for(int k=box.lo.k;k<box.hi.k;++k)
-                    block(i,j,k,0)=dot3(solar_wind_imf_[0],solar_wind_imf_[1],
-                                        solar_wind_imf_[2],area(i,j,k,0),
-                                        area(i,j,k,1),area(i,j,k,2));
-    };
-    const Box3 ghost=BoundaryCore::MakeGhostSlabFromInner(
-        region.inner_slab,region.direction,nghost);
-    impose(ghost);
-
-    // The normal face is the magnetic boundary DOF itself.  Re-impose it as
-    // well so a checkpoint produced by the former copy boundary cannot carry
-    // a drifted incoming normal flux into a continued calculation.
-    if(axis==std::abs(region.direction)-1)impose(region.inner_slab);
 }
 
 void MarsSolver::ApplyMagneticFarfieldCell(
@@ -495,7 +463,6 @@ void MarsSolver::Initialize()
     PopulateAnalyticAtmosphere();
     SyncGroup("Ucell",ucell_names_);
     SyncGroup("Bface",bface_names_,true);
-    repair_restart_farfield_bface_=false;
     UpdatePrimitive();
     UpdateIonVelocity();
     UpdateMagneticCell();

@@ -80,7 +80,6 @@ private:
     double solar_wind_pressure_ = 0.0;
     std::array<double, 3> solar_wind_velocity_{};
     std::array<double, 3> solar_wind_imf_{};
-    bool repair_restart_farfield_bface_ = false;
     double wall_temperature_K_ = 1500.0;
     std::map<std::array<int, 4>, std::array<double, MARS::NumSpecies>> wall_ion_cache_;
 
@@ -120,8 +119,6 @@ private:
     void SetupBoundary();
     void ApplyIonFarfield(FieldBlock &block, const BOUND::PhysicalRegion &region,
                           int nghost, std::size_t species);
-    void ApplyMagneticFarfieldFace(FieldBlock &block,
-                                   const BOUND::PhysicalRegion &region, int nghost);
     void ApplyMagneticFarfieldCell(FieldBlock &block,
                                    const BOUND::PhysicalRegion &region, int nghost);
     void ApplyFarfieldElectricEdge(FieldBlock &block,
