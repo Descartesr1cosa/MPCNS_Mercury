@@ -25,7 +25,11 @@ On restart, saved Badd is overwritten using the current setup and dipole cache;
 it never alters the induced field. Old Mars checkpoint formats are rejected;
 start a fresh run after this update. The magnetic-convention header is explicit.
 `Read_Badd_Dipoles=1` reuses validated dipole-only face-flux caches in
-`DATA/Badd_Dipoles/dipoleXXXX.bin`; a stale/missing cache triggers recomputation. The supplied 4840-source fixture is synthetic and disabled by default.
+`DATA/Badd_Dipoles/dipoleXXXX.bin`; a stale/missing cache triggers recomputation. The supplied 4840-source `Dipoles` is converted from the user-provided Langlais
+(2004) M23/-20/14 solution using the accompanying `forward.c` conventions.
+It retains body-fixed coordinates; crustal fields remain disabled by default.
+`Crustal_Dipoles_Cutoff_km` controls the source distance cutoff on vector potential
+(0 disables it; the current example uses 1500 km).
 Input units, coordinates, literature and data provenance are documented in
 [`docs/mars/MarsCrustalDipoles.md`](../docs/mars/MarsCrustalDipoles.md).
 

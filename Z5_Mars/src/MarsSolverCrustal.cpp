@@ -82,10 +82,16 @@ void MarsSolver::InitializeCrustalField()
         const std::string source((std::istreambuf_iterator<char>(input)),{});
         std::istringstream records(source);
         model.Read(records,length_ref_,magnetic_ref_,mu0_,path);
+        const double cutoff_km=param_->HasDou("Crustal_Dipoles_Cutoff_km")
+            ?param_->GetDou("Crustal_Dipoles_Cutoff_km"):0.0;
+        model.SetCutoff(cutoff_km*1000.0/length_ref_);
+        if(rank==0)std::cout<<"[Mars Dipoles] cutoff_km="<<cutoff_km
+                           <<" (0=all sources; applied to vector potential)\n";
+        signature.Add(cutoff_km);
         signature.Bytes(source.data(),source.size());
         signature.Add(length_ref_);signature.Add(magnetic_ref_);signature.Add(mu0_);
         signature.Add(rank);signature.Add(ranks);
-        const int revision=1;signature.Add(revision); // quadrature/CT cache revision
+        const int revision=2;signature.Add(revision); // quadrature/CT cache revision
         // Hash physical endpoint coordinates and extents, not just file names.
         for(int ib=0;ib<field_->num_blocks();++ib)for(int axis=0;axis<3;++axis)
         {

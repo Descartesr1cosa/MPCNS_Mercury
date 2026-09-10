@@ -3,4 +3,5 @@ bool    is_Ambipolar_Efield        1
 bool    is_Crustal_Bfield          0
 string  Crustal_Dipoles_File       CASE/setup/Dipoles
 bool    Read_Badd_Dipoles          0
+double  Crustal_Dipoles_Cutoff_km  1500.0 //0.0表示不截断
 END_OF_FILE

@@ -53,13 +53,26 @@ void DipoleModel::Read(std::istream &input, double L, double B, double mu0,
     dipoles_=std::move(parsed);
 }
 
+void DipoleModel::SetCutoff(double distance_nd)
+{
+    if(distance_nd<0 || !std::isfinite(distance_nd) || !std::isfinite(distance_nd*distance_nd))
+        throw std::runtime_error("Dipoles: cutoff must be finite and nonnegative");
+    cutoff2_=distance_nd*distance_nd;
+}
+
 DipoleModel::Vec DipoleModel::Potential(const Vec &position) const
 {
     Vec sum{},correction{};
     for(const auto &dip:dipoles_)
     {
-        Vec r{}; double r2=dip.core2;
-        for(int d=0;d<3;++d) { r[d]=position[d]-dip.position[d]; r2+=r[d]*r[d]; }
+        Vec r{}; double distance2=0;
+        for(int d=0;d<3;++d) { r[d]=position[d]-dip.position[d]; distance2+=r[d]*r[d]; }
+        if(!std::isfinite(distance2))
+            throw std::runtime_error("Dipoles: non-finite evaluation distance");
+        // Cut only A, before the shared-edge synchronization and CT curl.
+        // Cutting face B afterward would violate the discrete divergence constraint.
+        if(cutoff2_>0 && distance2>cutoff2_) continue;
+        const double r2=distance2+dip.core2;
         if(!(r2>0) || !std::isfinite(r2))
             throw std::runtime_error("Dipoles: singular/non-finite evaluation point");
         const double inv=1.0/(r2*std::sqrt(r2));
