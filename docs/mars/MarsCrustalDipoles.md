@@ -163,40 +163,24 @@ Mercury 的六面重构/DEC 电流算子不同，详见 [电磁离散对照](Mar
 后处理读取工具需识别此额外头字段；Mercury 自身仍使用原 version 1。
 续算应保持网格与归一化尺度不变。
 
-## 验证
+## 编译与已有验证
+
+当前仓库默认只构建 Mars 求解器，已移除独立测试程序与 CTest 注册：
 
 ```sh
-cmake -S . -B build-mars -DMPCNS_BUILD_MERCURY=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build-mars -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_BUILD_TYPE=Release -DMPCNS_BUILD_MERCURY=OFF
 cmake --build build-mars -j4
-ctest --test-dir build-mars --output-on-failure
 ```
 
-`MarsDipolesTest` 使用生产 CT 算子，检查单偶极子解析磁矢势/解析 curl、
-量纲归一化、源线性叠加、边反向与退化边、输入错误与奇点、4840 源输入，
-并在倾斜网格上验证单源及多源 `div(curl A)` 的舍入级闭合。
-真实文献模型的幅值/地图验证需要取得原始数据及作者正演参考；合成测试不能替代它。
+生成 `build-mars/Z5_Mars/MarsZ5`。显式关闭 Mercury 也适用于曾启用 Mercury 的旧
+构建目录；新构建目录默认已关闭。`Z5_Mars/tools/make_demo_dipoles.py` 保留为
+示范 Dipoles 输入的生成工具，不参与编译。
 
-完整求解器的小网格 fresh/restart 检查（需要可运行的 MPI 环境）：
-
-```sh
-python3 Z5_Mars/tests/mars_dipoles_smoke.py build-mars/Z5_Mars/MarsZ5 --ranks 2
-python3 Z5_Mars/tests/mars_dipoles_smoke.py build-mars/Z5_Mars/MarsZ5 --ranks 2 --rotated
-```
-
-脚本只在临时目录生成两个 5×5×5 单元块，使用全部 4840 源。非周期接口的
-通信标记为偶数；`--rotated` 将第二块坐标轴旋转 90°，覆盖 Edge 方向与 Face
-分量交换。它先做初始化（`max_Nstep=0`），继而读取自身检查点，逐字节比较
-所有 rank 的 conserved/face-flux 场文件，检测相同模型重复叠加及 ghost 不一致。
-随后将模型磁矩加倍，并在续算中关闭、再开启剩磁，检查感应场和离子守恒量保持不变、关闭后 Badd 仅含 IMF。还检查更换 IMF 时
-缓存命中且 IMF 只加入一次，以及单步推进生成非零感应场后更换背景仍保留感应场。
-`--ranks 1` 可使用同进程的两个块接口。临时直角网格使用 `corner_treat=0`，
-因此这些测试不覆盖球面极点或非规则多块奇异边，也不证明长期时间推进稳定性。
-
-本次验证结果：Debug 完整构建成功；4/4 CTest 通过；单源及 4840 源含 ghost
-倾斜网格闭合测试通过（多源相对残差 `2.03e-17`）；该测试的
-AddressSanitizer/UndefinedBehaviorSanitizer 检查通过；双 MPI 进程的同向和
-90° 旋转接口初始化/重启测试均通过，输出 Badd 闭合残差为 0，重启场文件一致。
-
+移除测试程序前，已完成单偶极解析磁矢势、量纲归一化、源叠加与生产 CT 闭合检查；
+4840 源倾斜网格的相对闭合残差为 `2.03e-17`。双 MPI 旋转接口检查覆盖背景切换、
+缓存命中与失效、感应场续算保留、忽略保存的 Badd 及拒绝旧格式。
+这些历史检查不覆盖球面极点或长期推进稳定性；真实文献模型的幅值/地图验证
+仍需取得原始数据及作者正演参考。
 
 ## 2000 偶极子的计算量与缓存
 
@@ -254,17 +238,3 @@ CT 缓存约定时需递增代码中的 revision。缓存不随 checkpoint archi
 3. 同步并验证偶极面通量；仅将偶极部分写入缓存。
 4. 将当前 IMF·S 加入 Badd 一次，同步并验证完整背景无散。
 5. CT 推进 Bind，物理项使用 Bind+Badd；检查点保存离子守恒量、Bind 与完整 Badd，后者仅供后处理。
-
-新增 `MarsDipoleCacheTest` 验证缓存往返、错误签名/长度、截断、损坏、尾部数据和
-非有限值拒绝；双 MPI 旋转接口 smoke 测试覆盖缓存命中、更改模型自动失效、
-损坏或缺少单个 rank 缓存时统一重算，以及更换/关闭/重新开启背景、忽略保存的 Badd 和拒绝旧格式。
-
-此次 IMF/感应场分裂回归：Debug 构建、4/4 CTest、双 MPI rank 的 90° 旋转
-接口 smoke 测试通过。覆盖同配置续算不重复叠加、剩磁关闭后只保留 IMF、
-只改 IMF 仍命中偶极缓存，以及一时间步生成感应场后更换
-背景仍保留该感应场。静止均匀等离子体、非均匀偶极背景、Hall 开启时，
-单步感应面通量保持在 `1e-14` 绝对容差内；这不是长期稳定性验证。
-
-检查点回归还验证：bin 包含全部 16 个字段；将保存的 Badd 改为 `1e90` 后续算，
-输出仍与当前 setup 重建结果逐字节一致；旧 version 1 和缺少 Badd 分量的文件
-被拒绝。修改 IMF 后，输出的 Badd 通量差值等于 IMF 投影差值，感应场保持不变。

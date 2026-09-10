@@ -191,8 +191,7 @@ H+ 延续原 Fortran 条件，单独取上游太阳风 H+ 密度的 0.3 倍。�
 
 实现位于 `Z5_Mars/include/MarsAtmosphereModel.h` 和
 `Z5_Mars/src/MarsAtmosphereModel.cpp`；与 MPCNS 网格及壁面边界的连接位于
-`Z5_Mars/src/MarsSolver.cpp`。独立回归测试为
-`Z5_Mars/tests/MarsAtmosphereTest.cpp`。
+`Z5_Mars/src/MarsSolver.cpp`。
 
 ## 6. 已知限制
 

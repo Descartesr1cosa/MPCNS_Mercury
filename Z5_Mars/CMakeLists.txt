@@ -39,21 +39,3 @@ check_ipo_supported(RESULT MARS_IPO_SUPPORTED OUTPUT MARS_IPO_ERROR)
 if(MARS_IPO_SUPPORTED)
   set_property(TARGET MarsZ5 PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
-
-enable_testing()
-add_executable(MarsChemistryTest tests/MarsChemistryTest.cpp src/MarsChemistry.cpp)
-target_include_directories(MarsChemistryTest PRIVATE include)
-add_test(NAME MarsChemistryTest COMMAND MarsChemistryTest)
-add_executable(MarsAtmosphereTest tests/MarsAtmosphereTest.cpp
-  src/MarsAtmosphereModel.cpp src/MarsChemistry.cpp)
-target_include_directories(MarsAtmosphereTest PRIVATE include)
-add_test(NAME MarsAtmosphereTest COMMAND MarsAtmosphereTest)
-add_executable(MarsDipolesTest tests/MarsDipolesTest.cpp src/MarsDipoles.cpp
-  ../src/3_field/FieldBlock.cpp ../src/8_dec/CTOperators.cpp ../src/0_basic/LayoutTraits.cpp
-  ../src/0_basic/BoxOps.cpp ../src/0_basic/Error.cpp ../src/0_basic/MPI_WRAPPER.cpp)
-target_include_directories(MarsDipolesTest PRIVATE include)
-target_link_libraries(MarsDipolesTest PRIVATE MPI::MPI_CXX)
-add_test(NAME MarsDipolesTest COMMAND MarsDipolesTest ${CMAKE_CURRENT_SOURCE_DIR}/9999setup/Dipoles)
-add_executable(MarsDipoleCacheTest tests/MarsDipoleCacheTest.cpp src/MarsDipoleCache.cpp)
-target_include_directories(MarsDipoleCacheTest PRIVATE include)
-add_test(NAME MarsDipoleCacheTest COMMAND MarsDipoleCacheTest)

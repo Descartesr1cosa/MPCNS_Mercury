@@ -38,15 +38,18 @@ per-species fluid CFL and the total-charged-fluid fast-magnetosonic CFL; no Hall
 retry with up to sixteen chemistry-only substeps without reducing the global
 fluid step.
 
-Build Mars independently from the MPCNS repository root. Disabling the Mercury
-target also means that configuring Mars does not require PETSc:
+The default build generates only `MarsZ5`; it has no test targets and does not
+require PETSc. From the MPCNS repository root:
 
 ```sh
 cmake -S . -B build-mars -DCMAKE_CXX_COMPILER=mpicxx \
   -DCMAKE_BUILD_TYPE=Release \
   -DMPCNS_BUILD_MERCURY=OFF -DMPCNS_BUILD_MARS=ON
-cmake --build build-mars --target MarsZ5 -j
+cmake --build build-mars -j
 ```
+
+The explicit solver options above also override any Mercury setting cached by
+an earlier configuration.
 
 Place the decomposed MPCNS grid/connectivity files in `Z5_Mars/CASE/geometry`.
 The setup directory is prepared automatically from `9999setup`.
