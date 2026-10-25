@@ -91,14 +91,14 @@ struct SolverFields
         fid_metric = {geometry_ids.primal_face_area_vector.xi,
                       geometry_ids.primal_face_area_vector.eta,
                       geometry_ids.primal_face_area_vector.zeta};
-        fid_pinvGT.xi = fld->field_id("pinvGT_xi");
-        fid_pinvGT.eta = fld->field_id("pinvGT_eta");
-        fid_pinvGT.zeta = fld->field_id("pinvGT_zeta");
-        fid_pinvAT.xi = fld->field_id("pinvAT_xi");
-        fid_pinvAT.eta = fld->field_id("pinvAT_eta");
-        fid_pinvAT.zeta = fld->field_id("pinvAT_zeta");
+        fid_pinvGT = {geometry_ids.edge_reconstruction_gradient_pseudoinverse.xi,
+                      geometry_ids.edge_reconstruction_gradient_pseudoinverse.eta,
+                      geometry_ids.edge_reconstruction_gradient_pseudoinverse.zeta};
+        fid_pinvAT = {geometry_ids.edge_reconstruction_area_pseudoinverse.xi,
+                      geometry_ids.edge_reconstruction_area_pseudoinverse.eta,
+                      geometry_ids.edge_reconstruction_area_pseudoinverse.zeta};
 
-        fid_pinvGT_Cell = fld->field_id("pinvGT_cell");
+        fid_pinvGT_Cell = geometry_ids.cell_reconstruction_gradient_pseudoinverse;
         fid_Bcell_from_Bface_w = fld->field_id("Bcell_from_Bface_w");
         fid_Jcell_from_Jedge_w = fld->field_id("Jcell_from_Jedge_w");
 

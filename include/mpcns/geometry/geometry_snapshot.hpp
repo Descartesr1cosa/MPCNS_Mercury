@@ -88,6 +88,18 @@ struct DualGeometry
     bool is_complete() const;
 };
 
+// Cached local reconstruction maps.  These are geometric linear-algebra
+// data, not Hodge coefficients and not evolving simulation state.
+struct ReconstructionCache
+{
+    DirectionalFieldViews cell_covariant_basis;
+    ConstFieldView cell_gradient_pseudoinverse;
+    DirectionalFieldViews edge_gradient_pseudoinverse;
+    DirectionalFieldViews edge_area_pseudoinverse;
+
+    bool is_complete() const;
+};
+
 struct GeometryBlock
 {
     std::string name;
@@ -95,6 +107,7 @@ struct GeometryBlock
     NodeCoordinates coordinates;
     PrimalGeometry primal;
     DualGeometry dual;
+    ReconstructionCache reconstruction;
 
     bool is_complete() const;
 };

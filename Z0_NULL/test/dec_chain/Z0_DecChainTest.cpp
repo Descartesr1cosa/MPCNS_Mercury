@@ -335,6 +335,8 @@ namespace
                                 geometry_ids.primal_face_area_vector, 3, ib);
             compare_directional(geometry.primal.edge_vector,
                                 geometry_ids.primal_edge_vector, 3, ib);
+            compare_directional(geometry.reconstruction.cell_covariant_basis,
+                                geometry_ids.cell_covariant_basis, 3, ib);
             compare_directional(geometry.primal.face_area,
                                 geometry_ids.primal_face_area, 1, ib);
             compare_directional(geometry.primal.edge_length,
@@ -345,6 +347,12 @@ namespace
                                 geometry_ids.dual_face_area_vector_at_edge, 3, ib);
             compare_directional(geometry.dual.face_area_at_primal_edge,
                                 geometry_ids.dual_face_area_at_edge, 1, ib);
+            compare_field(geometry.reconstruction.cell_gradient_pseudoinverse,
+                          field.field(geometry_ids.cell_reconstruction_gradient_pseudoinverse, ib), 9);
+            compare_directional(geometry.reconstruction.edge_gradient_pseudoinverse,
+                                geometry_ids.edge_reconstruction_gradient_pseudoinverse, 9, ib);
+            compare_directional(geometry.reconstruction.edge_area_pseudoinverse,
+                                geometry_ids.edge_reconstruction_area_pseudoinverse, 9, ib);
         }
         return Z0_TEST::global_max(max_difference);
     }

@@ -116,7 +116,15 @@ geometry::GeometrySnapshot borrow_legacy_geometry_snapshot(Grid &grid,
             geometry::DualGeometry{
                 borrow_directional(fields, ids.dual_edge_length_at_face, block, "dual_edge_length_at_primal_face"),
                 borrow_directional(fields, ids.dual_face_area_vector_at_edge, block, "dual_face_area_vector_at_primal_edge"),
-                borrow_directional(fields, ids.dual_face_area_at_edge, block, "dual_face_area_at_primal_edge")}});
+                borrow_directional(fields, ids.dual_face_area_at_edge, block, "dual_face_area_at_primal_edge")},
+            geometry::ReconstructionCache{
+                borrow_directional(fields, ids.cell_covariant_basis, block, "cell_covariant_basis"),
+                borrow_field(fields.field(ids.cell_reconstruction_gradient_pseudoinverse, block),
+                             "cell_reconstruction_gradient_pseudoinverse"),
+                borrow_directional(fields, ids.edge_reconstruction_gradient_pseudoinverse, block,
+                                   "edge_reconstruction_gradient_pseudoinverse"),
+                borrow_directional(fields, ids.edge_reconstruction_area_pseudoinverse, block,
+                                   "edge_reconstruction_area_pseudoinverse")}});
     }
     return geometry::GeometrySnapshot{std::move(blocks)};
 }

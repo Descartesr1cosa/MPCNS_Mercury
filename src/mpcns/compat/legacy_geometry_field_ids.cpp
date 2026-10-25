@@ -29,6 +29,8 @@ LegacyGeometryFieldIds bind_legacy_geometry_field_ids(const Field &fields)
         directional_field_ids(fields, "JDxi", "JDet", "JDze");
     ids.primal_edge_vector =
         directional_field_ids(fields, "dr_xi", "dr_eta", "dr_zeta");
+    ids.cell_covariant_basis =
+        directional_field_ids(fields, "a_xi", "a_eta", "a_zeta");
 
     ids.primal_face_area =
         directional_field_ids(fields, "Area_xi", "Area_eta", "Area_zeta");
@@ -40,6 +42,13 @@ LegacyGeometryFieldIds bind_legacy_geometry_field_ids(const Field &fields)
         directional_field_ids(fields, "Sstar_xi", "Sstar_eta", "Sstar_zeta");
     ids.dual_face_area_at_edge =
         directional_field_ids(fields, "Astar_xi", "Astar_eta", "Astar_zeta");
+
+    ids.cell_reconstruction_gradient_pseudoinverse =
+        fields.field_id("pinvGT_cell");
+    ids.edge_reconstruction_gradient_pseudoinverse =
+        directional_field_ids(fields, "pinvGT_xi", "pinvGT_eta", "pinvGT_zeta");
+    ids.edge_reconstruction_area_pseudoinverse =
+        directional_field_ids(fields, "pinvAT_xi", "pinvAT_eta", "pinvAT_zeta");
 
     ids.lumped_star_primal_0_to_dual_3 =
         fields.field_id("Hodge_star_0form_to_3form_cell_lumped");

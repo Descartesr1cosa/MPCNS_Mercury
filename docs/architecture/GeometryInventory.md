@@ -30,6 +30,7 @@ Mercury solver.
 | `primal_cell_volume` | `Jac` | cell |
 | `primal_face_area_vector` | `JDxi/JDet/JDze` | primal face |
 | `primal_edge_vector` | `dr_xi/dr_eta/dr_zeta` | primal edge |
+| `cell_covariant_basis` | `a_xi/a_eta/a_zeta` | cell |
 | `primal_face_area` | `Area_*` | primal face |
 | `dual_edge_length_at_face` | `dlstar_*` | primal face / dual edge |
 | `primal_edge_length` | `dl_*` | primal edge |
@@ -37,6 +38,9 @@ Mercury solver.
 | `dual_face_area_at_edge` | `Astar_*` | primal edge / dual face |
 | `lumped_star_primal_2_to_dual_1` | `Hodge_star_2form_to_1form_face_*_lumped` | primal face |
 | `lumped_inverse_star_primal_1` | `Hodge_star_inverse_2form_to_1form_edge_*_lumped` | primal edge |
+| `cell_reconstruction_gradient_pseudoinverse` | `pinvGT_cell` | cell |
+| `edge_reconstruction_gradient_pseudoinverse` | `pinvGT_*` | primal edge |
+| `edge_reconstruction_area_pseudoinverse` | `pinvAT_*` | primal edge |
 
 The compatibility aliases `Face_beta` and `Edge_alpha` remain inside
 `SolverFields` only so existing physics is unchanged.  New code must use the
@@ -73,6 +77,7 @@ small and stable:
 NodeCoordinates
 PrimalGeometry: cell volume, face-area vector, edge vector, face area, edge length
 DualGeometry: dual-edge length, dual-face-area vector, dual-face area
+ReconstructionCache: covariant bases and cell/edge pseudo-inverses
 GeometrySnapshot: ordered local GeometryBlock views
 ~~~
 
@@ -86,12 +91,14 @@ geometry cache.
 
 Z0 now checks every snapshot category against the original storage at a local
 sample point, including all directions and vector components.  This is exact
-readback validation, not a tolerance-based geometry comparison.
+readback validation, not a tolerance-based geometry comparison.  The complete
+ten-mode, three-rank Z0 halo suite passed this gate with `max=0.000000`.
 
 ## 5. Next safe geometry migrations
 
-1. Introduce immutable `GeometrySnapshot` data owned by the geometry module,
-   initially populated from the exact existing Grid and Field values.
+1. Replace the borrowed compatibility backing with owned immutable geometry
+   storage only after a full field-by-field comparison against each protected
+   Mercury case is available.
 2. Move the field-derived metric construction behind a builder that produces
    `PrimalGeometry`, `DualGeometry`, `LumpedHodge`, and
    `ReconstructionCache` separately while retaining the old field catalog as

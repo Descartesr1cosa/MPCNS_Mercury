@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1–5 implementation in review (Z0 Hodge gate passed; GeometrySnapshot gate pending)
+Status: Accepted design baseline; Units 1–6 implementation in review (3-rank Z0 Hodge and GeometrySnapshot gates passed)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -269,6 +269,12 @@ read-only API.  `mpcns::compat::borrow_legacy_geometry_snapshot` supplies its
 temporary Grid/Field-backed implementation.  It is validated by exact Z0
 readback of coordinates and every current primal/dual metric category; no
 Mercury production path consumes it yet.
+
+The reconstruction geometry cache now follows the same path: covariant bases
+and the cell/edge pseudo-inverses are semantic members of GeometrySnapshot,
+and Mercury's SolverFields binds their legacy catalog IDs only through
+LegacyGeometryFieldIds.  This removes the remaining geometry-name lookups
+from the Mercury solver facade without changing a metric calculation.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.

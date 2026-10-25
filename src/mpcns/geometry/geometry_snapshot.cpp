@@ -85,10 +85,19 @@ bool DualGeometry::is_complete() const
            directional_views_are_complete(face_area_at_primal_edge);
 }
 
+bool ReconstructionCache::is_complete() const
+{
+    return directional_views_are_complete(cell_covariant_basis) &&
+           cell_gradient_pseudoinverse.is_bound() &&
+           directional_views_are_complete(edge_gradient_pseudoinverse) &&
+           directional_views_are_complete(edge_area_pseudoinverse);
+}
+
 bool GeometryBlock::is_complete() const
 {
     return spatial_dimension >= 2 && spatial_dimension <= 3 &&
-           coordinates.is_complete() && primal.is_complete() && dual.is_complete();
+           coordinates.is_complete() && primal.is_complete() && dual.is_complete() &&
+           reconstruction.is_complete();
 }
 
 GeometrySnapshot::GeometrySnapshot(std::vector<GeometryBlock> blocks)
