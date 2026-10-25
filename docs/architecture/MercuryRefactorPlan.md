@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1–3 implementation in review (Unit 1 Z0 target compiled)
+Status: Accepted design baseline; Units 1–4 implementation in review (Z0 Hodge equivalence test pending)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -268,6 +268,11 @@ The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.
 The existing CT adjoint curl is deliberately still active until a workspace and
 an exact old-versus-new Hodge/adjoint regression are available.
+
+That regression is now prepared in the Z0 DEC chain suite.  It compares the
+current fused CT current stencil with `star_2 -> d1_transpose -> inverse_star_1`
+on deterministic face-form data, including local ghost values.  The test must
+pass exactly before the Mercury production call sites change.
 
 ### Phase 3 — GeometrySnapshot and LumpedHodge
 

@@ -12,8 +12,8 @@ void LumpedHodge::apply_star_2(const state::PrimalFaceFormView &primal_face,
                                state::DualEdgeFormView dual_edge) const
 {
     {
-        const Int3 lo = dual_edge.xi.inner_lo();
-        const Int3 hi = dual_edge.xi.inner_hi();
+        const Int3 lo = dual_edge.xi.get_lo();
+        const Int3 hi = dual_edge.xi.get_hi();
         for (int i = lo.i; i < hi.i; ++i)
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
@@ -24,8 +24,8 @@ void LumpedHodge::apply_star_2(const state::PrimalFaceFormView &primal_face,
     }
 
     {
-        const Int3 lo = dual_edge.eta.inner_lo();
-        const Int3 hi = dual_edge.eta.inner_hi();
+        const Int3 lo = dual_edge.eta.get_lo();
+        const Int3 hi = dual_edge.eta.get_hi();
         for (int i = lo.i; i < hi.i; ++i)
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
@@ -36,8 +36,8 @@ void LumpedHodge::apply_star_2(const state::PrimalFaceFormView &primal_face,
     }
 
     {
-        const Int3 lo = dual_edge.zeta.inner_lo();
-        const Int3 hi = dual_edge.zeta.inner_hi();
+        const Int3 lo = dual_edge.zeta.get_lo();
+        const Int3 hi = dual_edge.zeta.get_hi();
         for (int i = lo.i; i < hi.i; ++i)
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
@@ -58,9 +58,9 @@ void LumpedHodge::apply_inverse_star_1(const state::DualFaceFormView &dual_face,
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
                     primal_edge.xi(i, j, k, primal_edge.component) =
+                        dual_face.xi(i, j, k, dual_face.component) *
                         coefficients_.inverse_star_primal_1.xi(
-                            i, j, k, coefficients_.inverse_star_primal_1.component) *
-                        dual_face.xi(i, j, k, dual_face.component);
+                            i, j, k, coefficients_.inverse_star_primal_1.component);
     }
 
     {
@@ -70,9 +70,9 @@ void LumpedHodge::apply_inverse_star_1(const state::DualFaceFormView &dual_face,
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
                     primal_edge.eta(i, j, k, primal_edge.component) =
+                        dual_face.eta(i, j, k, dual_face.component) *
                         coefficients_.inverse_star_primal_1.eta(
-                            i, j, k, coefficients_.inverse_star_primal_1.component) *
-                        dual_face.eta(i, j, k, dual_face.component);
+                            i, j, k, coefficients_.inverse_star_primal_1.component);
     }
 
     {
@@ -82,9 +82,9 @@ void LumpedHodge::apply_inverse_star_1(const state::DualFaceFormView &dual_face,
             for (int j = lo.j; j < hi.j; ++j)
                 for (int k = lo.k; k < hi.k; ++k)
                     primal_edge.zeta(i, j, k, primal_edge.component) =
+                        dual_face.zeta(i, j, k, dual_face.component) *
                         coefficients_.inverse_star_primal_1.zeta(
-                            i, j, k, coefficients_.inverse_star_primal_1.component) *
-                        dual_face.zeta(i, j, k, dual_face.component);
+                            i, j, k, coefficients_.inverse_star_primal_1.component);
     }
 }
 

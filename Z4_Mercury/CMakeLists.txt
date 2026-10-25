@@ -50,10 +50,12 @@ if(NOT TARGET mpcns_discrete)
     target_include_directories(mpcns_discrete PUBLIC ../include)
 endif()
 
-add_library(mpcns_legacy_geometry STATIC
-    ../src/mpcns/compat/legacy_geometry_field_ids.cpp)
-target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
-target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete)
+if(NOT TARGET mpcns_legacy_geometry)
+    add_library(mpcns_legacy_geometry STATIC
+        ../src/mpcns/compat/legacy_geometry_field_ids.cpp)
+    target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
+    target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete)
+endif()
 
 # Mercury solver sources.
 aux_source_directory(./src  SRC)

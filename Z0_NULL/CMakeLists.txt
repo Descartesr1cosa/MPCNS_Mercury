@@ -16,6 +16,10 @@ include_directories(./include)
 include_directories(./test/common)
 include_directories(.)
 
+# Z0 tests run from the build directory.  Keep their compact input case next
+# to the executable so validation is reproducible without a manual copy step.
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/CASE" DESTINATION "${CMAKE_BINARY_DIR}")
+
 aux_source_directory(../src/0_basic DIRSRCS0)
 aux_source_directory(../src/1_grid DIRSRCS1)
 aux_source_directory(../src/2_topology DIRSRCS2)
@@ -35,6 +39,13 @@ if(NOT TARGET mpcns_discrete)
         ../src/mpcns/discrete/incidence_operator.cpp
         ../src/mpcns/discrete/lumped_hodge.cpp)
     target_include_directories(mpcns_discrete PUBLIC ../include)
+endif()
+
+if(NOT TARGET mpcns_legacy_geometry)
+    add_library(mpcns_legacy_geometry STATIC
+        ../src/mpcns/compat/legacy_geometry_field_ids.cpp)
+    target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
+    target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete)
 endif()
 aux_source_directory(./src Z0_NULL_SRCS)
 aux_source_directory(./src/boundary Z0_NULL_BOUNDARY_SRCS)
@@ -66,4 +77,8 @@ add_executable(z0_null
     ${Z0_NULL_TEST_IO_SRCS}
     ${Z0_NULL_TEST_TOPOLOGY_SRCS})
 
-target_link_libraries(z0_null PRIVATE mpcns_discrete ${MPI_LIBRARIES} stdc++fs)
+target_link_libraries(z0_null PRIVATE
+    mpcns_discrete
+    mpcns_legacy_geometry
+    ${MPI_LIBRARIES}
+    stdc++fs)

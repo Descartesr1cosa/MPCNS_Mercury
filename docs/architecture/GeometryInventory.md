@@ -77,3 +77,13 @@ formula is introduced.
 
 No consistent/non-diagonal Hodge, MPI schedule, boundary action, or solver
 formula is changed by the current adapter work.
+
+## 5. Regression gate before production migration
+
+Z0 registers a local dual-edge workspace with the same ghost reach as the
+current metric fields.  Its DEC-chain test computes electric current through
+`LumpedHodge::apply_star_2`, `d1^T`, and
+`LumpedHodge::apply_inverse_star_1`, then compares every local inner edge
+value to the former fused CT formula.  It uses no workspace halo exchange.
+Only an exact zero difference permits migration of Mercury's current and
+implicit-resistive paths to the new composition.

@@ -3,6 +3,7 @@
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <set>
 #include <string>
@@ -163,6 +164,23 @@ namespace Z0
         field.register_field(descriptor("Bcell", StaggerLocation::Cell, FieldValueKind::CartesianVector,
                                         3, nghost, sync_contract("Bcell", halo_cell, false, false,
                                                                  default_level)));
+
+        // Local-only workspace and reference output for the DEC/Hodge chain
+        // regression.  The dual-edge workspace matches the metric ghost
+        // reach and therefore needs no halo exchange of its own.
+        const int metric_ghost = std::max(0, nghost - 1);
+        field.register_field(descriptor("dual_edge_work_xi", StaggerLocation::FaceXi, FieldValueKind::Scalar,
+                                        1, metric_ghost, FieldSyncContract{}));
+        field.register_field(descriptor("dual_edge_work_eta", StaggerLocation::FaceEt, FieldValueKind::Scalar,
+                                        1, metric_ghost, FieldSyncContract{}));
+        field.register_field(descriptor("dual_edge_work_zeta", StaggerLocation::FaceZe, FieldValueKind::Scalar,
+                                        1, metric_ghost, FieldSyncContract{}));
+        field.register_field(descriptor("J_legacy_xi", StaggerLocation::EdgeXi, FieldValueKind::Scalar,
+                                        1, nghost, FieldSyncContract{}));
+        field.register_field(descriptor("J_legacy_eta", StaggerLocation::EdgeEt, FieldValueKind::Scalar,
+                                        1, nghost, FieldSyncContract{}));
+        field.register_field(descriptor("J_legacy_zeta", StaggerLocation::EdgeZe, FieldValueKind::Scalar,
+                                        1, nghost, FieldSyncContract{}));
     }
 
     void RegisterCouplingChannels(Field &field,
