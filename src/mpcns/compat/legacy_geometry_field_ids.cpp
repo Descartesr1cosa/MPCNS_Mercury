@@ -1,9 +1,12 @@
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
+#include "mpcns/compat/legacy_geometry_field_names.hpp"
 
 #include "3_field/Field.h"
 
 namespace mpcns::compat
 {
+
+namespace names = legacy_geometry_names;
 
 namespace
 {
@@ -24,51 +27,71 @@ DirectionalFieldIds directional_field_ids(const Field &fields,
 LegacyGeometryFieldIds bind_legacy_geometry_field_ids(const Field &fields)
 {
     LegacyGeometryFieldIds ids;
-    ids.primal_cell_volume = fields.field_id("Jac");
+    ids.primal_cell_volume = fields.field_id(names::kPrimalCellVolume);
     ids.primal_face_area_vector =
-        directional_field_ids(fields, "JDxi", "JDet", "JDze");
+        directional_field_ids(fields, names::kPrimalFaceAreaVectorXi,
+                              names::kPrimalFaceAreaVectorEta,
+                              names::kPrimalFaceAreaVectorZeta);
     ids.primal_edge_vector =
-        directional_field_ids(fields, "dr_xi", "dr_eta", "dr_zeta");
+        directional_field_ids(fields, names::kPrimalEdgeVectorXi,
+                              names::kPrimalEdgeVectorEta,
+                              names::kPrimalEdgeVectorZeta);
     ids.cell_covariant_basis =
-        directional_field_ids(fields, "a_xi", "a_eta", "a_zeta");
+        directional_field_ids(fields, names::kCellCovariantBasisXi,
+                              names::kCellCovariantBasisEta,
+                              names::kCellCovariantBasisZeta);
 
     ids.primal_face_area =
-        directional_field_ids(fields, "Area_xi", "Area_eta", "Area_zeta");
+        directional_field_ids(fields, names::kPrimalFaceAreaXi,
+                              names::kPrimalFaceAreaEta,
+                              names::kPrimalFaceAreaZeta);
     ids.dual_edge_length_at_face =
-        directional_field_ids(fields, "dlstar_xi", "dlstar_eta", "dlstar_zeta");
+        directional_field_ids(fields, names::kDualEdgeLengthAtPrimalFaceXi,
+                              names::kDualEdgeLengthAtPrimalFaceEta,
+                              names::kDualEdgeLengthAtPrimalFaceZeta);
     ids.primal_edge_length =
-        directional_field_ids(fields, "dl_xi", "dl_eta", "dl_zeta");
+        directional_field_ids(fields, names::kPrimalEdgeLengthXi,
+                              names::kPrimalEdgeLengthEta,
+                              names::kPrimalEdgeLengthZeta);
     ids.dual_face_area_vector_at_edge =
-        directional_field_ids(fields, "Sstar_xi", "Sstar_eta", "Sstar_zeta");
+        directional_field_ids(fields, names::kDualFaceAreaVectorAtPrimalEdgeXi,
+                              names::kDualFaceAreaVectorAtPrimalEdgeEta,
+                              names::kDualFaceAreaVectorAtPrimalEdgeZeta);
     ids.dual_face_area_at_edge =
-        directional_field_ids(fields, "Astar_xi", "Astar_eta", "Astar_zeta");
+        directional_field_ids(fields, names::kDualFaceAreaAtPrimalEdgeXi,
+                              names::kDualFaceAreaAtPrimalEdgeEta,
+                              names::kDualFaceAreaAtPrimalEdgeZeta);
 
     ids.cell_reconstruction_gradient_pseudoinverse =
-        fields.field_id("pinvGT_cell");
+        fields.field_id(names::kCellGradientPseudoinverse);
     ids.edge_reconstruction_gradient_pseudoinverse =
-        directional_field_ids(fields, "pinvGT_xi", "pinvGT_eta", "pinvGT_zeta");
+        directional_field_ids(fields, names::kEdgeGradientPseudoinverseXi,
+                              names::kEdgeGradientPseudoinverseEta,
+                              names::kEdgeGradientPseudoinverseZeta);
     ids.edge_reconstruction_area_pseudoinverse =
-        directional_field_ids(fields, "pinvAT_xi", "pinvAT_eta", "pinvAT_zeta");
+        directional_field_ids(fields, names::kEdgeAreaPseudoinverseXi,
+                              names::kEdgeAreaPseudoinverseEta,
+                              names::kEdgeAreaPseudoinverseZeta);
 
     ids.lumped_star_primal_0_to_dual_3 =
-        fields.field_id("Hodge_star_0form_to_3form_cell_lumped");
+        fields.field_id(names::kLumpedStarPrimal0ToDual3);
     ids.lumped_star_primal_3_to_dual_0 =
-        fields.field_id("Hodge_star_3form_to_0form_cell_lumped");
+        fields.field_id(names::kLumpedStarPrimal3ToDual0);
     ids.lumped_star_primal_1_to_dual_2 = directional_field_ids(
         fields,
-        "Hodge_star_1form_to_2form_edge_xi_lumped",
-        "Hodge_star_1form_to_2form_edge_eta_lumped",
-        "Hodge_star_1form_to_2form_edge_zeta_lumped");
+        names::kLumpedStarPrimal1ToDual2Xi,
+        names::kLumpedStarPrimal1ToDual2Eta,
+        names::kLumpedStarPrimal1ToDual2Zeta);
     ids.lumped_star_primal_2_to_dual_1 = directional_field_ids(
         fields,
-        "Hodge_star_2form_to_1form_face_xi_lumped",
-        "Hodge_star_2form_to_1form_face_eta_lumped",
-        "Hodge_star_2form_to_1form_face_zeta_lumped");
+        names::kLumpedStarPrimal2ToDual1Xi,
+        names::kLumpedStarPrimal2ToDual1Eta,
+        names::kLumpedStarPrimal2ToDual1Zeta);
     ids.lumped_inverse_star_primal_1 = directional_field_ids(
         fields,
-        "Hodge_star_inverse_2form_to_1form_edge_xi_lumped",
-        "Hodge_star_inverse_2form_to_1form_edge_eta_lumped",
-        "Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
+        names::kLumpedInverseStarPrimal1Xi,
+        names::kLumpedInverseStarPrimal1Eta,
+        names::kLumpedInverseStarPrimal1Zeta);
     return ids;
 }
 

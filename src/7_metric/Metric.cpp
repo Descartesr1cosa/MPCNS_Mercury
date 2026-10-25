@@ -1,6 +1,7 @@
 #include "7_metric/Metric.h"
 
 #include "3_field/Field.h"
+#include "mpcns/compat/legacy_geometry_field_names.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,70 +10,72 @@
 
 namespace METRIC
 {
+namespace names = mpcns::compat::legacy_geometry_names;
+
 void register_metric_fields(Field &fields, int geomtry_ghost_)
 {
-    fields.register_field(FieldDescriptor{"Jac", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"JDxi", StaggerLocation::FaceXi, 3, geomtry_ghost_});
-    fields.register_field(FieldDescriptor{"JDet", StaggerLocation::FaceEt, 3, geomtry_ghost_});
-    fields.register_field(FieldDescriptor{"JDze", StaggerLocation::FaceZe, 3, geomtry_ghost_});
+    fields.register_field(FieldDescriptor{names::kPrimalCellVolume, StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaVectorXi, StaggerLocation::FaceXi, 3, geomtry_ghost_});
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaVectorEta, StaggerLocation::FaceEt, 3, geomtry_ghost_});
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaVectorZeta, StaggerLocation::FaceZe, 3, geomtry_ghost_});
 
     // --- NEW: covariant basis vectors at cell centers ---
-    fields.register_field(FieldDescriptor{"a_xi", StaggerLocation::Cell, 3, 0});
-    fields.register_field(FieldDescriptor{"a_eta", StaggerLocation::Cell, 3, 0});
-    fields.register_field(FieldDescriptor{"a_zeta", StaggerLocation::Cell, 3, 0});
+    fields.register_field(FieldDescriptor{names::kCellCovariantBasisXi, StaggerLocation::Cell, 3, 0});
+    fields.register_field(FieldDescriptor{names::kCellCovariantBasisEta, StaggerLocation::Cell, 3, 0});
+    fields.register_field(FieldDescriptor{names::kCellCovariantBasisZeta, StaggerLocation::Cell, 3, 0});
 
-    fields.register_field(FieldDescriptor{"dr_xi", StaggerLocation::EdgeXi, 3, geomtry_ghost_ - 1});   // primal edge vector Δr_xi
-    fields.register_field(FieldDescriptor{"dr_eta", StaggerLocation::EdgeEt, 3, geomtry_ghost_ - 1});  // primal edge vector Δr_eta
-    fields.register_field(FieldDescriptor{"dr_zeta", StaggerLocation::EdgeZe, 3, geomtry_ghost_ - 1}); // primal edge vector Δr_zeta
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeVectorXi, StaggerLocation::EdgeXi, 3, geomtry_ghost_ - 1});   // primal edge vector Δr_xi
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeVectorEta, StaggerLocation::EdgeEt, 3, geomtry_ghost_ - 1});  // primal edge vector Δr_eta
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeVectorZeta, StaggerLocation::EdgeZe, 3, geomtry_ghost_ - 1}); // primal edge vector Δr_zeta
 
-    fields.register_field(FieldDescriptor{"pinvGT_xi", StaggerLocation::EdgeXi, 9, 0});
-    fields.register_field(FieldDescriptor{"pinvAT_xi", StaggerLocation::EdgeXi, 9, 0});
-    fields.register_field(FieldDescriptor{"pinvGT_eta", StaggerLocation::EdgeEt, 9, 0});
-    fields.register_field(FieldDescriptor{"pinvAT_eta", StaggerLocation::EdgeEt, 9, 0});
-    fields.register_field(FieldDescriptor{"pinvGT_zeta", StaggerLocation::EdgeZe, 9, 0});
-    fields.register_field(FieldDescriptor{"pinvAT_zeta", StaggerLocation::EdgeZe, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeGradientPseudoinverseXi, StaggerLocation::EdgeXi, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeAreaPseudoinverseXi, StaggerLocation::EdgeXi, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeGradientPseudoinverseEta, StaggerLocation::EdgeEt, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeAreaPseudoinverseEta, StaggerLocation::EdgeEt, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeGradientPseudoinverseZeta, StaggerLocation::EdgeZe, 9, 0});
+    fields.register_field(FieldDescriptor{names::kEdgeAreaPseudoinverseZeta, StaggerLocation::EdgeZe, 9, 0});
 
     // Cell: pseudo-inverse of G^T (G=[a_xi a_eta a_zeta]) to reconstruct physical vectors
     // from covariant 1-form components at cell centers: v = pinvGT_cell * w
-    fields.register_field(FieldDescriptor{"pinvGT_cell", StaggerLocation::Cell, 9, 0});
+    fields.register_field(FieldDescriptor{names::kCellGradientPseudoinverse, StaggerLocation::Cell, 9, 0});
 
     // Face metrics: |S| (primal face area magnitude), dual-edge length |l*|, Hodge_star_2form_to_1form = |l*|/|S|
-    fields.register_field(FieldDescriptor{"Area_xi", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // |S_xi|  (primal face area magnitude)
-    fields.register_field(FieldDescriptor{"Area_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |S_eta|
-    fields.register_field(FieldDescriptor{"Area_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |S_ze|
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaXi, StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // |S_xi|  (primal face area magnitude)
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaEta, StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |S_eta|
+    fields.register_field(FieldDescriptor{names::kPrimalFaceAreaZeta, StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |S_ze|
 
-    fields.register_field(FieldDescriptor{"dlstar_xi", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // |l*_xi|  (dual edge length across a xi-face)
-    fields.register_field(FieldDescriptor{"dlstar_eta", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |l*_eta|
-    fields.register_field(FieldDescriptor{"dlstar_zeta", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |l*_ze|
+    fields.register_field(FieldDescriptor{names::kDualEdgeLengthAtPrimalFaceXi, StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});   // |l*_xi|  (dual edge length across a xi-face)
+    fields.register_field(FieldDescriptor{names::kDualEdgeLengthAtPrimalFaceEta, StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});  // |l*_eta|
+    fields.register_field(FieldDescriptor{names::kDualEdgeLengthAtPrimalFaceZeta, StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1}); // |l*_ze|
 
     // Edge metrics: primal edge length |e|, dual face area vector S* and magnitude |S*|, Hodge_star_inverse_2form_to_1form = |e|/|S*|
-    fields.register_field(FieldDescriptor{"dl_xi", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // |e_xi|   (primal edge length along xi)
-    fields.register_field(FieldDescriptor{"dl_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |e_eta|
-    fields.register_field(FieldDescriptor{"dl_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |e_ze|
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeLengthXi, StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // |e_xi|   (primal edge length along xi)
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeLengthEta, StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |e_eta|
+    fields.register_field(FieldDescriptor{names::kPrimalEdgeLengthZeta, StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |e_ze|
 
-    fields.register_field(FieldDescriptor{"Sstar_xi", StaggerLocation::EdgeXi, 3, geomtry_ghost_ - 1});   // S*_xi  (dual face area vector normal to xi-edge)
-    fields.register_field(FieldDescriptor{"Sstar_eta", StaggerLocation::EdgeEt, 3, geomtry_ghost_ - 1});  // S*_eta
-    fields.register_field(FieldDescriptor{"Sstar_zeta", StaggerLocation::EdgeZe, 3, geomtry_ghost_ - 1}); // S*_ze
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaVectorAtPrimalEdgeXi, StaggerLocation::EdgeXi, 3, geomtry_ghost_ - 1});   // S*_xi  (dual face area vector normal to xi-edge)
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaVectorAtPrimalEdgeEta, StaggerLocation::EdgeEt, 3, geomtry_ghost_ - 1});  // S*_eta
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaVectorAtPrimalEdgeZeta, StaggerLocation::EdgeZe, 3, geomtry_ghost_ - 1}); // S*_ze
 
-    fields.register_field(FieldDescriptor{"Astar_xi", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // |S*_xi| (dual face area magnitude)
-    fields.register_field(FieldDescriptor{"Astar_eta", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |S*_eta|
-    fields.register_field(FieldDescriptor{"Astar_zeta", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |S*_ze|
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaAtPrimalEdgeXi, StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});   // |S*_xi| (dual face area magnitude)
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaAtPrimalEdgeEta, StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});  // |S*_eta|
+    fields.register_field(FieldDescriptor{names::kDualFaceAreaAtPrimalEdgeZeta, StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1}); // |S*_ze|
 
     // Canonical lumped/diagonal Hodge scales. Names encode source form, target form, and storage location.
-    fields.register_field(FieldDescriptor{"Hodge_star_0form_to_3form_cell_lumped", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_3form_to_0form_cell_lumped", StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal0ToDual3, StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal3ToDual0, StaggerLocation::Cell, 1, geomtry_ghost_ - 1});
 
-    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_xi_lumped", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_eta_lumped", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_1form_to_2form_edge_zeta_lumped", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal1ToDual2Xi, StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal1ToDual2Eta, StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal1ToDual2Zeta, StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
 
-    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_xi_lumped", StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_eta_lumped", StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_2form_to_1form_face_zeta_lumped", StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal2ToDual1Xi, StaggerLocation::FaceXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal2ToDual1Eta, StaggerLocation::FaceEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedStarPrimal2ToDual1Zeta, StaggerLocation::FaceZe, 1, geomtry_ghost_ - 1});
 
-    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_xi_lumped", StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_eta_lumped", StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
-    fields.register_field(FieldDescriptor{"Hodge_star_inverse_2form_to_1form_edge_zeta_lumped", StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedInverseStarPrimal1Xi, StaggerLocation::EdgeXi, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedInverseStarPrimal1Eta, StaggerLocation::EdgeEt, 1, geomtry_ghost_ - 1});
+    fields.register_field(FieldDescriptor{names::kLumpedInverseStarPrimal1Zeta, StaggerLocation::EdgeZe, 1, geomtry_ghost_ - 1});
 }
 
 void compute_metric_fields(Field &fields, Grid &grid)

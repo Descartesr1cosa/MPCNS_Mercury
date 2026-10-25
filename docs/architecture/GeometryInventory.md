@@ -66,6 +66,11 @@ source glob.  The compatibility layer can also bind a block's exact existing
 Hodge fields as `LumpedHodgeCoefficients`; no copied geometric state or new
 formula is introduced.
 
+`mpcns::compat::legacy_geometry_field_names` is the single catalog-spelling
+directory for this migration.  `METRIC::register_metric_fields` and
+`LegacyGeometryFieldIds` use the same constants, so a future catalog rename
+cannot silently register one name and bind another.
+
 ## 4. GeometrySnapshot compatibility boundary
 
 `mpcns::geometry::GeometrySnapshot` is now a read-only, type-erased view of

@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1–6 implementation in review (3-rank Z0 Hodge and GeometrySnapshot gates passed)
+Status: Accepted design baseline; Units 1–7 implementation in review (3-rank Z0 Hodge and GeometrySnapshot gates passed; catalog unification pending validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -275,6 +275,12 @@ and the cell/edge pseudo-inverses are semantic members of GeometrySnapshot,
 and Mercury's SolverFields binds their legacy catalog IDs only through
 LegacyGeometryFieldIds.  This removes the remaining geometry-name lookups
 from the Mercury solver facade without changing a metric calculation.
+
+Legacy metric catalog spellings are now declared once in
+`mpcns::compat::legacy_geometry_field_names`; both legacy metric-field
+registration and the compatibility ID adapter consume this directory.  This
+is a naming-boundary change only and requires the usual exact Z0 gate before
+subsequent geometry-builder extraction.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.
