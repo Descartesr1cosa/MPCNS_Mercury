@@ -7,6 +7,7 @@
 #include "00_Mercury_Const.h"
 #include "3_field/Field.h"
 #include "4_halo/HaloEdgeOwnerTypes.h"
+#include "mpcns/compat/legacy_geometry_field_ids.hpp"
 
 struct SolverFields
 {
@@ -85,10 +86,11 @@ struct SolverFields
         }
 
         // ---- geometry ----
-        fid_Jac = fld->field_id("Jac");
-        fid_metric.xi = fld->field_id("JDxi");
-        fid_metric.eta = fld->field_id("JDet");
-        fid_metric.zeta = fld->field_id("JDze");
+        const auto geometry_ids = mpcns::compat::bind_legacy_geometry_field_ids(*fld);
+        fid_Jac = geometry_ids.primal_cell_volume;
+        fid_metric = {geometry_ids.primal_face_area_vector.xi,
+                      geometry_ids.primal_face_area_vector.eta,
+                      geometry_ids.primal_face_area_vector.zeta};
         fid_pinvGT.xi = fld->field_id("pinvGT_xi");
         fid_pinvGT.eta = fld->field_id("pinvGT_eta");
         fid_pinvGT.zeta = fld->field_id("pinvGT_zeta");
@@ -100,33 +102,35 @@ struct SolverFields
         fid_Bcell_from_Bface_w = fld->field_id("Bcell_from_Bface_w");
         fid_Jcell_from_Jedge_w = fld->field_id("Jcell_from_Jedge_w");
 
-        Face_Area.xi = fld->field_id("Area_xi");
-        Face_Area.eta = fld->field_id("Area_eta");
-        Face_Area.zeta = fld->field_id("Area_zeta");
-        Face_dlstar.xi = fld->field_id("dlstar_xi");
-        Face_dlstar.eta = fld->field_id("dlstar_eta");
-        Face_dlstar.zeta = fld->field_id("dlstar_zeta");
-        Hodge_star_2form_to_1form_face.xi = fld->field_id("Hodge_star_2form_to_1form_face_xi_lumped");
-        Hodge_star_2form_to_1form_face.eta = fld->field_id("Hodge_star_2form_to_1form_face_eta_lumped");
-        Hodge_star_2form_to_1form_face.zeta = fld->field_id("Hodge_star_2form_to_1form_face_zeta_lumped");
+        Face_Area = {geometry_ids.primal_face_area.xi,
+                     geometry_ids.primal_face_area.eta,
+                     geometry_ids.primal_face_area.zeta};
+        Face_dlstar = {geometry_ids.dual_edge_length_at_face.xi,
+                       geometry_ids.dual_edge_length_at_face.eta,
+                       geometry_ids.dual_edge_length_at_face.zeta};
+        Hodge_star_2form_to_1form_face = {
+            geometry_ids.lumped_star_primal_2_to_dual_1.xi,
+            geometry_ids.lumped_star_primal_2_to_dual_1.eta,
+            geometry_ids.lumped_star_primal_2_to_dual_1.zeta};
         Face_beta = Hodge_star_2form_to_1form_face;
-        Edge_metric.xi = fld->field_id("Sstar_xi");
-        Edge_metric.eta = fld->field_id("Sstar_eta");
-        Edge_metric.zeta = fld->field_id("Sstar_zeta");
-        Edge_Astar.xi = fld->field_id("Astar_xi");
-        Edge_Astar.eta = fld->field_id("Astar_eta");
-        Edge_Astar.zeta = fld->field_id("Astar_zeta");
-        Edge_dl.xi = fld->field_id("dl_xi");
-        Edge_dl.eta = fld->field_id("dl_eta");
-        Edge_dl.zeta = fld->field_id("dl_zeta");
-        Hodge_star_inverse_2form_to_1form_edge.xi = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_xi_lumped");
-        Hodge_star_inverse_2form_to_1form_edge.eta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_eta_lumped");
-        Hodge_star_inverse_2form_to_1form_edge.zeta = fld->field_id("Hodge_star_inverse_2form_to_1form_edge_zeta_lumped");
+        Edge_metric = {geometry_ids.dual_face_area_vector_at_edge.xi,
+                       geometry_ids.dual_face_area_vector_at_edge.eta,
+                       geometry_ids.dual_face_area_vector_at_edge.zeta};
+        Edge_Astar = {geometry_ids.dual_face_area_at_edge.xi,
+                      geometry_ids.dual_face_area_at_edge.eta,
+                      geometry_ids.dual_face_area_at_edge.zeta};
+        Edge_dl = {geometry_ids.primal_edge_length.xi,
+                   geometry_ids.primal_edge_length.eta,
+                   geometry_ids.primal_edge_length.zeta};
+        Hodge_star_inverse_2form_to_1form_edge = {
+            geometry_ids.lumped_inverse_star_primal_1.xi,
+            geometry_ids.lumped_inverse_star_primal_1.eta,
+            geometry_ids.lumped_inverse_star_primal_1.zeta};
         Edge_alpha = Hodge_star_inverse_2form_to_1form_edge;
 
-        Edge_dr.xi = fld->field_id("dr_xi");
-        Edge_dr.eta = fld->field_id("dr_eta");
-        Edge_dr.zeta = fld->field_id("dr_zeta");
+        Edge_dr = {geometry_ids.primal_edge_vector.xi,
+                   geometry_ids.primal_edge_vector.eta,
+                   geometry_ids.primal_edge_vector.zeta};
 
         // ---- field ids ----
         fid_U_H = fld->field_id("U_H");

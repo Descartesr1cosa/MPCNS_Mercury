@@ -1,0 +1,79 @@
+# Mercury Geometry Inventory and Migration Boundary
+
+Status: audited from the current production source; no numerical migration yet
+
+## 1. The two existing geometry layers
+
+The current implementation has two valid, but entangled, representations of
+the same mesh geometry.
+
+| Layer | Owner today | Contents | Correct responsibility after migration |
+|---|---|---|---|
+| Coordinate and grid-preprocessing layer | `Grid::Block` | node coordinates `x/y/z`, legacy Jacobian and metric arrays, dual-cell centers `dual_x/y/z`, GCL face metrics and tangent bases | `NodeCoordinates`, `PrimalGeometry`, and reconstruction input |
+| Field-derived DEC layer | `METRIC::compute_metric_fields` | face-area vectors, primal/dual measures, diagonal Hodge scales, and reconstruction pseudo-inverses | `PrimalGeometry`, `DualGeometry`, `LumpedHodge`, and `ReconstructionCache` |
+| Quotient-edge closure | `METRIC::SingularEdgeRegistry` | pole/extraordinary-edge aliases, canonical edge, variable-valence dual area, and corrected inverse Hodge value | topology equivalence plus `DualGeometry` closure |
+
+`Grid::Grid_Preprocess()` owns the one-time coordinate exchange and grid
+preparation.  `METRIC::compute_metric_fields()` subsequently reads that closed
+coordinate view and writes the Field-backed derived data.  It must remain free
+of MPI.  `SingularEdgeRegistry` is a separate topological closure step, not a
+generic Hodge stencil.
+
+## 2. Canonical meaning of the production fields
+
+The compatibility adapter `mpcns::compat::LegacyGeometryFieldIds` is now the
+only place where the following legacy catalog strings are resolved for the
+Mercury solver.
+
+| Canonical identity | Legacy field family | Location |
+|---|---|---|
+| `primal_cell_volume` | `Jac` | cell |
+| `primal_face_area_vector` | `JDxi/JDet/JDze` | primal face |
+| `primal_edge_vector` | `dr_xi/dr_eta/dr_zeta` | primal edge |
+| `primal_face_area` | `Area_*` | primal face |
+| `dual_edge_length_at_face` | `dlstar_*` | primal face / dual edge |
+| `primal_edge_length` | `dl_*` | primal edge |
+| `dual_face_area_vector_at_edge` | `Sstar_*` | primal edge / dual face |
+| `dual_face_area_at_edge` | `Astar_*` | primal edge / dual face |
+| `lumped_star_primal_2_to_dual_1` | `Hodge_star_2form_to_1form_face_*_lumped` | primal face |
+| `lumped_inverse_star_primal_1` | `Hodge_star_inverse_2form_to_1form_edge_*_lumped` | primal edge |
+
+The compatibility aliases `Face_beta` and `Edge_alpha` remain inside
+`SolverFields` only so existing physics is unchanged.  New code must use the
+canonical Hodge meaning rather than either alias.
+
+## 3. Dependency boundary now established
+
+~~~text
+legacy Grid + Field catalog
+        |
+        v
+mpcns::compat::LegacyGeometryFieldIds  <-- only legacy field-name mapping
+        |
+        v
+Mercury SolverFields                   <-- existing numerical storage unchanged
+~~~
+
+`mpcns::state::PrimalEdgeFormView` and `PrimalFaceFormView` now belong to the
+state layer.  Incidence code consumes those typed cochains and no longer owns
+their storage definition.  `mpcns_discrete` and `mpcns_legacy_geometry` are
+explicit CMake targets; the former is not compiled through an application
+source glob.  The compatibility layer can also bind a block's exact existing
+Hodge fields as `LumpedHodgeCoefficients`; no copied geometric state or new
+formula is introduced.
+
+## 4. Next safe geometry migrations
+
+1. Introduce immutable `GeometrySnapshot` data owned by the geometry module,
+   initially populated from the exact existing Grid and Field values.
+2. Move the field-derived metric construction behind a builder that produces
+   `PrimalGeometry`, `DualGeometry`, `LumpedHodge`, and
+   `ReconstructionCache` separately while retaining the old field catalog as
+   a publishing adapter.
+3. Give `SingularEdgeRegistry` a topology/dual-geometry input instead of
+   `Field` and `Grid`; retain its current numerical closure as the reference.
+4. Replace `Face_beta` and `Edge_alpha` callers with a `LumpedHodge` API only
+   after field-by-field agreement diagnostics exist.
+
+No consistent/non-diagonal Hodge, MPI schedule, boundary action, or solver
+formula is changed by the current adapter work.

@@ -10,9 +10,9 @@ namespace CTOperators
     {
         (void)iblk; // Compatibility parameter retained for existing call sites.
 
-        const mpcns::discrete::PrimalEdgeFormView edge{
+        const mpcns::state::PrimalEdgeFormView edge{
             Edge_xi, Edge_eta, Edge_zeta};
-        const mpcns::discrete::PrimalFaceFormView face{
+        const mpcns::state::PrimalFaceFormView face{
             Face_xi, Face_eta, Face_zeta};
         mpcns::discrete::apply_d1(edge, face, multiper);
     }

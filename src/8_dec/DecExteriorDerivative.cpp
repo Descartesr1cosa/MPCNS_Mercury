@@ -70,9 +70,9 @@ namespace DEC
                          int edge_comp,
                          int face_comp)
     {
-        const mpcns::discrete::PrimalEdgeFormView edge{
+        const mpcns::state::PrimalEdgeFormView edge{
             edge_xi, edge_eta, edge_zeta, edge_comp};
-        const mpcns::discrete::PrimalFaceFormView face{
+        const mpcns::state::PrimalFaceFormView face{
             face_xi, face_eta, face_zeta, face_comp};
         mpcns::discrete::apply_d1(edge, face);
     }
@@ -150,9 +150,9 @@ namespace DEC
                                    int edge_comp,
                                    int face_comp)
     {
-        const mpcns::discrete::PrimalEdgeFormView edge{
+        const mpcns::state::PrimalEdgeFormView edge{
             edge_xi, edge_eta, edge_zeta, edge_comp};
-        const mpcns::discrete::PrimalFaceFormView face{
+        const mpcns::state::PrimalFaceFormView face{
             face_xi, face_eta, face_zeta, face_comp};
         mpcns::discrete::subtract_d1(edge, face, dt);
     }

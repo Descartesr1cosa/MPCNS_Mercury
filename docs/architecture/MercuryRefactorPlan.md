@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Unit 1 implementation in review (not yet built in this host)
+Status: Accepted design baseline; Units 1–3 implementation in review (Unit 1 Z0 target compiled)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -62,10 +62,15 @@ Legacy strings may remain in case files, restarts, and IO name maps. They do not
 
 ~~~text
 include/mpcns/
-  core/  mesh/  geometry/  state/  discrete/  parallel/
+  core/  mesh/  geometry/  state/  discrete/  compat/  parallel/
   boundary/  linalg/  physics/  solver/  io/  apps/mercury/
 src/ mirrors include/mpcns/
 ~~~
+
+`compat/` is a temporary, explicit boundary for legacy Grid/Field layouts and
+catalog names.  It may depend on legacy classes; the target geometry module
+may not.  It is removed only after all applications are constructed through
+the new geometry and state APIs.
 
 Each area is a separate CMake target: mpcns_core, mpcns_mesh, mpcns_geometry, mpcns_state, mpcns_discrete, mpcns_parallel, mpcns_boundary, mpcns_linalg, mpcns_physics, mpcns_solver, mpcns_io, and mpcns_mercury_app.
 
@@ -251,6 +256,18 @@ Current incremental scope: `d1` has been centralized behind the transitional
 `mpcns::discrete::apply_d1` facade, with the former CT stencil retained only as
 a Z0 regression oracle. `d0`, `d2`, and the transpose remain unchanged until
 this unit has been reviewed and run in the Ubuntu/cluster build environment.
+
+The next completed seam is documented in
+`docs/architecture/GeometryInventory.md`: cochain storage now belongs to
+`mpcns::state`, and all Mercury geometry/Hodge catalog-ID binding goes through
+`mpcns::compat::LegacyGeometryFieldIds`.  This adds no geometry calculation or
+solver behavior; it isolates the legacy backend before `GeometrySnapshot` is
+introduced.
+
+The current unintegrated numerical foundation also exposes `d1^T` and a
+`HodgeOperator` interface with `LumpedHodge` as its production implementation.
+The existing CT adjoint curl is deliberately still active until a workspace and
+an exact old-versus-new Hodge/adjoint regression are available.
 
 ### Phase 3 — GeometrySnapshot and LumpedHodge
 

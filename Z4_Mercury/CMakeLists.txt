@@ -41,7 +41,19 @@ aux_source_directory(../src/5_boundary  DIRSRCS5)
 aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
 aux_source_directory(../src/8_dec  DIRSRCS8)
-aux_source_directory(../src/mpcns/discrete DIRSRCS_MPCNS_DISCRETE)
+
+# New bottom-layer modules are explicit targets rather than source globs.
+if(NOT TARGET mpcns_discrete)
+    add_library(mpcns_discrete STATIC
+        ../src/mpcns/discrete/incidence_operator.cpp
+        ../src/mpcns/discrete/lumped_hodge.cpp)
+    target_include_directories(mpcns_discrete PUBLIC ../include)
+endif()
+
+add_library(mpcns_legacy_geometry STATIC
+    ../src/mpcns/compat/legacy_geometry_field_ids.cpp)
+target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
+target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete)
 
 # Mercury solver sources.
 aux_source_directory(./src  SRC)
@@ -52,15 +64,20 @@ aux_source_directory(./src/tools  SRC_TOOL)
 set(SRC_IMP ./src/implicit/Mercury_ImplicitResistive.cpp)
 
 # Build the executable.
-add_executable(MercuryZ4 main.cpp 
+add_executable(MercuryZ4 main.cpp
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
  ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
- ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${DIRSRCS_MPCNS_DISCRETE} ${SRC}
+ ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
  ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
 
 # Link MPI and PETSc.
-target_link_libraries(MercuryZ4 PRIVATE ${MPI_LIBRARIES} PkgConfig::PETSC stdc++fs)
+target_link_libraries(MercuryZ4 PRIVATE
+    mpcns_discrete
+    mpcns_legacy_geometry
+    ${MPI_LIBRARIES}
+    PkgConfig::PETSC
+    stdc++fs)
 if(OUTPUT_DEC_JEDGE)
     target_compile_definitions(MercuryZ4 PRIVATE OUTPUT_DEC_JEDGE=1)
 endif()

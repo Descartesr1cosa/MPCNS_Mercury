@@ -180,9 +180,9 @@ namespace Z0_TEST
                 !face_eta.is_allocated() || !face_zeta.is_allocated())
                 continue;
 
-            const mpcns::discrete::PrimalEdgeFormView edge{
+            const mpcns::state::PrimalEdgeFormView edge{
                 edge_xi, edge_eta, edge_zeta};
-            const mpcns::discrete::PrimalFaceFormView face{
+            const mpcns::state::PrimalFaceFormView face{
                 face_xi, face_eta, face_zeta};
             mpcns::discrete::apply_d1(edge, face);
         }
