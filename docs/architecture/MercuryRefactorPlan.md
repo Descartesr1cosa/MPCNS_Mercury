@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline
+Status: Accepted design baseline; Unit 1 implementation in review (not yet built in this host)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -246,6 +246,11 @@ Introduce namespace, CMake target boundaries, typed cochain views, and GeometryS
 ### Phase 2 — Single incidence implementation
 
 Make IncidenceOperator the only d0/d1/d2 implementation and provide d1 transpose. Convert CT to a compatibility caller. Gate: legacy CT and DEC d1 match exactly on random cochains; d1*d0 = 0 and d2*d1 = 0; orientation tests pass.
+
+Current incremental scope: `d1` has been centralized behind the transitional
+`mpcns::discrete::apply_d1` facade, with the former CT stencil retained only as
+a Z0 regression oracle. `d0`, `d2`, and the transpose remain unchanged until
+this unit has been reviewed and run in the Ubuntu/cluster build environment.
 
 ### Phase 3 — GeometrySnapshot and LumpedHodge
 

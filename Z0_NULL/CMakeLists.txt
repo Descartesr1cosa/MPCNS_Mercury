@@ -29,6 +29,7 @@ aux_source_directory(../src/4_halo/owner DIRSRCS4_OWNER)
 aux_source_directory(../src/6_io DIRSRCS6)
 aux_source_directory(../src/7_metric DIRSRCS7)
 aux_source_directory(../src/8_dec DIRSRCS8)
+aux_source_directory(../src/mpcns/discrete DIRSRCS_MPCNS_DISCRETE)
 aux_source_directory(./src Z0_NULL_SRCS)
 aux_source_directory(./src/boundary Z0_NULL_BOUNDARY_SRCS)
 aux_source_directory(./src/physics Z0_NULL_PHYSICS_SRCS)
@@ -51,6 +52,7 @@ add_executable(z0_null
     ${DIRSRCS6}
     ${DIRSRCS7}
     ${DIRSRCS8}
+    ${DIRSRCS_MPCNS_DISCRETE}
     ${Z0_NULL_SRCS}
     ${Z0_NULL_BOUNDARY_SRCS}
     ${Z0_NULL_PHYSICS_SRCS}

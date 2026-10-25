@@ -7,13 +7,18 @@ BUILD_DIR="${ROOT_DIR}/build/Z0_NULL"
 LOG_DIR="${BUILD_DIR}/validation_logs"
 NP="${NP:-3}"
 
+if ! [[ "${NP}" =~ ^[1-4]$ ]]; then
+    echo "[Z0 validation] NP must be an integer from 1 to 4 (got: ${NP})" >&2
+    exit 2
+fi
+
 if [[ ! -d "${BUILD_DIR}" ]]; then
     echo "[Z0 validation] missing build directory: ${BUILD_DIR}" >&2
     echo "Run cmake first, for example: cmake -S . -B build" >&2
     exit 1
 fi
 
-cmake --build "${BUILD_DIR}" --target z0_null
+cmake --build "${BUILD_DIR}" --target z0_null --parallel 4
 
 if [[ ! -d "${BUILD_DIR}/CASE" ]]; then
     echo "[Z0 validation] missing CASE directory: ${BUILD_DIR}/CASE" >&2

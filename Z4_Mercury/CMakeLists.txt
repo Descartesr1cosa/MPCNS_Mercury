@@ -41,6 +41,7 @@ aux_source_directory(../src/5_boundary  DIRSRCS5)
 aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
 aux_source_directory(../src/8_dec  DIRSRCS8)
+aux_source_directory(../src/mpcns/discrete DIRSRCS_MPCNS_DISCRETE)
 
 # Mercury solver sources.
 aux_source_directory(./src  SRC)
@@ -55,7 +56,7 @@ add_executable(MercuryZ4 main.cpp
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
  ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
- ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
+ ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${DIRSRCS_MPCNS_DISCRETE} ${SRC}
  ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
 
 # Link MPI and PETSc.

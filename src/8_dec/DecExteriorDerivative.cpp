@@ -1,43 +1,8 @@
 #include "8_dec/DecOps.h"
+#include "mpcns/discrete/incidence_operator.hpp"
 
 namespace DEC
 {
-    namespace
-    {
-        double d1_xi_at(FieldBlock &edge_eta,
-                        FieldBlock &edge_zeta,
-                        int i,
-                        int j,
-                        int k,
-                        int edge_comp)
-        {
-            return (edge_eta(i, j, k, edge_comp) - edge_eta(i, j, k + 1, edge_comp)) +
-                   (edge_zeta(i, j + 1, k, edge_comp) - edge_zeta(i, j, k, edge_comp));
-        }
-
-        double d1_eta_at(FieldBlock &edge_xi,
-                         FieldBlock &edge_zeta,
-                         int i,
-                         int j,
-                         int k,
-                         int edge_comp)
-        {
-            return (edge_xi(i, j, k + 1, edge_comp) - edge_xi(i, j, k, edge_comp)) +
-                   (edge_zeta(i, j, k, edge_comp) - edge_zeta(i + 1, j, k, edge_comp));
-        }
-
-        double d1_zeta_at(FieldBlock &edge_xi,
-                          FieldBlock &edge_eta,
-                          int i,
-                          int j,
-                          int k,
-                          int edge_comp)
-        {
-            return (edge_xi(i, j, k, edge_comp) - edge_xi(i, j + 1, k, edge_comp)) +
-                   (edge_eta(i + 1, j, k, edge_comp) - edge_eta(i, j, k, edge_comp));
-        }
-    }
-
     void d0_node_to_edge(FieldBlock &node,
                          FieldBlock &edge_xi,
                          FieldBlock &edge_eta,
@@ -105,35 +70,11 @@ namespace DEC
                          int edge_comp,
                          int face_comp)
     {
-        {
-            const Int3 lo = face_xi.inner_lo();
-            const Int3 hi = face_xi.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_xi(i, j, k, face_comp) =
-                            d1_xi_at(edge_eta, edge_zeta, i, j, k, edge_comp);
-        }
-
-        {
-            const Int3 lo = face_eta.inner_lo();
-            const Int3 hi = face_eta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_eta(i, j, k, face_comp) =
-                            d1_eta_at(edge_xi, edge_zeta, i, j, k, edge_comp);
-        }
-
-        {
-            const Int3 lo = face_zeta.inner_lo();
-            const Int3 hi = face_zeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_zeta(i, j, k, face_comp) =
-                            d1_zeta_at(edge_xi, edge_eta, i, j, k, edge_comp);
-        }
+        const mpcns::discrete::PrimalEdgeFormView edge{
+            edge_xi, edge_eta, edge_zeta, edge_comp};
+        const mpcns::discrete::PrimalFaceFormView face{
+            face_xi, face_eta, face_zeta, face_comp};
+        mpcns::discrete::apply_d1(edge, face);
     }
 
     void d1_edge_to_face(Field &fields,
@@ -209,35 +150,11 @@ namespace DEC
                                    int edge_comp,
                                    int face_comp)
     {
-        {
-            const Int3 lo = face_xi.inner_lo();
-            const Int3 hi = face_xi.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_xi(i, j, k, face_comp) -=
-                            dt * d1_xi_at(edge_eta, edge_zeta, i, j, k, edge_comp);
-        }
-
-        {
-            const Int3 lo = face_eta.inner_lo();
-            const Int3 hi = face_eta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_eta(i, j, k, face_comp) -=
-                            dt * d1_eta_at(edge_xi, edge_zeta, i, j, k, edge_comp);
-        }
-
-        {
-            const Int3 lo = face_zeta.inner_lo();
-            const Int3 hi = face_zeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        face_zeta(i, j, k, face_comp) -=
-                            dt * d1_zeta_at(edge_xi, edge_eta, i, j, k, edge_comp);
-        }
+        const mpcns::discrete::PrimalEdgeFormView edge{
+            edge_xi, edge_eta, edge_zeta, edge_comp};
+        const mpcns::discrete::PrimalFaceFormView face{
+            face_xi, face_eta, face_zeta, face_comp};
+        mpcns::discrete::subtract_d1(edge, face, dt);
     }
 
     void faraday_update_face_2form(Field &fields,
