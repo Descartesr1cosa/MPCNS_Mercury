@@ -2,6 +2,18 @@
 #include "1_grid/1_MPCNS_Grid.h"
 #include "1_grid/Grid_Trans.h"
 #include <fstream>
+#include <stdexcept>
+
+namespace
+{
+void RequireOpen(const std::ifstream &stream, const std::string &path)
+{
+    if (!stream.is_open())
+    {
+        throw std::runtime_error("Cannot open required grid input: " + path);
+    }
+}
+} // namespace
 
 /**
  * @brief 读取grd、inp、fvbnd文件
@@ -42,7 +54,9 @@ void Grid::ReadGeometry(int32_t my_id, int32_t ghostmesh, int32_t Method)
 void Grid::Read_Grid(std::string _my_id_s, int32_t my_id)
 {
     /*****************读取网格******************/
-    std::ifstream grd("./CASE/geometry/grid" + _my_id_s + ".grd", std::ios::in);
+    const std::string path = "./CASE/geometry/grid" + _my_id_s + ".grd";
+    std::ifstream grd(path, std::ios::in);
+    RequireOpen(grd, path);
     std::string input;
     /****************读取网格块数*****************/
     int32_t numofblock = 0;
@@ -125,7 +139,9 @@ void Grid::Read_Grid(std::string _my_id_s, int32_t my_id)
 void Grid::Read_Grid_Binary(std::string _my_id_s, int32_t my_id)
 {
     /*****************读取网格******************/
-    std::ifstream grd("./CASE/geometry/grid" + _my_id_s + ".grd", std::ios::in | std::ios::binary);
+    const std::string path = "./CASE/geometry/grid" + _my_id_s + ".grd";
+    std::ifstream grd(path, std::ios::in | std::ios::binary);
+    RequireOpen(grd, path);
     int32_t temp_int, doublelength = sizeof(double);
     double temp_double;
     /****************读取网格块数*****************/
@@ -233,8 +249,9 @@ void Grid::Read_Phy_Boundary(std::string _my_id_s)
 {
     /*****************边界条件******************/
     /***********读取boundary外边界条件**********/
-    std::ifstream grd;
-    grd.open("./CASE/geometry/boundary_condition/boundary" + _my_id_s + ".txt", std::ios::in);
+    const std::string path = "./CASE/geometry/boundary_condition/boundary" + _my_id_s + ".txt";
+    std::ifstream grd(path, std::ios::in);
+    RequireOpen(grd, path);
     for (int izone = 0; izone < nblock; izone++)
     {
         Block &iblock = grids(izone);
@@ -296,19 +313,20 @@ void Grid::Read_Phy_Boundary(std::string _my_id_s)
 void Grid::Read_Phy_Name(std::string _my_id_s, int32_t my_id)
 {
     /***********读取fvbnd物理边界条件以更新bcname**********/
-    std::ifstream grd;
+    const std::string path = "./CASE/geometry/boundary_condition/boundary_name.fvbnd";
     std::string input;
-    grd.open("./CASE/geometry/boundary_condition/boundary_name.fvbnd", std::ios::in);
+    std::ifstream grd(path, std::ios::in);
+    RequireOpen(grd, path);
     std::getline(grd, input);                                              // FVBND 1 3
     std::getline(grd, input);                                              //(0)No_boundary_Conditions,注意没有为1的类型
     boundary_name.push_back(input);                                        //(0)No_boundary_Conditions
     boundary_name.push_back("");                                           //(1)""
     boundary_name_index.insert(std::pair<std::string, int32_t>(input, 0)); //(0)No_boundary_Conditions
     int bc_number = 1;
-    while (true)
+    while (grd >> input)
     {
         bc_number = bc_number + 1;
-        grd >> input; // 读入名称
+        // 读入名称
         // std::getline(grd, input);		//读入名称
         // input.resize(input.size() - 1); //末尾有换行
         if (input == "BOUNDARIES")
@@ -317,6 +335,10 @@ void Grid::Read_Phy_Name(std::string _my_id_s, int32_t my_id)
         }
         boundary_name_index.insert(std::pair<std::string, int>(input, bc_number));
         boundary_name.push_back(input);
+    }
+    if (input != "BOUNDARIES")
+    {
+        throw std::runtime_error("Malformed physical-boundary name file (missing BOUNDARIES): " + path);
     }
     grd.close();
     // 读取fvbnd物理边界条件名称成功,上面boundary_name由号索引字符串，boundary_name_index由字符串索引号码
@@ -402,9 +424,10 @@ void Grid::Read_Inner_Boundary(std::string _my_id_s, int32_t my_id)
 {
     /*****************边界条件******************/
     /**********读取inner内边界对应关系**********/
-    std::ifstream grd;
+    const std::string path = "./CASE/geometry/boundary_condition/inner" + _my_id_s + ".txt";
     std::string input;
-    grd.open("./CASE/geometry/boundary_condition/inner" + _my_id_s + ".txt", std::ios::in);
+    std::ifstream grd(path, std::ios::in);
+    RequireOpen(grd, path);
 
     // 先读内边界面总数
     std::getline(grd, input);
@@ -520,9 +543,10 @@ void Grid::Read_Parallel_Boundary(std::string _my_id_s, int32_t my_id)
 {
     /*****************边界条件******************/
     /********读取parallel 进程间对接关系********/
-    std::ifstream grd;
+    const std::string path = "./CASE/geometry/boundary_condition/parallel" + _my_id_s + ".txt";
     std::string input;
-    grd.open("./CASE/geometry/boundary_condition/parallel" + _my_id_s + ".txt", std::ios::in);
+    std::ifstream grd(path, std::ios::in);
+    RequireOpen(grd, path);
     int blk_num1 = 0;
     grd >> blk_num1; // 首先读入该进程的块数，看看与网格坐标是否匹配
     if (blk_num1 != nblock)

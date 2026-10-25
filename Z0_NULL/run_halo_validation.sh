@@ -6,9 +6,15 @@ ROOT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 BUILD_DIR="${ROOT_DIR}/build/Z0_NULL"
 LOG_DIR="${BUILD_DIR}/validation_logs"
 NP="${NP:-3}"
+TIMEOUT_SECONDS="${Z0_VALIDATION_TIMEOUT:-120}"
 
-if ! [[ "${NP}" =~ ^[1-4]$ ]]; then
-    echo "[Z0 validation] NP must be an integer from 1 to 4 (got: ${NP})" >&2
+if [[ "${NP}" != "3" ]]; then
+    echo "[Z0 validation] the bundled CASE contains a 3-rank geometry; NP must be 3 (got: ${NP})" >&2
+    exit 2
+fi
+
+if ! [[ "${TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[Z0 validation] Z0_VALIDATION_TIMEOUT must be a positive integer in seconds (got: ${TIMEOUT_SECONDS})" >&2
     exit 2
 fi
 
@@ -25,6 +31,32 @@ if [[ ! -d "${BUILD_DIR}/CASE" ]]; then
     exit 1
 fi
 
+# Grid::ReadGeometry intentionally consumes CASE/geometry.  The compact Z0
+# case stores its two geometry variants in an archive; this harness selects
+# the 3-rank variant and leaves any pre-existing CASE/geometry untouched.
+CASE_DIR="${BUILD_DIR}/CASE"
+GEOMETRY_ARCHIVE="${CASE_DIR}/geometry.tar.gz"
+GEOMETRY_SOURCE="${CASE_DIR}/geometry_3"
+GEOMETRY_LINK="${CASE_DIR}/geometry"
+
+if [[ ! -d "${GEOMETRY_SOURCE}" ]]; then
+    if [[ ! -f "${GEOMETRY_ARCHIVE}" ]]; then
+        echo "[Z0 validation] missing geometry archive: ${GEOMETRY_ARCHIVE}" >&2
+        exit 1
+    fi
+    tar -xzf "${GEOMETRY_ARCHIVE}" -C "${CASE_DIR}"
+fi
+
+if [[ ! -e "${GEOMETRY_LINK}" && ! -L "${GEOMETRY_LINK}" ]]; then
+    ln -s "geometry_3" "${GEOMETRY_LINK}"
+elif [[ -L "${GEOMETRY_LINK}" && "$(readlink "${GEOMETRY_LINK}")" != "geometry_3" ]]; then
+    echo "[Z0 validation] CASE/geometry points to an unexpected geometry variant; remove or correct ${GEOMETRY_LINK}" >&2
+    exit 1
+elif [[ ! -L "${GEOMETRY_LINK}" ]]; then
+    echo "[Z0 validation] CASE/geometry already exists and is not the managed geometry_3 link; leaving it untouched" >&2
+    exit 1
+fi
+
 mkdir -p "${LOG_DIR}"
 
 run_case() {
@@ -35,7 +67,8 @@ run_case() {
     echo "[Z0 validation] running ${name}"
     (
         cd "${BUILD_DIR}"
-        env Z0_TEST_DRIVEN_SYNC=1 "$@" mpirun -np "${NP}" ./z0_null
+        timeout --preserve-status --signal=TERM "${TIMEOUT_SECONDS}s" \
+            env Z0_TEST_DRIVEN_SYNC=1 "$@" mpirun -np "${NP}" ./z0_null
     ) >"${log}" 2>&1
 
     if grep -q "\\[FAIL\\]" "${log}"; then
