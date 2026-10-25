@@ -1,6 +1,6 @@
 # Mercury Geometry Inventory and Migration Boundary
 
-Status: audited from the current production source; no numerical migration yet
+Status: audited; borrowed GeometrySnapshot compatibility boundary implemented
 
 ## 1. The two existing geometry layers
 
@@ -62,7 +62,33 @@ source glob.  The compatibility layer can also bind a block's exact existing
 Hodge fields as `LumpedHodgeCoefficients`; no copied geometric state or new
 formula is introduced.
 
-## 4. Next safe geometry migrations
+## 4. GeometrySnapshot compatibility boundary
+
+`mpcns::geometry::GeometrySnapshot` is now a read-only, type-erased view of
+all local geometry blocks.  The geometry target itself includes neither legacy
+`Grid`/`Field`, MPI, nor Mercury headers.  Its vocabulary is deliberately
+small and stable:
+
+~~~text
+NodeCoordinates
+PrimalGeometry: cell volume, face-area vector, edge vector, face area, edge length
+DualGeometry: dual-edge length, dual-face-area vector, dual-face area
+GeometrySnapshot: ordered local GeometryBlock views
+~~~
+
+`mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
+legacy-aware constructor.  It borrows the current coordinates and derived
+metric fields exactly; it allocates nothing and changes no numerical result.
+Its lifetime is explicitly tied to the supplied legacy `Grid` and `Field`.
+The compatibility snapshot therefore establishes the target interface before
+the storage migration, rather than copying a second, potentially divergent
+geometry cache.
+
+Z0 now checks every snapshot category against the original storage at a local
+sample point, including all directions and vector components.  This is exact
+readback validation, not a tolerance-based geometry comparison.
+
+## 5. Next safe geometry migrations
 
 1. Introduce immutable `GeometrySnapshot` data owned by the geometry module,
    initially populated from the exact existing Grid and Field values.
@@ -78,7 +104,7 @@ formula is introduced.
 No consistent/non-diagonal Hodge, MPI schedule, boundary action, or solver
 formula is changed by the current adapter work.
 
-## 5. Regression gate before production migration
+## 6. Regression gate before production migration
 
 Z0 registers a local dual-edge workspace with the same ghost reach as the
 current metric fields.  Its DEC-chain test computes electric current through

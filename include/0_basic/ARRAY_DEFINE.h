@@ -296,12 +296,13 @@ private:
     std::vector<T> a3;
 
 public:
-    int32_t Getsize1() { return dim1; };
-    int32_t Getsize2() { return dim2; };
-    int32_t Getsize3() { return dim3; };
-    int32_t Getghostmesh() { return ghostmesh; };
+    int32_t Getsize1() const { return dim1; };
+    int32_t Getsize2() const { return dim2; };
+    int32_t Getsize3() const { return dim3; };
+    int32_t Getghostmesh() const { return ghostmesh; };
 
     std::vector<T> &GetA3() { return a3; };
+    const std::vector<T> &GetA3() const { return a3; };
 
 public:
     void SetGhostmesh(int32_t gmesh) { ghostmesh = gmesh; }
@@ -362,6 +363,11 @@ public:
     T &operator()(int32_t n1, int32_t n2, int32_t n3)
     {
         // return a3[(n1 + ghostmesh) * multip1 + (n2 + ghostmesh) * dim3 + n3 + ghostmesh];
+        return a3[n1 * multip1 + n2 * dim3 + n3 + addconst];
+    };
+
+    const T &operator()(int32_t n1, int32_t n2, int32_t n3) const
+    {
         return a3[n1 * multip1 + n2 * dim3 + n3 + addconst];
     };
 

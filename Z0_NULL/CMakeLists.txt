@@ -41,11 +41,18 @@ if(NOT TARGET mpcns_discrete)
     target_include_directories(mpcns_discrete PUBLIC ../include)
 endif()
 
+if(NOT TARGET mpcns_geometry)
+    add_library(mpcns_geometry STATIC
+        ../src/mpcns/geometry/geometry_snapshot.cpp)
+    target_include_directories(mpcns_geometry PUBLIC ../include)
+endif()
+
 if(NOT TARGET mpcns_legacy_geometry)
     add_library(mpcns_legacy_geometry STATIC
-        ../src/mpcns/compat/legacy_geometry_field_ids.cpp)
+        ../src/mpcns/compat/legacy_geometry_field_ids.cpp
+        ../src/mpcns/compat/legacy_geometry_snapshot.cpp)
     target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
-    target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete)
+    target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete mpcns_geometry)
 endif()
 aux_source_directory(./src Z0_NULL_SRCS)
 aux_source_directory(./src/boundary Z0_NULL_BOUNDARY_SRCS)

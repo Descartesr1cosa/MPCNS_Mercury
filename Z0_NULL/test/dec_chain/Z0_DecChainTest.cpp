@@ -5,6 +5,7 @@
 #include "7_metric/Metric.h"
 #include "8_dec/DecOps.h"
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
+#include "mpcns/compat/legacy_geometry_snapshot.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 
@@ -268,6 +269,85 @@ namespace
         }
         return Z0_TEST::global_max(max_difference);
     }
+
+    double max_difference_from_geometry_snapshot(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        const mpcns::geometry::GeometrySnapshot snapshot =
+            mpcns::compat::borrow_legacy_geometry_snapshot(grid, field);
+        double max_difference = snapshot.is_complete() ? 0.0 : std::numeric_limits<double>::infinity();
+
+        const auto update = [&](double lhs, double rhs)
+        {
+            if (!std::isfinite(lhs) || !std::isfinite(rhs))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference, std::abs(lhs - rhs));
+        };
+
+        const auto compare_field = [&](const mpcns::geometry::ConstFieldView &view,
+                                       const FieldBlock &legacy,
+                                       int components)
+        {
+            if (!legacy.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+            const Int3 index = legacy.get_lo();
+            const mpcns::core::LogicalIndex geometry_index{index.i, index.j, index.k};
+            for (int component = 0; component < components; ++component)
+                update(view.value(geometry_index, component), legacy(index.i, index.j, index.k, component));
+        };
+
+        const auto compare_directional = [&](const mpcns::geometry::DirectionalFieldViews &views,
+                                             const mpcns::compat::DirectionalFieldIds &ids,
+                                             int components,
+                                             int block)
+        {
+            compare_field(views.xi, field.field(ids.xi, block), components);
+            compare_field(views.eta, field.field(ids.eta, block), components);
+            compare_field(views.zeta, field.field(ids.zeta, block), components);
+        };
+
+        if (snapshot.block_count() != static_cast<std::size_t>(grid.nblock))
+            max_difference = std::numeric_limits<double>::infinity();
+
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            const mpcns::geometry::GeometryBlock &geometry = snapshot.block(ib);
+            const Block &legacy_block = grid.grids(ib);
+            if (geometry.name != legacy_block.block_name ||
+                geometry.spatial_dimension != legacy_block.dimension)
+                max_difference = std::numeric_limits<double>::infinity();
+
+            const mpcns::core::LogicalIndex node_index{0, 0, 0};
+            const mpcns::geometry::CartesianPoint point = geometry.coordinates.position(node_index);
+            update(point.x, legacy_block.x(0, 0, 0));
+            update(point.y, legacy_block.y(0, 0, 0));
+            update(point.z, legacy_block.z(0, 0, 0));
+
+            compare_field(geometry.primal.cell_volume,
+                          field.field(geometry_ids.primal_cell_volume, ib), 1);
+            compare_directional(geometry.primal.face_area_vector,
+                                geometry_ids.primal_face_area_vector, 3, ib);
+            compare_directional(geometry.primal.edge_vector,
+                                geometry_ids.primal_edge_vector, 3, ib);
+            compare_directional(geometry.primal.face_area,
+                                geometry_ids.primal_face_area, 1, ib);
+            compare_directional(geometry.primal.edge_length,
+                                geometry_ids.primal_edge_length, 1, ib);
+            compare_directional(geometry.dual.edge_length_at_primal_face,
+                                geometry_ids.dual_edge_length_at_face, 1, ib);
+            compare_directional(geometry.dual.face_area_vector_at_primal_edge,
+                                geometry_ids.dual_face_area_vector_at_edge, 3, ib);
+            compare_directional(geometry.dual.face_area_at_primal_edge,
+                                geometry_ids.dual_face_area_at_edge, 1, ib);
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
 }
 
 namespace Z0_TEST
@@ -331,6 +411,11 @@ namespace Z0_TEST
         METRIC::compute_metric_fields(field, *field.grd);
         fill_face_form(field);
         const auto geometry_ids = mpcns::compat::bind_legacy_geometry_field_ids(field);
+        const double geometry_snapshot_difference =
+            max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);
+        passed &= print_result("GeometrySnapshot reads exact legacy geometry",
+                               geometry_snapshot_difference == 0.0,
+                               max_detail(geometry_snapshot_difference));
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {

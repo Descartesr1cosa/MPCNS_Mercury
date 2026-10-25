@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1–4 implementation in review (Z0 Hodge equivalence test pending)
+Status: Accepted design baseline; Units 1–5 implementation in review (Z0 Hodge gate passed; GeometrySnapshot gate pending)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -263,6 +263,12 @@ The next completed seam is documented in
 `mpcns::compat::LegacyGeometryFieldIds`.  This adds no geometry calculation or
 solver behavior; it isolates the legacy backend before `GeometrySnapshot` is
 introduced.
+
+`mpcns::geometry::GeometrySnapshot` is now present as a geometry-only,
+read-only API.  `mpcns::compat::borrow_legacy_geometry_snapshot` supplies its
+temporary Grid/Field-backed implementation.  It is validated by exact Z0
+readback of coordinates and every current primal/dual metric category; no
+Mercury production path consumes it yet.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.
