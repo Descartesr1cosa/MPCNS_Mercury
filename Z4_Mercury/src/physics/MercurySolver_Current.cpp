@@ -1,9 +1,9 @@
 #include "MercurySolver.h"
 
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
-#include "mpcns/constraints/least_squares_3.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
+#include "mpcns/operators/pole_current_constraint.hpp"
 #include "mpcns/operators/reconstruction_operators.hpp"
 
 void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
@@ -215,147 +215,29 @@ void MercurySolver::calc_Jcell()
 
     if (topo_)
     {
-        constexpr double eps_len = 1.0e-14;
-
+        std::vector<mpcns::operators::PoleCurrentCellPatch> pole_patches;
+        pole_patches.reserve(topo_->physical_patches.size());
         for (const auto &p : topo_->physical_patches)
         {
-            if (p.bc_name != "Pole")
-                continue;
-
-            const int dir = std::abs(p.direction);
-            if (dir != 1 && dir != 2)
+            if (p.bc_name != "Pole" ||
+                (std::abs(p.direction) != 1 && std::abs(p.direction) != 2) ||
+                p.this_block < 0 || p.this_block >= nblock)
                 continue;
 
             const int ib = p.this_block;
-            if (ib < 0 || ib >= nblock)
-                continue;
-
-            auto &Jcell = fld_->field(fid_.fid_Jcell, ib);
-            auto &Jxi = fld_->field(fid_.fid_J.xi, ib);
-            auto &Jeta = fld_->field(fid_.fid_J.eta, ib);
-            auto &Jzeta = fld_->field(fid_.fid_J.zeta, ib);
-            auto &dr_xi = fld_->field(fid_.Edge_dr.xi, ib);
-            auto &dr_eta = fld_->field(fid_.Edge_dr.eta, ib);
-            auto &dr_zeta = fld_->field(fid_.Edge_dr.zeta, ib);
-
-            if (!Jcell.is_allocated() || !Jxi.is_allocated() ||
-                !Jeta.is_allocated() || !Jzeta.is_allocated() ||
-                !dr_xi.is_allocated() || !dr_eta.is_allocated() ||
-                !dr_zeta.is_allocated())
-                continue;
-
-            const bool high_side = (p.direction > 0);
-            const Box3 &node = p.this_box_node;
-
-            auto push_edge = [&](FieldBlock &Je, FieldBlock &dr,
-                                 int i, int j, int k,
-                                 double A[3][3], double b[3], int &cnt)
-            {
-                const double dx = dr(i, j, k, 0);
-                const double dy = dr(i, j, k, 1);
-                const double dz = dr(i, j, k, 2);
-                const double L = std::sqrt(dx * dx + dy * dy + dz * dz);
-
-                if (L < eps_len)
-                    return;
-
-                const double tau[3] = {dx / L, dy / L, dz / L};
-                const double y = Je(i, j, k, 0) / L;
-
-                for (int a = 0; a < 3; ++a)
-                {
-                    b[a] += y * tau[a];
-                    for (int c = 0; c < 3; ++c)
-                        A[a][c] += tau[a] * tau[c];
-                }
-
-                ++cnt;
-            };
-
-            auto write_ring = [&](int ic, int jc,
-                                  double A[3][3], double b[3], int cnt,
-                                  int klo, int khi)
-            {
-                if (cnt <= 0)
-                    return;
-
-                double Jp[3] = {0.0, 0.0, 0.0};
-                if (!mpcns::constraints::solve_regularized_least_squares_3(A, b, Jp))
-                    return;
-
-                for (int k = klo; k < khi; ++k)
-                {
-                    Jcell(ic, jc, k, 0) = Jp[0];
-                    Jcell(ic, jc, k, 1) = Jp[1];
-                    Jcell(ic, jc, k, 2) = Jp[2];
-                }
-            };
-
-            if (dir == 1)
-            {
-                const int ic = high_side ? (node.lo.i - 1) : node.lo.i;
-                const int it = high_side ? ic : (ic + 1);
-
-                for (int j = node.lo.j; j < node.hi.j - 1; ++j)
-                {
-                    double A[3][3] = {
-                        {0.0, 0.0, 0.0},
-                        {0.0, 0.0, 0.0},
-                        {0.0, 0.0, 0.0}};
-                    double b[3] = {0.0, 0.0, 0.0};
-                    int cnt = 0;
-
-                    for (int k = node.lo.k; k < node.hi.k - 1; ++k)
-                    {
-                        // norm edges on the Pole layer
-                        push_edge(Jxi, dr_xi, ic, j, k, A, b, cnt);
-                        push_edge(Jxi, dr_xi, ic, j + 1, k, A, b, cnt);
-                        push_edge(Jxi, dr_xi, ic, j, k + 1, A, b, cnt);
-                        push_edge(Jxi, dr_xi, ic, j + 1, k + 1, A, b, cnt);
-
-                        // axis/rotate edges one layer away from the Pole
-                        push_edge(Jeta, dr_eta, it, j, k, A, b, cnt);
-                        push_edge(Jeta, dr_eta, it, j, k + 1, A, b, cnt);
-                        push_edge(Jzeta, dr_zeta, it, j, k, A, b, cnt);
-                        push_edge(Jzeta, dr_zeta, it, j + 1, k, A, b, cnt);
-                    }
-
-                    write_ring(ic, j, A, b, cnt, node.lo.k, node.hi.k - 1);
-                }
-            }
-            else
-            {
-                const int jc = high_side ? (node.lo.j - 1) : node.lo.j;
-                const int jt = high_side ? jc : (jc + 1);
-
-                for (int i = node.lo.i; i < node.hi.i - 1; ++i)
-                {
-                    double A[3][3] = {
-                        {0.0, 0.0, 0.0},
-                        {0.0, 0.0, 0.0},
-                        {0.0, 0.0, 0.0}};
-                    double b[3] = {0.0, 0.0, 0.0};
-                    int cnt = 0;
-
-                    for (int k = node.lo.k; k < node.hi.k - 1; ++k)
-                    {
-                        // norm edges on the Pole layer
-                        push_edge(Jeta, dr_eta, i, jc, k, A, b, cnt);
-                        push_edge(Jeta, dr_eta, i + 1, jc, k, A, b, cnt);
-                        push_edge(Jeta, dr_eta, i, jc, k + 1, A, b, cnt);
-                        push_edge(Jeta, dr_eta, i + 1, jc, k + 1, A, b, cnt);
-
-                        // axis/rotate edges one layer away from the Pole
-                        push_edge(Jxi, dr_xi, i, jt, k, A, b, cnt);
-                        push_edge(Jxi, dr_xi, i, jt, k + 1, A, b, cnt);
-                        push_edge(Jzeta, dr_zeta, i, jt, k, A, b, cnt);
-                        push_edge(Jzeta, dr_zeta, i + 1, jt, k, A, b, cnt);
-                    }
-
-                    write_ring(i, jc, A, b, cnt, node.lo.k, node.hi.k - 1);
-                }
-            }
+            pole_patches.push_back({
+                p.direction,
+                p.this_box_node.lo.i, p.this_box_node.lo.j, p.this_box_node.lo.k,
+                p.this_box_node.hi.i, p.this_box_node.hi.j, p.this_box_node.hi.k,
+                &fld_->field(fid_.fid_Jcell, ib),
+                &fld_->field(fid_.fid_J.xi, ib),
+                &fld_->field(fid_.fid_J.eta, ib),
+                &fld_->field(fid_.fid_J.zeta, ib),
+                &fld_->field(fid_.Edge_dr.xi, ib),
+                &fld_->field(fid_.Edge_dr.eta, ib),
+                &fld_->field(fid_.Edge_dr.zeta, ib)});
         }
+        mpcns::operators::PoleCurrentCellConstraint::apply(pole_patches);
     }
 
     mercury_bound_.Sync("J_cell");

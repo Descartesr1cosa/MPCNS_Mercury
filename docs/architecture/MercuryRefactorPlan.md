@@ -451,3 +451,19 @@ Pole current-cell reconstruction now calls the pure
 previous diagonal regularization, partial pivoting, singular threshold, and
 in-place normal-matrix behavior. Patch traversal and cell overwrite policy
 remain in Mercury pending the next extraction unit.
+
+## 20. Unit 30: Pole current-cell constraint composition
+
+`PoleCurrentCellConstraint` now owns the complete local Pole reconstruction:
+patch-order traversal, the two normal-axis sample patterns, edge-length
+filtering, normal-equation accumulation, least-squares solve, and ring-cell
+overwrite.  The type is fed only a storage-level patch description containing
+the legacy field blocks and node bounds; it has no Grid, topology, Field
+catalog, boundary, or MPI dependency.
+
+Mercury retains the deliberately small adapter that selects `Pole` topology
+patches in their original order and binds their legacy blocks.  Thus boundary
+classification and storage binding stay application-specific while the
+numerical constraint can be reused and tested independently.  The sample
+order, regularization, pivot rule, singular threshold, and overwrite order
+are unchanged.
