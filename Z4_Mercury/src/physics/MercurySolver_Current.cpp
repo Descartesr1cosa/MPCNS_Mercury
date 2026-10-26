@@ -3,6 +3,7 @@
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
+#include "mpcns/operators/reconstruction_operators.hpp"
 
 void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
 {
@@ -201,54 +202,14 @@ void MercurySolver::calc_Jcell()
     for (int ib = 0; ib < nblock; ++ib)
     {
         auto &Jcell = fld_->field(fid_.fid_Jcell, ib);
-
         auto &Jxi = fld_->field(fid_.fid_J.xi, ib);
         auto &Jeta = fld_->field(fid_.fid_J.eta, ib);
         auto &Jzeta = fld_->field(fid_.fid_J.zeta, ib);
+        auto &weights = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
 
-        auto &W = fld_->field(fid_.fid_Jcell_from_Jedge_w, ib);
-
-        if (!Jcell.is_allocated() || !Jxi.is_allocated() ||
-            !Jeta.is_allocated() || !Jzeta.is_allocated())
-            continue;
-
-        Int3 lo = Jcell.inner_lo();
-        Int3 hi = Jcell.inner_hi();
-
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                {
-                    const double s0 = Jxi(i, j, k, 0);
-                    const double s1 = Jxi(i, j + 1, k, 0);
-                    const double s2 = Jxi(i, j, k + 1, 0);
-                    const double s3 = Jxi(i, j + 1, k + 1, 0);
-
-                    const double s4 = Jeta(i, j, k, 0);
-                    const double s5 = Jeta(i + 1, j, k, 0);
-                    const double s6 = Jeta(i, j, k + 1, 0);
-                    const double s7 = Jeta(i + 1, j, k + 1, 0);
-
-                    const double s8 = Jzeta(i, j, k, 0);
-                    const double s9 = Jzeta(i + 1, j, k, 0);
-                    const double s10 = Jzeta(i, j + 1, k, 0);
-                    const double s11 = Jzeta(i + 1, j + 1, k, 0);
-
-                    const double s[12] = {s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11};
-
-                    double Jx = 0.0, Jy = 0.0, Jz = 0.0;
-                    for (int n = 0; n < 12; ++n)
-                    {
-                        const double sn = s[n];
-                        Jx += W(i, j, k, n) * sn;
-                        Jy += W(i, j, k, 12 + n) * sn;
-                        Jz += W(i, j, k, 24 + n) * sn;
-                    }
-
-                    Jcell(i, j, k, 0) = Jx;
-                    Jcell(i, j, k, 1) = Jy;
-                    Jcell(i, j, k, 2) = Jz;
-                }
+        const mpcns::state::PrimalEdgeFormView current{Jxi, Jeta, Jzeta};
+        mpcns::operators::WeightedCellReconstruction::edge_1form_to_cell_vector(
+            current, weights, Jcell);
     }
 
     if (topo_)

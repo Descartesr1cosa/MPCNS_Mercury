@@ -1,5 +1,7 @@
 #include "MercurySolver.h"
 
+#include "mpcns/operators/reconstruction_operators.hpp"
+
 void MercurySolver::calc_Bcell()
 {
     const int nblock = fld_->num_blocks();
@@ -8,73 +10,22 @@ void MercurySolver::calc_Bcell()
     {
         auto &Bcell = fld_->field(fid_.fid_Bcell, ib);
         auto &Bindcell = fld_->field(fid_.fid_Bindcell, ib);
-
         auto &Bxi = fld_->field(fid_.fid_B.xi, ib);
         auto &Beta = fld_->field(fid_.fid_B.eta, ib);
         auto &Bzeta = fld_->field(fid_.fid_B.zeta, ib);
-
         auto &Baddxi = fld_->field(fid_.fid_Badd.xi, ib);
         auto &Baddeta = fld_->field(fid_.fid_Badd.eta, ib);
         auto &Baddzeta = fld_->field(fid_.fid_Badd.zeta, ib);
+        auto &weights = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
 
-        auto &W = fld_->field(fid_.fid_Bcell_from_Bface_w, ib);
-
-        if (!Bcell.is_allocated() || !Bindcell.is_allocated() ||
-            !Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated())
+        const mpcns::state::PrimalFaceFormView induced{Bxi, Beta, Bzeta};
+        const mpcns::state::PrimalFaceFormView background{Baddxi, Baddeta, Baddzeta};
+        if (!mpcns::operators::WeightedCellReconstruction::sum_face_2forms_to_cell_vector(
+                induced, background, weights, Bcell))
             continue;
 
-        Int3 lo = Bcell.inner_lo();
-        Int3 hi = Bcell.inner_hi();
-
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                {
-                    // -------- total B = B + Badd --------
-                    const double phi_tot[6] = {
-                        -Bxi(i, j, k, 0) - Baddxi(i, j, k, 0),           // xi-
-                        Bxi(i + 1, j, k, 0) + Baddxi(i + 1, j, k, 0),    // xi+
-                        -Beta(i, j, k, 0) - Baddeta(i, j, k, 0),         // eta-
-                        Beta(i, j + 1, k, 0) + Baddeta(i, j + 1, k, 0),  // eta+
-                        -Bzeta(i, j, k, 0) - Baddzeta(i, j, k, 0),       // zeta-
-                        Bzeta(i, j, k + 1, 0) + Baddzeta(i, j, k + 1, 0) // zeta+
-                    };
-
-                    // -------- induced B = B only --------
-                    const double phi_ind[6] = {
-                        -Bxi(i, j, k, 0),
-                        Bxi(i + 1, j, k, 0),
-                        -Beta(i, j, k, 0),
-                        Beta(i, j + 1, k, 0),
-                        -Bzeta(i, j, k, 0),
-                        Bzeta(i, j, k + 1, 0)};
-
-                    double Bx_tot = 0.0, By_tot = 0.0, Bz_tot = 0.0;
-                    double Bx_ind = 0.0, By_ind = 0.0, Bz_ind = 0.0;
-
-                    for (int n = 0; n < 6; ++n)
-                    {
-                        const double wt_x = W(i, j, k, n);
-                        const double wt_y = W(i, j, k, 6 + n);
-                        const double wt_z = W(i, j, k, 12 + n);
-
-                        Bx_tot += wt_x * phi_tot[n];
-                        By_tot += wt_y * phi_tot[n];
-                        Bz_tot += wt_z * phi_tot[n];
-
-                        Bx_ind += wt_x * phi_ind[n];
-                        By_ind += wt_y * phi_ind[n];
-                        Bz_ind += wt_z * phi_ind[n];
-                    }
-
-                    Bcell(i, j, k, 0) = Bx_tot;
-                    Bcell(i, j, k, 1) = By_tot;
-                    Bcell(i, j, k, 2) = Bz_tot;
-
-                    Bindcell(i, j, k, 0) = Bx_ind;
-                    Bindcell(i, j, k, 1) = By_ind;
-                    Bindcell(i, j, k, 2) = Bz_ind;
-                }
+        mpcns::operators::WeightedCellReconstruction::face_2form_to_cell_vector(
+            induced, weights, Bindcell);
     }
 
     mercury_bound_.Sync("B_cell");

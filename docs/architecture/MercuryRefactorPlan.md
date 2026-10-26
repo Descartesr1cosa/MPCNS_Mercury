@@ -434,3 +434,12 @@ The Ucell three-stage boundary schedule remains an explicit compatibility
 override because it is broader than its ordinary halo contract. Eres1form
 also remains explicit as a historical alias group. No communication order
 or field membership changed.
+
+## 18. Unit 28: weighted cell reconstruction operator
+
+`WeightedCellReconstruction` owns the local cached-weight multiplication
+from primal face 2-forms or edge 1-forms to Cartesian cell vectors.
+
+Mercury Bface-to-Bcell, BplusBadd-to-Bcell, and Jedge-to-Jcell now use it.
+Pole closures and boundary synchronization remain in Mercury. The operator
+has no Grid, Field catalog, geometry build, boundary, or MPI dependency.
