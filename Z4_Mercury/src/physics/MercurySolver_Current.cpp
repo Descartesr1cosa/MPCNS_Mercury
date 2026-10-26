@@ -1,6 +1,7 @@
 #include "MercurySolver.h"
 
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
+#include "mpcns/constraints/least_squares_3.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
 #include "mpcns/operators/reconstruction_operators.hpp"
@@ -214,65 +215,6 @@ void MercurySolver::calc_Jcell()
 
     if (topo_)
     {
-        auto solve3x3 = [](double A[3][3], double b[3], double x[3]) -> bool
-        {
-            const double trA = A[0][0] + A[1][1] + A[2][2];
-            const double reg = 1.0e-12 * std::max(1.0, trA);
-
-            A[0][0] += reg;
-            A[1][1] += reg;
-            A[2][2] += reg;
-
-            double M[3][4] = {
-                {A[0][0], A[0][1], A[0][2], b[0]},
-                {A[1][0], A[1][1], A[1][2], b[1]},
-                {A[2][0], A[2][1], A[2][2], b[2]}};
-
-            for (int c = 0; c < 3; ++c)
-            {
-                int piv = c;
-                double amax = std::abs(M[c][c]);
-
-                for (int r0 = c + 1; r0 < 3; ++r0)
-                {
-                    const double av = std::abs(M[r0][c]);
-                    if (av > amax)
-                    {
-                        amax = av;
-                        piv = r0;
-                    }
-                }
-
-                if (amax < 1.0e-300)
-                    return false;
-
-                if (piv != c)
-                {
-                    for (int q = c; q < 4; ++q)
-                        std::swap(M[c][q], M[piv][q]);
-                }
-
-                const double inv = 1.0 / M[c][c];
-                for (int q = c; q < 4; ++q)
-                    M[c][q] *= inv;
-
-                for (int r0 = 0; r0 < 3; ++r0)
-                {
-                    if (r0 == c)
-                        continue;
-
-                    const double fac = M[r0][c];
-                    for (int q = c; q < 4; ++q)
-                        M[r0][q] -= fac * M[c][q];
-                }
-            }
-
-            x[0] = M[0][3];
-            x[1] = M[1][3];
-            x[2] = M[2][3];
-            return true;
-        };
-
         constexpr double eps_len = 1.0e-14;
 
         for (const auto &p : topo_->physical_patches)
@@ -338,7 +280,7 @@ void MercurySolver::calc_Jcell()
                     return;
 
                 double Jp[3] = {0.0, 0.0, 0.0};
-                if (!solve3x3(A, b, Jp))
+                if (!mpcns::constraints::solve_regularized_least_squares_3(A, b, Jp))
                     return;
 
                 for (int k = klo; k < khi; ++k)

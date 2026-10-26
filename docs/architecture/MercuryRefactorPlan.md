@@ -443,3 +443,11 @@ from primal face 2-forms or edge 1-forms to Cartesian cell vectors.
 Mercury Bface-to-Bcell, BplusBadd-to-Bcell, and Jedge-to-Jcell now use it.
 Pole closures and boundary synchronization remain in Mercury. The operator
 has no Grid, Field catalog, geometry build, boundary, or MPI dependency.
+
+## 19. Unit 29: Pole least-squares constraint kernel
+
+Pole current-cell reconstruction now calls the pure
+`solve_regularized_least_squares_3` constraint kernel. It preserves the
+previous diagonal regularization, partial pivoting, singular threshold, and
+in-place normal-matrix behavior. Patch traversal and cell overwrite policy
+remain in Mercury pending the next extraction unit.

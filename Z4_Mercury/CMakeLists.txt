@@ -55,7 +55,8 @@ if(NOT TARGET mpcns_operators)
     add_library(mpcns_operators STATIC
         ../src/mpcns/operators/electromagnetic_operators.cpp
         ../src/mpcns/operators/faraday_operator.cpp
-        ../src/mpcns/operators/reconstruction_operators.cpp)
+        ../src/mpcns/operators/reconstruction_operators.cpp
+        ../src/mpcns/constraints/least_squares_3.cpp)
     target_include_directories(mpcns_operators PUBLIC ../include)
     target_link_libraries(mpcns_operators PUBLIC mpcns_discrete)
 endif()
