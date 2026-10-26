@@ -7,6 +7,25 @@ void MercuryBoundary::AddGroup(const BoundGroup &g)
         ERROR::Abort("AddGroup: call Setup first");
 
     groups_[g.name] = g;
+    BoundGroup &stored = groups_.at(g.name);
+    for (const auto &field_name : stored.fields)
+    {
+        const FieldDescriptor &desc = fld_->descriptor(field_name);
+        const OwnerSyncPolicy policy = desc.sync.owner_sync;
+        if (desc.sync.group != stored.name ||
+            policy == OwnerSyncPolicy::None)
+            continue;
+
+        if (stored.owner_sync != OwnerSyncPolicy::None &&
+            stored.owner_sync != policy)
+        {
+            ERROR::Abort("MercuryBoundary::AddGroup: sync group " +
+                         stored.name + " mixes owner policies " +
+                         owner_sync_policy_name(stored.owner_sync) + " and " +
+                         owner_sync_policy_name(policy));
+        }
+        stored.owner_sync = policy;
+    }
 
     for (auto &coupling_pair : g.coupling_pairs)
     {

@@ -75,6 +75,7 @@ private:
         bool do_halo = true;      // whether to halo-exchange
 
         HaloLevel halo_level = HaloLevel::Corner3D;
+        OwnerSyncPolicy owner_sync = OwnerSyncPolicy::None;
         int ngh = 0; // reserved: boundary ngh (if BoundaryCore later supports per-call ngh)
 
         // directed pairs for coupling stage (e.g., {{"Solid","Fluid"},{"Fluid","Solid"}})

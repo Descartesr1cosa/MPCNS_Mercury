@@ -409,3 +409,17 @@ Both operations consume typed primal cochains and own neither geometry nor
 communication policy.
 
 Mercury explicit induction, the implicit resistive matrix action, and the
+accepted implicit resistive update use this interface. Clearing and boundary
+synchronization remain in Mercury; the former CT facade stays for legacy clients.
+
+## 16. Unit 26: contract-driven owner synchronization
+
+Mercury boundary groups now derive their owner-alias policy from the
+registered FieldDescriptor contracts rather than a hard-coded list of group
+names. A group uses that policy only when its name matches the declared sync
+group; this preserves historical alias groups such as Eres1form. A mixed
+non-None policy in one declared group now aborts during setup instead of
+silently choosing a reduction rule.
+
+Physical handlers, coupling, staged halo transfer, and final owner-alias
+ordering are unchanged. This unit creates no new MPI calls.
