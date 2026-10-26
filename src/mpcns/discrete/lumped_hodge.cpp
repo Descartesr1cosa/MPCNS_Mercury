@@ -4,6 +4,60 @@
 
 namespace mpcns::discrete
 {
+namespace
+{
+
+struct Bounds
+{
+    int ilo, jlo, klo, ihi, jhi, khi;
+};
+
+Bounds full_bounds(const FieldBlock &view)
+{
+    const Int3 lo = view.get_lo();
+    const Int3 hi = view.get_hi();
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
+Bounds full_bounds(const state::StateView &view)
+{
+    const auto &lo = view.extent().lo;
+    const auto &hi = view.extent().hi;
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
+template <class Source, class Target>
+void apply_snapshot_star_2_component(const Source &source, Target &&target,
+                                     const geometry::ConstFieldView &coefficient,
+                                     int source_component, int target_component)
+{
+    const Bounds b = full_bounds(target);
+    for (int i = b.ilo; i < b.ihi; ++i)
+        for (int j = b.jlo; j < b.jhi; ++j)
+            for (int k = b.klo; k < b.khi; ++k)
+            {
+                const core::LogicalIndex index{i, j, k};
+                target(i, j, k, target_component) =
+                    coefficient.value(index) * source(i, j, k, source_component);
+            }
+}
+
+template <class PrimalFace, class DualEdge>
+void apply_snapshot_star_2(const PrimalFace &primal_face, DualEdge dual_edge,
+                           const geometry::LumpedHodgeGeometry &coefficients)
+{
+    apply_snapshot_star_2_component(primal_face.xi, dual_edge.xi,
+                                    coefficients.star_primal_2_to_dual_1.xi,
+                                    primal_face.component, dual_edge.component);
+    apply_snapshot_star_2_component(primal_face.eta, dual_edge.eta,
+                                    coefficients.star_primal_2_to_dual_1.eta,
+                                    primal_face.component, dual_edge.component);
+    apply_snapshot_star_2_component(primal_face.zeta, dual_edge.zeta,
+                                    coefficients.star_primal_2_to_dual_1.zeta,
+                                    primal_face.component, dual_edge.component);
+}
+
+} // namespace
 
 LumpedHodge::LumpedHodge(LumpedHodgeCoefficients coefficients)
     : coefficients_(coefficients)
@@ -102,30 +156,14 @@ void SnapshotLumpedHodge::apply_star_2(
     const state::PrimalFaceFormView &primal_face,
     state::DualEdgeFormView dual_edge) const
 {
-    const auto apply = [](const FieldBlock &source, FieldBlock &target,
-                          const geometry::ConstFieldView &coefficient,
-                          int source_component, int target_component)
-    {
-        const Int3 lo = target.get_lo();
-        const Int3 hi = target.get_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                {
-                    const core::LogicalIndex index{i, j, k};
-                    target(i, j, k, target_component) =
-                        coefficient.value(index) * source(i, j, k, source_component);
-                }
-    };
-    apply(primal_face.xi, dual_edge.xi,
-          coefficients_.star_primal_2_to_dual_1.xi,
-          primal_face.component, dual_edge.component);
-    apply(primal_face.eta, dual_edge.eta,
-          coefficients_.star_primal_2_to_dual_1.eta,
-          primal_face.component, dual_edge.component);
-    apply(primal_face.zeta, dual_edge.zeta,
-          coefficients_.star_primal_2_to_dual_1.zeta,
-          primal_face.component, dual_edge.component);
+    apply_snapshot_star_2(primal_face, dual_edge, coefficients_);
+}
+
+void SnapshotLumpedHodge::apply_star_2(
+    const state::PrimalFaceFormStateView &primal_face,
+    state::DualEdgeFormStateView dual_edge) const
+{
+    apply_snapshot_star_2(primal_face, dual_edge, coefficients_);
 }
 
 void SnapshotLumpedHodge::apply_inverse_star_1(

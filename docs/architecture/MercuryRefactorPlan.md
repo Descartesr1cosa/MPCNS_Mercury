@@ -583,3 +583,25 @@ operator migration. `SnapshotLumpedHodge`, `d1_transpose`, and
 delta-J calls. Their formulas, field addresses, stencil order, alias handling,
 and synchronization order are unchanged. The next State unit should add the
 smallest compatible StateView Jstar bridge for this current operator only.
+
+## 27. State Unit 4C-1: StateView snapshot star-2 production bridge
+
+`SnapshotLumpedHodge::apply_star_2` now has a StateView cochain overload. The
+legacy and StateView entries instantiate one local directional kernel: it uses
+the same complete target extent, GeometrySnapshot diagonal coefficient view,
+loop nesting, and `coefficient * source` expression. Jstar remains a dual
+edge 1-form mathematically, despite its primal-face storage location.
+
+Mercury caches the three validated Workspace views by local block at setup.
+During both B-to-J and delta-B-to-delta-J current calls, source B views are
+borrowed by legacy field ID without string lookup, snapshot star-2 writes those
+cached Jstar StateViews, and the existing FieldBlock d1-transpose/inverse-star
+continuation consumes the same allocation. `compute_current_from_star_2`
+provides the sole shared downstream composition; star-2 is not recomputed.
+No Workspace scan, bind, catalog build, or cochain allocation occurs in the
+current hot loop.
+
+StateView star-2 and continuation gates compare all three directions over the
+full local extent and the final B-to-J output against the existing field-backed
+path. A later Unit 4C-2 may migrate only d1-transpose's Jstar input to
+StateView; inverse-star-1 and all communication remain outside that unit.

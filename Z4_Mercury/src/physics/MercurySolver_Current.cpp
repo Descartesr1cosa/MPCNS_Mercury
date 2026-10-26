@@ -168,20 +168,34 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
             !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated() ||
             !star_xi.is_allocated() || !star_eta.is_allocated() || !star_zeta.is_allocated())
             continue;
+        if (static_cast<std::size_t>(iblk) >= jstar_state_views_.size() ||
+            !jstar_state_views_[static_cast<std::size_t>(iblk)].xi.is_bound() ||
+            !jstar_state_views_[static_cast<std::size_t>(iblk)].eta.is_bound() ||
+            !jstar_state_views_[static_cast<std::size_t>(iblk)].zeta.is_bound())
+            throw std::logic_error("MercurySolver Jstar Workspace view is missing for an active block");
 
         const mpcns::discrete::SnapshotLumpedHodge hodge{
             geometry_snapshot_.block(static_cast<std::size_t>(iblk)).lumped_hodge};
         const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
 
-        const mpcns::state::PrimalFaceFormView magnetic_flux{
-            Bxi, Beta, Bzeta};
+        const mpcns::state::PrimalFaceFormStateView magnetic_flux{
+            state_view_adapter_->view(
+                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.xi), iblk),
+            state_view_adapter_->view(
+                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.eta), iblk),
+            state_view_adapter_->view(
+                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.zeta), iblk)};
+        const JstarStateBlockViews &jstar = jstar_state_views_[static_cast<std::size_t>(iblk)];
+        hodge.apply_star_2(magnetic_flux,
+                           mpcns::state::DualEdgeFormStateView{jstar.xi, jstar.eta, jstar.zeta});
+
         const mpcns::operators::MagneticCurrentWorkspace workspace{
             mpcns::state::DualEdgeFormView{star_xi, star_eta, star_zeta},
             mpcns::state::DualFaceFormView{Jxi, Jeta, Jzeta}};
         const mpcns::state::PrimalEdgeFormView current{
             Jxi, Jeta, Jzeta};
 
-        electromagnetic.compute_current(magnetic_flux, workspace, current);
+        electromagnetic.compute_current_from_star_2(workspace, current);
     }
 }
 
@@ -190,6 +204,8 @@ void MercurySolver::SetupJstarWorkspace_()
     if (!fld_ || !state_view_adapter_ || !state_workspace_)
         throw std::logic_error("MercurySolver Jstar Workspace requires initialized State services");
 
+    jstar_state_views_.clear();
+    jstar_state_views_.resize(static_cast<std::size_t>(fld_->num_blocks()));
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
         const bool has_xi = fld_->field(fid_.fid_Jstar.xi, iblk).is_allocated();
@@ -216,6 +232,10 @@ void MercurySolver::SetupJstarWorkspace_()
         bind_jstar(state_jstar_xi_, fid_.fid_Jstar.xi);
         bind_jstar(state_jstar_eta_, fid_.fid_Jstar.eta);
         bind_jstar(state_jstar_zeta_, fid_.fid_Jstar.zeta);
+        JstarStateBlockViews &cached = jstar_state_views_[static_cast<std::size_t>(iblk)];
+        cached.xi = state_workspace_->view(state_jstar_xi_, iblk);
+        cached.eta = state_workspace_->view(state_jstar_eta_, iblk);
+        cached.zeta = state_workspace_->view(state_jstar_zeta_, iblk);
     }
 }
 

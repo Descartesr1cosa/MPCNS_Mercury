@@ -53,6 +53,10 @@ public:
 
     void apply_star_2(const state::PrimalFaceFormView &primal_face,
                       state::DualEdgeFormView dual_edge) const override;
+    // StateView variant preserves the dual-edge mathematical meaning even
+    // though both operands are stored at primal-face locations.
+    void apply_star_2(const state::PrimalFaceFormStateView &primal_face,
+                      state::DualEdgeFormStateView dual_edge) const;
     void apply_inverse_star_1(const state::DualFaceFormView &dual_face,
                               state::PrimalEdgeFormView primal_edge) const override;
 

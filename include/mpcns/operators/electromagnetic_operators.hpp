@@ -28,6 +28,12 @@ public:
                          MagneticCurrentWorkspace workspace,
                          state::PrimalEdgeFormView current) const;
 
+    // Continue from a caller-computed star_2 result. This keeps d1 transpose
+    // and inverse star-1 in one legacy-compatible implementation while a
+    // producer such as SnapshotLumpedHodge may write star_2 through StateView.
+    void compute_current_from_star_2(MagneticCurrentWorkspace workspace,
+                                     state::PrimalEdgeFormView current) const;
+
 private:
     const discrete::HodgeOperator &hodge_;
 };

@@ -81,19 +81,31 @@ int LegacyStateLayoutBinding::legacy_field_id(state::QuantityId id) const
     return legacy_field_ids[static_cast<std::size_t>(id.value())];
 }
 
+state::QuantityId LegacyStateLayoutBinding::quantity_id_for_legacy_field_id(
+    int legacy_field_id) const
+{
+    if (legacy_field_id < 0 ||
+        static_cast<std::size_t>(legacy_field_id) >= state_quantity_ids.size())
+        throw std::out_of_range("legacy Field id has no State quantity binding");
+    return state_quantity_ids[static_cast<std::size_t>(legacy_field_id)];
+}
+
 LegacyStateLayoutBinding borrow_legacy_state_layout(const Field &fields)
 {
     std::vector<state::QuantityDescriptor> quantities;
     std::vector<int> ids;
+    std::vector<state::QuantityId> quantity_ids;
     quantities.reserve(static_cast<std::size_t>(fields.num_fields()));
     ids.reserve(static_cast<std::size_t>(fields.num_fields()));
+    quantity_ids.reserve(static_cast<std::size_t>(fields.num_fields()));
     for (int field_id = 0; field_id < fields.num_fields(); ++field_id)
     {
         quantities.push_back(quantity_descriptor(fields.descriptor(field_id)));
         ids.push_back(field_id);
+        quantity_ids.push_back(state::QuantityId{field_id});
     }
     return LegacyStateLayoutBinding{state::StateLayout{std::move(quantities)},
-                                    std::move(ids)};
+                                    std::move(ids), std::move(quantity_ids)};
 }
 
 } // namespace mpcns::compat

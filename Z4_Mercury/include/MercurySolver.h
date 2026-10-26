@@ -87,6 +87,16 @@ private:
     // must outlive this solver and every borrowed StateView.
     std::unique_ptr<mpcns::state::SimulationState> simulation_state_;
     std::unique_ptr<mpcns::state::Workspace> state_workspace_;
+    struct JstarStateBlockViews
+    {
+        mpcns::state::StateView xi;
+        mpcns::state::StateView eta;
+        mpcns::state::StateView zeta;
+    };
+    // Indexed directly by local block. Filled once after Workspace binding;
+    // valid until the application destroys/reallocates FieldStorage, which it
+    // must not do during a MercurySolver lifetime.
+    std::vector<JstarStateBlockViews> jstar_state_views_;
     mpcns::state::QuantityId state_e_xi_, state_e_eta_, state_e_zeta_;
     mpcns::state::QuantityId state_rhs_b_xi_, state_rhs_b_eta_, state_rhs_b_zeta_;
     mpcns::state::StateHandle state_jstar_xi_, state_jstar_eta_, state_jstar_zeta_;

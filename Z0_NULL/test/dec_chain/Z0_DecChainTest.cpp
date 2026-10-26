@@ -2182,6 +2182,17 @@ namespace Z0_TEST
                                simulation_state_workspace == 0.0,
                                max_detail(simulation_state_workspace));
 
+        const auto star_state_binding = mpcns::compat::borrow_legacy_state_layout(field);
+        mpcns::compat::LegacyStateViewAdapter star_state_adapter{field, star_state_binding};
+        const auto state_b_xi = star_state_binding.layout.find("B_xi");
+        const auto state_b_eta = star_state_binding.layout.find("B_eta");
+        const auto state_b_zeta = star_state_binding.layout.find("B_zeta");
+        const auto state_star_xi = star_state_binding.layout.find("dual_edge_work_xi");
+        const auto state_star_eta = star_state_binding.layout.find("dual_edge_work_eta");
+        const auto state_star_zeta = star_state_binding.layout.find("dual_edge_work_zeta");
+        double state_star_difference = 0.0;
+        double state_current_difference = 0.0;
+
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {
             FieldBlock &b_xi = field.field("B_xi", ib);
@@ -2193,10 +2204,14 @@ namespace Z0_TEST
             FieldBlock &j_xi = field.field("E_xi", ib);
             FieldBlock &j_eta = field.field("E_eta", ib);
             FieldBlock &j_zeta = field.field("E_zeta", ib);
+            FieldBlock &state_j_xi = field.field("J_legacy_xi", ib);
+            FieldBlock &state_j_eta = field.field("J_legacy_eta", ib);
+            FieldBlock &state_j_zeta = field.field("J_legacy_zeta", ib);
 
             if (!b_xi.is_allocated() || !b_eta.is_allocated() || !b_zeta.is_allocated() ||
                 !work_xi.is_allocated() || !work_eta.is_allocated() || !work_zeta.is_allocated() ||
-                !j_xi.is_allocated() || !j_eta.is_allocated() || !j_zeta.is_allocated())
+                !j_xi.is_allocated() || !j_eta.is_allocated() || !j_zeta.is_allocated() || !state_j_xi.is_allocated() ||
+                !state_j_eta.is_allocated() || !state_j_zeta.is_allocated())
                 continue;
 
             const mpcns::discrete::SnapshotLumpedHodge hodge{
@@ -2212,10 +2227,79 @@ namespace Z0_TEST
                 j_xi, j_eta, j_zeta};
             const mpcns::operators::MagneticCurrentWorkspace workspace{
                 dual_edge_work, dual_current};
-            electromagnetic.compute_current(
-                magnetic_flux, workspace, electric_current);
+            hodge.apply_star_2(magnetic_flux, dual_edge_work);
+            electromagnetic.compute_current_from_star_2(workspace, electric_current);
+            const auto snapshot_full = [](const FieldBlock &value)
+            {
+                std::vector<double> values;
+                const Int3 lo = value.get_lo();
+                const Int3 hi = value.get_hi();
+                values.reserve(static_cast<std::size_t>(hi.i - lo.i) *
+                               static_cast<std::size_t>(hi.j - lo.j) *
+                               static_cast<std::size_t>(hi.k - lo.k));
+                for (int i = lo.i; i < hi.i; ++i)
+                    for (int j = lo.j; j < hi.j; ++j)
+                        for (int k = lo.k; k < hi.k; ++k)
+                            values.push_back(value(i, j, k, 0));
+                return values;
+            };
+            const auto old_star_xi = snapshot_full(work_xi);
+            const auto old_star_eta = snapshot_full(work_eta);
+            const auto old_star_zeta = snapshot_full(work_zeta);
 
+            const mpcns::state::PrimalFaceFormStateView state_magnetic_flux{
+                star_state_adapter.view(state_b_xi, ib), star_state_adapter.view(state_b_eta, ib),
+                star_state_adapter.view(state_b_zeta, ib)};
+            const mpcns::state::DualEdgeFormStateView state_dual_edge{
+                star_state_adapter.view(state_star_xi, ib), star_state_adapter.view(state_star_eta, ib),
+                star_state_adapter.view(state_star_zeta, ib)};
+            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
+            // Repeated StateView execution must overwrite the same borrowed
+            // Jstar storage deterministically without rebinding Workspace.
+            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
+
+            const mpcns::operators::MagneticCurrentWorkspace state_workspace{
+                mpcns::state::DualEdgeFormView{work_xi, work_eta, work_zeta},
+                mpcns::state::DualFaceFormView{state_j_xi, state_j_eta, state_j_zeta}};
+            electromagnetic.compute_current_from_star_2(
+                state_workspace, mpcns::state::PrimalEdgeFormView{state_j_xi, state_j_eta, state_j_zeta});
+
+            const auto compare_full = [](const FieldBlock &state_value,
+                                         const std::vector<double> &legacy_values)
+            {
+                const Int3 lo = state_value.get_lo();
+                const Int3 hi = state_value.get_hi();
+                double difference = 0.0;
+                std::size_t index = 0;
+                for (int i = lo.i; i < hi.i; ++i)
+                    for (int j = lo.j; j < hi.j; ++j)
+                        for (int k = lo.k; k < hi.k; ++k)
+                        {
+                            if (index >= legacy_values.size())
+                                return std::numeric_limits<double>::infinity();
+                            difference = std::max(difference,
+                                std::abs(legacy_values[index++] - state_value(i, j, k, 0)));
+                        }
+                return index == legacy_values.size()
+                           ? difference
+                           : std::numeric_limits<double>::infinity();
+            };
+            state_star_difference = std::max(state_star_difference,
+                std::max(compare_full(work_xi, old_star_xi),
+                    std::max(compare_full(work_eta, old_star_eta),
+                             compare_full(work_zeta, old_star_zeta))));
         }
+        state_star_difference = Z0_TEST::global_max(state_star_difference);
+        state_current_difference = std::max(
+            max_difference_inner(field, "E_xi", "J_legacy_xi"),
+            std::max(max_difference_inner(field, "E_eta", "J_legacy_eta"),
+                     max_difference_inner(field, "E_zeta", "J_legacy_zeta")));
+        passed &= print_result("Snapshot star-2 StateView matches legacy full extent exactly",
+                               state_star_difference == 0.0,
+                               max_detail(state_star_difference));
+        passed &= print_result("StateView star-2 continuation matches legacy B-to-J exactly",
+                               state_current_difference == 0.0,
+                               max_detail(state_current_difference));
         apply_legacy_current_from_magnetic_flux(field, geometry_ids);
         const double hodge_current_difference = std::max(
             max_difference_inner(field, "E_xi", "J_legacy_xi"),
