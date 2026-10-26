@@ -7,6 +7,8 @@
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
 #include "mpcns/compat/legacy_geometry_field_registration.hpp"
 #include "mpcns/compat/legacy_geometry_snapshot.hpp"
+#include "mpcns/compat/legacy_field_reconstruction.hpp"
+#include "mpcns/compat/legacy_metric_diagnostics.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/discrete/dual_face_inverse_hodge.hpp"
@@ -129,6 +131,104 @@ namespace Z0_METRIC_REFERENCE
 
 namespace
 {
+    double max_difference_from_metric_compatibility_facade(Field &field)
+    {
+        using Reconstruction =
+            bool (*)(Field &, int, int, int, int, int, int, int, double[3]);
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto compare = [&](Reconstruction facade,
+                                 Reconstruction implementation,
+                                 int fid_xi,
+                                 int fid_eta,
+                                 int fid_zeta,
+                                 int iblock,
+                                 int i,
+                                 int j,
+                                 int k)
+        {
+            double facade_value[3] = {0.0, 0.0, 0.0};
+            double implementation_value[3] = {0.0, 0.0, 0.0};
+            const bool facade_ok =
+                facade(field, fid_xi, fid_eta, fid_zeta, iblock, i, j, k,
+                       facade_value);
+            const bool implementation_ok =
+                implementation(field, fid_xi, fid_eta, fid_zeta, iblock, i,
+                               j, k, implementation_value);
+            if (facade_ok != implementation_ok)
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+            if (facade_ok)
+                for (int component = 0; component < 3; ++component)
+                    update(facade_value[component],
+                           implementation_value[component]);
+        };
+
+        const int b_xi = field.field_id("B_xi");
+        const int b_eta = field.field_id("B_eta");
+        const int b_zeta = field.field_id("B_zeta");
+        const int e_xi = field.field_id("E_xi");
+        const int e_eta = field.field_id("E_eta");
+        const int e_zeta = field.field_id("E_zeta");
+
+        for (int ib = 0; ib < field.num_blocks(); ++ib)
+        {
+            FieldBlock &cell = field.field("Jac", ib);
+            if (!cell.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                continue;
+            }
+            const Int3 lo = cell.inner_lo();
+            const Int3 hi = cell.inner_hi();
+            const int i = (lo.i + hi.i - 1) / 2;
+            const int j = (lo.j + hi.j - 1) / 2;
+            const int k = (lo.k + hi.k - 1) / 2;
+
+            compare(METRIC::reconstruct_face_2form_to_cell,
+                    mpcns::compat::reconstruct_legacy_face_2form_to_cell,
+                    b_xi, b_eta, b_zeta, ib, i, j, k);
+            compare(METRIC::reconstruct_edge_1form_to_cell,
+                    mpcns::compat::reconstruct_legacy_edge_1form_to_cell,
+                    e_xi, e_eta, e_zeta, ib, i, j, k);
+            compare(METRIC::reconstruct_face_2form_to_node,
+                    mpcns::compat::reconstruct_legacy_face_2form_to_node,
+                    b_xi, b_eta, b_zeta, ib, i, j, k);
+            compare(METRIC::reconstruct_edge_1form_to_node,
+                    mpcns::compat::reconstruct_legacy_edge_1form_to_node,
+                    e_xi, e_eta, e_zeta, ib, i, j, k);
+        }
+
+        const auto facade_diagnostics = METRIC::diagnose_metric_fields(field);
+        const auto implementation_diagnostics =
+            mpcns::compat::diagnose_legacy_metric_fields(field);
+        update(facade_diagnostics.jac_nonpositive,
+               implementation_diagnostics.jac_nonpositive);
+        update(facade_diagnostics.area_nonpositive,
+               implementation_diagnostics.area_nonpositive);
+        update(facade_diagnostics.dl_nonpositive,
+               implementation_diagnostics.dl_nonpositive);
+        update(facade_diagnostics.Hodge_star_inverse_2form_to_1form_nonfinite,
+               implementation_diagnostics.inverse_star_1_nonfinite);
+        update(facade_diagnostics.Hodge_star_2form_to_1form_nonfinite,
+               implementation_diagnostics.star_2_nonfinite);
+        update(facade_diagnostics.near_axis_singular,
+               implementation_diagnostics.near_axis_singular);
+        update(facade_diagnostics.near_axis_capped,
+               implementation_diagnostics.near_axis_capped);
+        return Z0_TEST::global_max(max_difference);
+    }
+
     double max_difference_from_legacy_primal_edge_vector_stencil(
         Grid &grid,
         Field &field,
@@ -1442,6 +1542,14 @@ namespace Z0_TEST
         METRIC::compute_metric_fields(field, *field.grd);
         fill_face_form(field);
         const auto geometry_ids = mpcns::compat::bind_legacy_geometry_field_ids(field);
+        fill_edge_form(field);
+        const double metric_compatibility_facade_difference =
+            max_difference_from_metric_compatibility_facade(field);
+        passed &= print_result(
+            "METRIC reconstruction and diagnostics facade matches compat module exactly",
+            metric_compatibility_facade_difference == 0.0,
+            max_detail(metric_compatibility_facade_difference));
+
         const double primal_face_area_difference =
             max_difference_from_legacy_primal_face_area_stencil(
                 *field.grd, field, geometry_ids);

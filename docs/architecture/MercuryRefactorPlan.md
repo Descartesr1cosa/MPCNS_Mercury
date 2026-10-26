@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-17 verified by the 3-rank Z0 suite. Unit 16 separated reconstruction-cache and diagonal-Hodge publication; Unit 17 separated primal face/cell and edge-vector publication. Both gates passed in all ten halo modes.
+Status: Accepted design baseline; Units 1-18 verified by the 3-rank Z0 suite. Unit 16 separated reconstruction-cache and diagonal-Hodge publication; Unit 17 separated primal face/cell and edge-vector publication; Unit 18 separated Field-backed reconstruction and metric diagnostics. All gates passed in all ten halo modes.
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -206,6 +206,13 @@ J = M1^{-1} D1^T M2 B
 ~~~
 
 Reconstruction is separate from Hodge: face form to Cartesian cell vector and edge form to Cartesian cell vector. Hall, CT, output, and Mercury boundary code do not know which Hodge model is active.
+
+The existing `METRIC::reconstruct_*` and `METRIC::diagnose_metric_fields` names
+remain as backwards-compatible facades. Their legacy formulas and field
+catalog reads live in `mpcns::compat::legacy_field_reconstruction` and
+`mpcns::compat::legacy_metric_diagnostics`, respectively. This deliberately
+separates result consumers from metric publication without changing either
+public API or numerical arithmetic.
 
 ## 8. Parallel, boundaries, and implicit solve
 

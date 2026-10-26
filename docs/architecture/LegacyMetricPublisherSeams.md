@@ -1,7 +1,7 @@
 # Legacy Metric Publisher Seams
 
-Status: Units 16-17 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
-Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode.
+Status: Units 16-18 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
+Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation.
 
 ## Purpose
 
@@ -32,9 +32,27 @@ The order is contractual. In particular, step 1 publishes JDxi, JDet, JDze, and 
 
 The primal publisher preserves the historical field loops and calls only the already-isolated pure geometry primitives. The reconstruction publisher retains the legacy Tikhonov regularization and retry sequence in the same arithmetic order. The diagonal closure retains its zero guards (`1e-300`) and has no axis or singular-edge decision logic.
 
+
+## Field-backed consumers
+
+`Metric.cpp` is now a coordinator and compatibility facade. The Field-backed
+consumer algorithms that used to be interleaved with construction are owned by
+two explicit adapters:
+
+| Adapter | Owns | Public compatibility path |
+| --- | --- | --- |
+| `legacy_field_reconstruction` | face 2-form and edge 1-form reconstruction at cell and node samples | `METRIC::reconstruct_*` forwards directly |
+| `legacy_metric_diagnostics` | finite/positive metric scans and axis counters | `METRIC::diagnose_metric_fields` maps the result structure directly |
+
+Neither adapter performs MPI, creates geometric fields, selects a Hodge
+model, or makes a solver decision. The Z0 suite compares each `METRIC`
+facade call and every diagnostic counter against the extracted adapter at an
+inner sample of every local block; this is a delegation gate, not an
+independent numerical oracle.
+
 ## Allowed next changes
 
-1. Add exact field-by-field Z0 checks for the reconstruction cache before changing its numerical algorithm.
-2. Give a future `GeometryBuilder` a typed input and result model, then publish the result through these adapters.
-3. Extract a pure 3x3 regularized pseudo-inverse only after its legacy equivalence test passes.
+1. Give a future `GeometryBuilder` a typed input and result model, then publish the result through these adapters.
+2. Extract a pure 3x3 regularized pseudo-inverse only after its legacy equivalence test passes.
+3. Give `SingularEdgeRegistry` topology/dual-geometry inputs and retain its current closure as the reference.
 4. Keep non-diagonal/consistent Hodge work behind `HodgeOperator`; it must not modify this compatibility path.

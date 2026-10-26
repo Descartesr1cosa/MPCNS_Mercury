@@ -1,6 +1,6 @@
 # Mercury Geometry Inventory and Migration Boundary
 
-Status: audited; borrowed GeometrySnapshot compatibility boundary and legacy field-publishing contract implemented
+Status: audited; borrowed GeometrySnapshot compatibility boundary, legacy field-publishing contract, and Metric consumer facades implemented
 
 ## 1. The two existing geometry layers
 
@@ -129,6 +129,15 @@ execution location is retained intentionally. Unit 17 moved the primal two
 responsibilities from Metric.cpp without changing their formulas. Existing
 primal-face and cell-volume gates plus the new full-range dr_* stencil gate
 passed with exact equality in all ten three-rank Z0 halo modes.
+
+The remaining Field-backed metric consumers no longer share the publisher
+implementation file. `legacy_field_reconstruction` owns the four historical
+face/edge form reconstructions at cell/node samples, while
+`legacy_metric_diagnostics` owns the metric-health scans. `METRIC` preserves
+the former public functions as direct facades, and the Z0 suite checks their
+results and all diagnostic counters against the extracted modules in every
+halo mode. This is an interface-preservation gate; it introduces no new
+geometry storage or formula.
 
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
