@@ -1,6 +1,7 @@
 #pragma once
 
 #include "3_field/FieldBlock.h"
+#include "mpcns/state/state_view.hpp"
 
 namespace mpcns::state
 {
@@ -70,5 +71,17 @@ struct PrimalEdgeScalarView
     FieldBlock &zeta;
     int component = 0;
 };
+
+// Storage-independent cochain views for new operators.  The legacy
+// FieldBlock-backed views above remain transitional adapters while callers
+// migrate one production path at a time.
+struct PrimalZeroFormStateView { StateView node; int component = 0; };
+struct PrimalEdgeFormStateView { StateView xi, eta, zeta; int component = 0; };
+struct PrimalFaceFormStateView { StateView xi, eta, zeta; int component = 0; };
+struct PrimalThreeFormStateView { StateView cell; int component = 0; };
+struct DualEdgeFormStateView { StateView xi, eta, zeta; int component = 0; };
+struct DualFaceFormStateView { StateView xi, eta, zeta; int component = 0; };
+struct CellScalarStateView { StateView cell; int component = 0; };
+struct CellVectorStateView { StateView cell; };
 
 } // namespace mpcns::state

@@ -113,6 +113,20 @@ public:
     int32_t Getghostmesh() { return ghostmesh; };
 
     std::vector<T> &GetV3() { return v3; };
+    const std::vector<T> &GetV3() const { return v3; };
+
+    T *LogicalOriginData()
+    {
+        return v3.empty() ? nullptr : v3.data() + addconst;
+    }
+    const T *LogicalOriginData() const
+    {
+        return v3.empty() ? nullptr : v3.data() + addconst;
+    }
+    int32_t StrideI() const { return multip1; }
+    int32_t StrideJ() const { return multip2; }
+    int32_t StrideK() const { return dim_vec; }
+    int32_t StrideComponent() const { return 1; }
 
 public:
     void SetSize(int32_t setdim1, int32_t setdim2, int32_t setdim3, int32_t ghost, int32_t vec_length)

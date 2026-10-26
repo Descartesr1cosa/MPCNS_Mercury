@@ -167,8 +167,14 @@ void MercurySolver::AssembleRHS_Induction_CT_()
         if (!Exi.is_allocated())
             continue;
 
-        const mpcns::state::PrimalEdgeFormView emf{Exi, Eeta, Eze};
-        const mpcns::state::PrimalFaceFormView rhs{RHSBxi, RHSBeta, RHSBze};
+        const mpcns::state::PrimalEdgeFormStateView emf{
+            state_view_adapter_->view(state_e_xi_, ib),
+            state_view_adapter_->view(state_e_eta_, ib),
+            state_view_adapter_->view(state_e_zeta_, ib)};
+        const mpcns::state::PrimalFaceFormStateView rhs{
+            state_view_adapter_->view(state_rhs_b_xi_, ib),
+            state_view_adapter_->view(state_rhs_b_eta_, ib),
+            state_view_adapter_->view(state_rhs_b_zeta_, ib)};
         mpcns::operators::FaradayOperator::compute_rhs(emf, rhs);
     }
 }

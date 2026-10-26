@@ -11,8 +11,10 @@
 #include "mpcns/compat/legacy_field_reconstruction.hpp"
 #include "mpcns/compat/legacy_metric_diagnostics.hpp"
 #include "mpcns/compat/legacy_state_layout.hpp"
+#include "mpcns/compat/legacy_state_view_adapter.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
+#include "mpcns/operators/faraday_operator.hpp"
 
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/discrete/dual_face_inverse_hodge.hpp"
@@ -26,6 +28,7 @@
 #include <sstream>
 #include <vector>
 #include <utility>
+#include <type_traits>
 namespace Z0_METRIC_REFERENCE
 {
     struct MetricPublisherSnapshot
@@ -1644,8 +1647,35 @@ namespace
                 return std::numeric_limits<double>::infinity();
 
             const auto &quantity = layout.descriptor(quantity_id);
+            const auto expected_kind = [&]()
+            {
+                switch (legacy.value_kind)
+                {
+                case FieldValueKind::Scalar: return mpcns::state::QuantityKind::Scalar;
+                case FieldValueKind::CartesianVector: return mpcns::state::QuantityKind::CartesianVector;
+                case FieldValueKind::ConservedVector: return mpcns::state::QuantityKind::ConservativeState;
+                case FieldValueKind::EdgeCovariant1Form: return mpcns::state::QuantityKind::PrimalEdgeForm;
+                case FieldValueKind::FaceContravariant2Form: return mpcns::state::QuantityKind::PrimalFaceForm;
+                case FieldValueKind::GeometryMetric: return mpcns::state::QuantityKind::GeometryMetric;
+                case FieldValueKind::CouplingBufferOnly:
+                case FieldValueKind::Temporary: return mpcns::state::QuantityKind::Workspace;
+                }
+                return mpcns::state::QuantityKind::Workspace;
+            }();
+            const auto expected_owner = [&]()
+            {
+                switch (legacy.sync.owner_sync)
+                {
+                case OwnerSyncPolicy::None: return mpcns::state::OwnerPolicy::None;
+                case OwnerSyncPolicy::NodeOwner: return mpcns::state::OwnerPolicy::Node;
+                case OwnerSyncPolicy::EdgeOwner: return mpcns::state::OwnerPolicy::Edge;
+                case OwnerSyncPolicy::FaceOwner: return mpcns::state::OwnerPolicy::Face;
+                }
+                return mpcns::state::OwnerPolicy::None;
+            }();
             if (quantity.canonical_name != legacy.name ||
                 quantity.external_name != legacy.name ||
+                quantity.kind != expected_kind ||
                 quantity.location != legacy.location ||
                 quantity.component_count != legacy.ncomp ||
                 quantity.ghost_layers != legacy.nghost ||
@@ -1655,10 +1685,113 @@ namespace
                 quantity.synchronization.needs_physical_boundary != legacy.sync.do_physical ||
                 quantity.synchronization.needs_halo != legacy.sync.do_halo ||
                 quantity.synchronization.halo_level != legacy.sync.halo_level ||
+                quantity.synchronization.owner_policy != expected_owner ||
                 quantity.synchronization.orientation_aware != legacy.sync.orientation_aware)
                 return std::numeric_limits<double>::infinity();
         }
         return 0.0;
+    }
+
+    double state_layout_rejection_difference()
+    {
+        const auto rejects = [](std::vector<mpcns::state::QuantityDescriptor> quantities)
+        {
+            try
+            {
+                (void)mpcns::state::StateLayout{std::move(quantities)};
+            }
+            catch (const std::invalid_argument &)
+            {
+                return true;
+            }
+            return false;
+        };
+
+        mpcns::state::QuantityDescriptor node;
+        node.canonical_name = "node";
+        node.external_name = "node";
+        node.kind = mpcns::state::QuantityKind::PrimalZeroForm;
+        node.location = StaggerLocation::Node;
+        const bool duplicate_rejected = rejects({node, node});
+
+        auto invalid_edge = node;
+        invalid_edge.canonical_name = "bad_edge";
+        invalid_edge.external_name = "bad_edge";
+        invalid_edge.kind = mpcns::state::QuantityKind::PrimalEdgeForm;
+        const bool incompatible_location_rejected = rejects({invalid_edge});
+
+        const mpcns::state::StateLayout layout{{node}};
+        bool invalid_id_rejected = false;
+        try
+        {
+            (void)layout.descriptor(mpcns::state::QuantityId{99});
+        }
+        catch (const std::out_of_range &)
+        {
+            invalid_id_rejected = true;
+        }
+        return duplicate_rejected && incompatible_location_rejected && invalid_id_rejected
+                   ? 0.0
+                   : std::numeric_limits<double>::infinity();
+    }
+
+    double max_difference_from_legacy_state_view(Field &field)
+    {
+        const auto binding = mpcns::compat::borrow_legacy_state_layout(field);
+        mpcns::compat::LegacyStateViewAdapter adapter{field, binding};
+        static_assert(std::is_same<decltype(std::declval<mpcns::state::ConstStateView>()(0, 0, 0)),
+                                   const double &>::value,
+                      "ConstStateView must not provide mutable element access");
+
+        const std::array<const char *, 4> names{{"U", "phi", "E_xi", "B_xi"}};
+        double max_difference = 0.0;
+        bool inactive_checked = false;
+        for (const char *name : names)
+        {
+            const auto id = binding.layout.find(name);
+            if (!id.is_valid())
+                return std::numeric_limits<double>::infinity();
+            for (int ib = 0; ib < field.num_blocks(); ++ib)
+            {
+                FieldBlock &legacy = field.field(binding.legacy_field_id(id), ib);
+                if (!legacy.is_allocated())
+                {
+                    try { (void)adapter.view(id, ib); }
+                    catch (const std::logic_error &) { inactive_checked = true; continue; }
+                    return std::numeric_limits<double>::infinity();
+                }
+                const auto view = adapter.view(id, ib);
+                const auto const_view = adapter.const_view(id, ib);
+                const Int3 lo = legacy.get_lo();
+                const Int3 hi = legacy.get_hi();
+                if (view.extent().lo.i != lo.i || view.extent().lo.j != lo.j ||
+                    view.extent().lo.k != lo.k || view.extent().hi.i != hi.i ||
+                    view.extent().hi.j != hi.j || view.extent().hi.k != hi.k ||
+                    view.component_count() != legacy.descriptor().ncomp)
+                    return std::numeric_limits<double>::infinity();
+                const int component = legacy.descriptor().ncomp - 1;
+                const double original = legacy(lo.i, lo.j, lo.k, component);
+                max_difference = std::max(max_difference,
+                    std::abs(const_view.at(lo.i, lo.j, lo.k, component) - original));
+                view.at(lo.i, lo.j, lo.k, component) = original + 0.375;
+                max_difference = std::max(max_difference,
+                    std::abs(legacy(lo.i, lo.j, lo.k, component) - (original + 0.375)));
+                legacy(lo.i, lo.j, lo.k, component) = original - 0.125;
+                max_difference = std::max(max_difference,
+                    std::abs(view.at(lo.i, lo.j, lo.k, component) - (original - 0.125)));
+                legacy(lo.i, lo.j, lo.k, component) = original;
+                bool out_of_range_rejected = false;
+                try { (void)const_view.at(hi.i, lo.j, lo.k, component); }
+                catch (const std::out_of_range &) { out_of_range_rejected = true; }
+                if (!out_of_range_rejected)
+                    return std::numeric_limits<double>::infinity();
+            }
+        }
+        // Not every compact fixture has an allocation-domain-inactive block;
+        // invalid QuantityId always exercises the adapter's safe rejection.
+        try { (void)adapter.view(mpcns::state::QuantityId{99999}, 0); }
+        catch (const std::out_of_range &) { inactive_checked = true; }
+        return inactive_checked ? max_difference : std::numeric_limits<double>::infinity();
     }
 
     double legacy_geometry_catalog_layout_difference(
@@ -1724,6 +1857,14 @@ namespace Z0_TEST
         const mpcns::geometry::GeometrySnapshot hodge_snapshot =
             mpcns::compat::LegacyGeometryBuildPipeline{}.finalize(
                 mpcns::compat::LegacyGeometryBuildRequest{field, *field.grd}).snapshot;
+        const auto state_binding = mpcns::compat::borrow_legacy_state_layout(field);
+        mpcns::compat::LegacyStateViewAdapter state_adapter{field, state_binding};
+        const auto e_xi_id = state_binding.layout.find("E_xi");
+        const auto e_eta_id = state_binding.layout.find("E_eta");
+        const auto e_zeta_id = state_binding.layout.find("E_zeta");
+        const auto b_xi_id = state_binding.layout.find("B_xi");
+        const auto b_eta_id = state_binding.layout.find("B_eta");
+        const auto b_zeta_id = state_binding.layout.find("B_zeta");
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {
             auto &edge_xi = field.field(e.xi, ib);
@@ -1738,15 +1879,28 @@ namespace Z0_TEST
                 !face_eta.is_allocated() || !face_zeta.is_allocated())
                 continue;
 
-            const mpcns::state::PrimalEdgeFormView edge{
-                edge_xi, edge_eta, edge_zeta};
-            const mpcns::state::PrimalFaceFormView face{
-                face_xi, face_eta, face_zeta};
-            mpcns::discrete::apply_d1(edge, face);
+            const mpcns::state::PrimalEdgeFormStateView edge{
+                state_adapter.view(e_xi_id, ib), state_adapter.view(e_eta_id, ib),
+                state_adapter.view(e_zeta_id, ib)};
+            const mpcns::state::PrimalFaceFormStateView face{
+                state_adapter.view(b_xi_id, ib), state_adapter.view(b_eta_id, ib),
+                state_adapter.view(b_zeta_id, ib)};
+            mpcns::operators::FaradayOperator::compute_rhs(edge, face);
+            // The legacy CT oracle below computes +d1(E); Faraday RHS is
+            // defined as -d1(E), so convert only for this exact oracle check.
+            for (auto *block : {&face_xi, &face_eta, &face_zeta})
+            {
+                const Int3 lo = block->inner_lo();
+                const Int3 hi = block->inner_hi();
+                for (int i = lo.i; i < hi.i; ++i)
+                    for (int j = lo.j; j < hi.j; ++j)
+                        for (int k = lo.k; k < hi.k; ++k)
+                            (*block)(i, j, k, 0) = -(*block)(i, j, k, 0);
+            }
         }
         const double d1_legacy_difference =
             max_difference_from_legacy_ct_d1(field, e, b);
-        passed &= print_result("MPCNS d1 matches legacy CT stencil exactly",
+        passed &= print_result("StateView Faraday RHS matches legacy CT stencil exactly",
                                d1_legacy_difference == 0.0,
                                max_detail(d1_legacy_difference));
         DEC::d2_face_to_cell(field, b, "divB");
@@ -1858,6 +2012,14 @@ namespace Z0_TEST
         passed &= print_result("StateLayout exactly describes the legacy Field catalog",
                                state_layout_difference == 0.0,
                                max_detail(state_layout_difference));
+        const double state_layout_rejection = state_layout_rejection_difference();
+        passed &= print_result("StateLayout rejects invalid IDs, duplicate names, and incompatible forms",
+                               state_layout_rejection == 0.0,
+                               max_detail(state_layout_rejection));
+        const double state_view_difference = max_difference_from_legacy_state_view(field);
+        passed &= print_result("StateView is zero-copy, stride-correct, and safely bounded",
+                               state_view_difference == 0.0,
+                               max_detail(state_view_difference));
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {

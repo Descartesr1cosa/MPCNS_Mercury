@@ -96,6 +96,42 @@ void apply_d1(const state::PrimalEdgeFormView &edge,
     apply_d1_impl<false>(edge, face, scale);
 }
 
+void apply_d1(const state::PrimalEdgeFormStateView &edge,
+              state::PrimalFaceFormStateView face,
+              double scale)
+{
+    {
+        const auto &lo = face.xi.inner_extent().lo;
+        const auto &hi = face.xi.inner_extent().hi;
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    face.xi(i, j, k, face.component) = scale *
+                        ((edge.eta(i, j, k, edge.component) - edge.eta(i, j, k + 1, edge.component)) +
+                         (edge.zeta(i, j + 1, k, edge.component) - edge.zeta(i, j, k, edge.component)));
+    }
+    {
+        const auto &lo = face.eta.inner_extent().lo;
+        const auto &hi = face.eta.inner_extent().hi;
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    face.eta(i, j, k, face.component) = scale *
+                        ((edge.xi(i, j, k + 1, edge.component) - edge.xi(i, j, k, edge.component)) +
+                         (edge.zeta(i, j, k, edge.component) - edge.zeta(i + 1, j, k, edge.component)));
+    }
+    {
+        const auto &lo = face.zeta.inner_extent().lo;
+        const auto &hi = face.zeta.inner_extent().hi;
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    face.zeta(i, j, k, face.component) = scale *
+                        ((edge.xi(i, j, k, edge.component) - edge.xi(i, j + 1, k, edge.component)) +
+                         (edge.eta(i + 1, j, k, edge.component) - edge.eta(i, j, k, edge.component)));
+    }
+}
+
 void apply_d2(const state::PrimalFaceFormView &face,
               state::PrimalThreeFormView cell)
 {

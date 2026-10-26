@@ -50,7 +50,8 @@ endif()
 
 if(NOT TARGET mpcns_state_compat)
     add_library(mpcns_state_compat STATIC
-        ../src/mpcns/compat/legacy_state_layout.cpp)
+        ../src/mpcns/compat/legacy_state_layout.cpp
+        ../src/mpcns/compat/legacy_state_view_adapter.cpp)
     target_include_directories(mpcns_state_compat PUBLIC ../include)
     target_link_libraries(mpcns_state_compat PUBLIC mpcns_state)
 endif()

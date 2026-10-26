@@ -50,6 +50,7 @@ public:
 
     // 底层数据（如果某些老代码想直接操作数组也可以拿到）
     Vector &raw_data() { return data; }
+    const Vector &raw_data() const { return data; }
 
 private:
     const Block *block = nullptr; // 指向 Grid 中的 Block

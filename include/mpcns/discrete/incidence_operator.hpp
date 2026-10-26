@@ -44,6 +44,10 @@ void apply_d1(const state::PrimalEdgeFormView &edge,
               state::PrimalFaceFormView face,
               double scale = 1.0);
 
+void apply_d1(const state::PrimalEdgeFormStateView &edge,
+              state::PrimalFaceFormStateView face,
+              double scale = 1.0);
+
 void apply_d2(const state::PrimalFaceFormView &face,
               state::PrimalThreeFormView cell);
 

@@ -495,3 +495,15 @@ gate checks every registered quantity and its reverse legacy-ID binding. This
 is the first State migration unit only: cochain views still borrow `FieldBlock`
 storage, while later units introduce typed state handles and workspace lifetime
 management without changing that backend.
+
+## 23. State Unit 2: zero-copy typed StateView
+
+`StateView` and `ConstStateView` are non-owning, strided views over the legacy
+continuous allocation. They expose logical and inner extents, components, and
+inline element access without importing Grid, Field, Halo, MPI, or Mercury.
+The compat adapter performs the only `FieldBlock` conversion and validates the
+immutable `StateLayout` contract before returning a view.
+
+The explicit Mercury Faraday RHS path now binds cached `QuantityId`s once at
+solver construction and invokes the StateView overload. Its stencil remains in
+the shared incidence operator; no communication or boundary ordering changed.

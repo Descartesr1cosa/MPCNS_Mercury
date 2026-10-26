@@ -10,9 +10,12 @@
 #include "MercuryPhysicsTypes.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "7_metric/SingularEdgeRegistry.h"
+#include "mpcns/compat/legacy_state_view_adapter.hpp"
 #include "mpcns/geometry/geometry_snapshot.hpp"
 
 #include <petscksp.h>
+
+#include <memory>
 
 // ---- forward declarations (avoid heavy includes in header) ----
 class Grid;
@@ -76,6 +79,10 @@ private:
     // --- cached field ids  ---
     SolverFields fid_;
     mpcns::geometry::GeometrySnapshot geometry_snapshot_;
+    mpcns::compat::LegacyStateLayoutBinding state_layout_binding_;
+    std::unique_ptr<mpcns::compat::LegacyStateViewAdapter> state_view_adapter_;
+    mpcns::state::QuantityId state_e_xi_, state_e_eta_, state_e_zeta_;
+    mpcns::state::QuantityId state_rhs_b_xi_, state_rhs_b_eta_, state_rhs_b_zeta_;
 
     // --- constants ---
     double gamma_{0.0};

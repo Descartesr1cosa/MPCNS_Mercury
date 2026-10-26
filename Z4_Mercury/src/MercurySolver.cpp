@@ -25,6 +25,19 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 {
     // ---- Cache field ids ----
     fid_.Init(fld_);
+    state_layout_binding_ = mpcns::compat::borrow_legacy_state_layout(*fld_);
+    state_view_adapter_ = std::make_unique<mpcns::compat::LegacyStateViewAdapter>(
+        *fld_, state_layout_binding_);
+    state_e_xi_ = state_layout_binding_.layout.find("E_xi");
+    state_e_eta_ = state_layout_binding_.layout.find("E_eta");
+    state_e_zeta_ = state_layout_binding_.layout.find("E_zeta");
+    state_rhs_b_xi_ = state_layout_binding_.layout.find("RHS_B_xi");
+    state_rhs_b_eta_ = state_layout_binding_.layout.find("RHS_B_eta");
+    state_rhs_b_zeta_ = state_layout_binding_.layout.find("RHS_B_zeta");
+    if (!state_e_xi_.is_valid() || !state_e_eta_.is_valid() ||
+        !state_e_zeta_.is_valid() || !state_rhs_b_xi_.is_valid() ||
+        !state_rhs_b_eta_.is_valid() || !state_rhs_b_zeta_.is_valid())
+        throw std::runtime_error("MercurySolver requires electromagnetic StateLayout quantities");
 
     // Geometry is complete before the solver is constructed. Retain the
     // immutable-in-use typed view so physics operators do not rebind legacy
