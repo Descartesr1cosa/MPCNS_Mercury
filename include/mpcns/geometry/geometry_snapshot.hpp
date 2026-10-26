@@ -88,6 +88,19 @@ struct DualGeometry
     bool is_complete() const;
 };
 
+// Diagonal production Hodge coefficients.  They are geometry data and are
+// intentionally kept separate from the mutable cochains on which a Hodge
+// operation acts.
+struct LumpedHodgeGeometry
+{
+    // |dual edge| / |primal face|, stored at primal faces.
+    DirectionalFieldViews star_primal_2_to_dual_1;
+    // |primal edge| / |dual face|, stored at primal edges.
+    DirectionalFieldViews inverse_star_primal_1;
+
+    bool is_complete() const;
+};
+
 // Cached local reconstruction maps.  These are geometric linear-algebra
 // data, not Hodge coefficients and not evolving simulation state.
 struct ReconstructionCache
@@ -107,6 +120,7 @@ struct GeometryBlock
     NodeCoordinates coordinates;
     PrimalGeometry primal;
     DualGeometry dual;
+    LumpedHodgeGeometry lumped_hodge;
     ReconstructionCache reconstruction;
 
     bool is_complete() const;

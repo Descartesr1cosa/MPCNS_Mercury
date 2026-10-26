@@ -7,6 +7,7 @@
 // Z4_Mercury
 #include "MercurySolver.h"
 #include "0_MercuryFieldCatalog.h"
+#include "mpcns/compat/legacy_geometry_build_pipeline.hpp"
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
                              Param *par,
@@ -24,6 +25,18 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
 {
     // ---- Cache field ids ----
     fid_.Init(fld_);
+
+    // Geometry is complete before the solver is constructed. Retain the
+    // immutable-in-use typed view so physics operators do not rebind legacy
+    // geometry catalogue IDs on their hot paths.
+    const mpcns::compat::LegacyGeometryBuildRequest geometry_request{*fld_, *grd_};
+    auto geometry_result =
+        mpcns::compat::LegacyGeometryBuildPipeline{}.finalize(geometry_request);
+    if (!geometry_result.snapshot.is_complete() ||
+        geometry_result.completed_block_count !=
+            static_cast<std::size_t>(fld_->num_blocks()))
+        throw std::runtime_error("MercurySolver requires a complete geometry snapshot");
+    geometry_snapshot_ = std::move(geometry_result.snapshot);
 
     // ---- Build IO Module ----
     constexpr int NRES = 13; // 只统计H Na 守恒变量和感应磁场

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mpcns/geometry/geometry_snapshot.hpp"
 #include "mpcns/state/cochain_view.hpp"
 
 namespace mpcns::discrete
@@ -38,6 +39,24 @@ public:
 
 private:
     LumpedHodgeCoefficients coefficients_;
+};
+
+// Snapshot-backed production Hodge.  It reads immutable geometry through the
+// typed GeometrySnapshot boundary, so operator clients need not look up
+// legacy Field catalogue IDs.  Cochains remain transitional FieldBlock views.
+class SnapshotLumpedHodge final : public HodgeOperator
+{
+public:
+    explicit SnapshotLumpedHodge(
+        const geometry::LumpedHodgeGeometry &coefficients);
+
+    void apply_star_2(const state::PrimalFaceFormView &primal_face,
+                      state::DualEdgeFormView dual_edge) const override;
+    void apply_inverse_star_1(const state::DualFaceFormView &dual_face,
+                              state::PrimalEdgeFormView primal_edge) const override;
+
+private:
+    const geometry::LumpedHodgeGeometry &coefficients_;
 };
 
 } // namespace mpcns::discrete

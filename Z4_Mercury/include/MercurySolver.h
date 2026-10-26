@@ -10,6 +10,7 @@
 #include "MercuryPhysicsTypes.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "7_metric/SingularEdgeRegistry.h"
+#include "mpcns/geometry/geometry_snapshot.hpp"
 
 #include <petscksp.h>
 
@@ -74,6 +75,7 @@ private:
 
     // --- cached field ids  ---
     SolverFields fid_;
+    mpcns::geometry::GeometrySnapshot geometry_snapshot_;
 
     // --- constants ---
     double gamma_{0.0};

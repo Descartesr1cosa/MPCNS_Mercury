@@ -467,3 +467,17 @@ classification and storage binding stay application-specific while the
 numerical constraint can be reused and tested independently.  The sample
 order, regularization, pivot rule, singular threshold, and overwrite order
 are unchanged.
+
+## 21. Unit 31: snapshot-backed cubic-sphere current path
+
+`GeometrySnapshot` now carries the two directional diagonal-Hodge coefficient
+sets alongside primal and dual measures. `SnapshotLumpedHodge` consumes these
+read-only views directly. Mercury retains one validated snapshot for its
+lifetime and uses it for every regular `B -> J` evaluation, including the
+implicit resistive delta-current path.
+
+This removes per-call legacy geometry catalogue binding from the principal
+cubic-sphere electromagnetic path. Cochain storage, the diagonal coefficient
+values, stencil order, singular-edge override, and all synchronization remain
+unchanged. The old Field-backed `LumpedHodge` remains as the compatibility
+implementation and regression oracle while state storage is migrated.

@@ -1,6 +1,5 @@
 #include "MercurySolver.h"
 
-#include "mpcns/compat/legacy_geometry_field_ids.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
 #include "mpcns/operators/pole_current_constraint.hpp"
@@ -166,8 +165,8 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
             !star_xi.is_allocated() || !star_eta.is_allocated() || !star_zeta.is_allocated())
             continue;
 
-        const mpcns::discrete::LumpedHodge hodge{
-            mpcns::compat::bind_legacy_lumped_hodge_coefficients(*fld_, iblk)};
+        const mpcns::discrete::SnapshotLumpedHodge hodge{
+            geometry_snapshot_.block(static_cast<std::size_t>(iblk)).lumped_hodge};
         const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
 
         const mpcns::state::PrimalFaceFormView magnetic_flux{

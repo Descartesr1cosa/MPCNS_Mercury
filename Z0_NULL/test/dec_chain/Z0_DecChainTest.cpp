@@ -1612,6 +1612,10 @@ namespace
                                 geometry_ids.dual_face_area_vector_at_edge, 3, ib);
             compare_directional(geometry.dual.face_area_at_primal_edge,
                                 geometry_ids.dual_face_area_at_edge, 1, ib);
+            compare_directional(geometry.lumped_hodge.star_primal_2_to_dual_1,
+                                geometry_ids.lumped_star_primal_2_to_dual_1, 1, ib);
+            compare_directional(geometry.lumped_hodge.inverse_star_primal_1,
+                                geometry_ids.lumped_inverse_star_primal_1, 1, ib);
             compare_field(geometry.reconstruction.cell_gradient_pseudoinverse,
                           field.field(geometry_ids.cell_reconstruction_gradient_pseudoinverse, ib), 9);
             compare_directional(geometry.reconstruction.edge_gradient_pseudoinverse,
@@ -1682,6 +1686,9 @@ namespace Z0_TEST
 
         fill_all_with_nan(field);
         fill_edge_form(field);
+        const mpcns::geometry::GeometrySnapshot hodge_snapshot =
+            mpcns::compat::LegacyGeometryBuildPipeline{}.finalize(
+                mpcns::compat::LegacyGeometryBuildRequest{field, *field.grd}).snapshot;
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {
             auto &edge_xi = field.field(e.xi, ib);
@@ -1829,8 +1836,8 @@ namespace Z0_TEST
                 !j_xi.is_allocated() || !j_eta.is_allocated() || !j_zeta.is_allocated())
                 continue;
 
-            const mpcns::discrete::LumpedHodge hodge{
-                mpcns::compat::bind_legacy_lumped_hodge_coefficients(field, ib)};
+            const mpcns::discrete::SnapshotLumpedHodge hodge{
+                hodge_snapshot.block(static_cast<std::size_t>(ib)).lumped_hodge};
             const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
             const mpcns::state::PrimalFaceFormView magnetic_flux{
                 b_xi, b_eta, b_zeta};
@@ -1851,7 +1858,7 @@ namespace Z0_TEST
             max_difference_inner(field, "E_xi", "J_legacy_xi"),
             std::max(max_difference_inner(field, "E_eta", "J_legacy_eta"),
                      max_difference_inner(field, "E_zeta", "J_legacy_zeta")));
-        passed &= print_result("MPCNS lumped Hodge and D1 transpose match legacy current CT exactly",
+        passed &= print_result("Snapshot-backed MPCNS lumped Hodge and D1 transpose match legacy current CT exactly",
                                hodge_current_difference == 0.0,
                                max_detail(hodge_current_difference));
 
