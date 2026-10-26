@@ -1,6 +1,6 @@
 # Mercury Geometry Inventory and Migration Boundary
 
-Status: audited; typed GeometryBuilder hand-off, borrowed GeometrySnapshot compatibility boundary, legacy field-publishing contract, and Metric consumer facades implemented
+Status: audited; typed GeometryBuilder hand-off, pure reconstruction kernels, borrowed GeometrySnapshot compatibility boundary, legacy field-publishing contract, and Metric consumer facades implemented
 
 ## 1. The two existing geometry layers
 
@@ -143,6 +143,8 @@ Unit 19 adds the first complete typed build hand-off. `LegacyGeometryBuildPipeli
 
 The extraordinary-edge dual polygon is also now a pure `mpcns::geometry` operation. `SingularEdgeRegistry` gathers aliases, centers, lengths, and fallback measures through the existing topology/MPI route, while `close_singular_edge_geometry` computes center ordering, polygon area, fallback selection, inverse Hodge, and canonical vector. A test-only copy of the pre-extraction polygon/fallback arithmetic agrees exactly for nondegenerate, insufficient, and collinear center sets.
 
+Unit 20 moves the remaining pure reconstruction arithmetic out of the Field publisher: `cell_covariant_basis_from_corners` preserves the historical four-edge averages, while `regularized_pseudoinverse_transpose` preserves the exact Gram product, regularization, retry, and zero-fallback sequence. The publisher now owns only legacy stencil gathering and catalog writes. The pre-extraction Z0 reference still compares every reconstruction-cache field exactly. The final singular-edge `Astar_*` and inverse-Hodge writes are likewise isolated in `legacy_singular_edge_metric_publisher`; registry ownership, alias orientation, and MPI behavior remain unchanged.
+
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
@@ -165,7 +167,7 @@ ten-mode, three-rank Z0 halo suite passed this gate with `max=0.000000`.
 2. Replace the borrowed `GeometryBuildResult` with owned `PrimalGeometry`,
    `DualGeometry`, `LumpedHodge`, and `ReconstructionCache` storage while
    retaining the old field catalog as a publishing adapter.
-3. Move the remaining `SingularEdgeRegistry` Field/Grid reads and writes
+3. Move the remaining `SingularEdgeRegistry` Field/Grid reads
    behind dedicated topology-input and publishing adapters; retain its MPI
    schedule and current closure as the reference.
 4. Replace `Face_beta` and `Edge_alpha` callers with a `LumpedHodge` API only

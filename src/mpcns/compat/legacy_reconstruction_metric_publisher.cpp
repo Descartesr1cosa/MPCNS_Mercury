@@ -2,6 +2,7 @@
 
 #include "1_grid/1_MPCNS_Grid.h"
 #include "3_field/Field.h"
+#include "mpcns/geometry/reconstruction_kernels.hpp"
 
 #include <array>
 #include <cmath>
@@ -46,49 +47,26 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                 for (int j = lo.j; j < hi.j; ++j)
                     for (int k = lo.k; k < hi.k; ++k)
                     {
-                        // 8 corner nodes of cell (i,j,k)
-                        auto r000 = node(i, j, k);
-                        auto r100 = node(i + 1, j, k);
-                        auto r010 = node(i, j + 1, k);
-                        auto r110 = node(i + 1, j + 1, k);
+                        const std::array<mpcns::geometry::CartesianVector, 8>
+                            corners{{
+                                node(i, j, k),
+                                node(i + 1, j, k),
+                                node(i, j + 1, k),
+                                node(i + 1, j + 1, k),
+                                node(i, j, k + 1),
+                                node(i + 1, j, k + 1),
+                                node(i, j + 1, k + 1),
+                                node(i + 1, j + 1, k + 1)}};
+                        const mpcns::geometry::CellCovariantBasis basis =
+                            mpcns::geometry::cell_covariant_basis_from_corners(
+                                corners);
 
-                        auto r001 = node(i, j, k + 1);
-                        auto r101 = node(i + 1, j, k + 1);
-                        auto r011 = node(i, j + 1, k + 1);
-                        auto r111 = node(i + 1, j + 1, k + 1);
-
-                        // ---- a_xi: average of 4 xi-directed edges ----
-                        auto ex0 = minus(r100, r000);
-                        auto ex1 = minus(r110, r010);
-                        auto ex2 = minus(r101, r001);
-                        auto ex3 = minus(r111, r011);
-                        auto exs = plus(plus(ex0, ex1), plus(ex2, ex3));
-
-                        axi(i, j, k, 0) = 0.25 * exs[0];
-                        axi(i, j, k, 1) = 0.25 * exs[1];
-                        axi(i, j, k, 2) = 0.25 * exs[2];
-
-                        // ---- a_eta: average of 4 eta-directed edges ----
-                        auto ey0 = minus(r010, r000);
-                        auto ey1 = minus(r110, r100);
-                        auto ey2 = minus(r011, r001);
-                        auto ey3 = minus(r111, r101);
-                        auto eys = plus(plus(ey0, ey1), plus(ey2, ey3));
-
-                        aeta(i, j, k, 0) = 0.25 * eys[0];
-                        aeta(i, j, k, 1) = 0.25 * eys[1];
-                        aeta(i, j, k, 2) = 0.25 * eys[2];
-
-                        // ---- a_zeta: average of 4 zeta-directed edges ----
-                        auto ez0 = minus(r001, r000);
-                        auto ez1 = minus(r101, r100);
-                        auto ez2 = minus(r011, r010);
-                        auto ez3 = minus(r111, r110);
-                        auto ezs = plus(plus(ez0, ez1), plus(ez2, ez3));
-
-                        azeta(i, j, k, 0) = 0.25 * ezs[0];
-                        azeta(i, j, k, 1) = 0.25 * ezs[1];
-                        azeta(i, j, k, 2) = 0.25 * ezs[2];
+                        for (int component = 0; component < 3; ++component)
+                        {
+                            axi(i, j, k, component) = basis.xi[component];
+                            aeta(i, j, k, component) = basis.eta[component];
+                            azeta(i, j, k, component) = basis.zeta[component];
+                        }
                     }
         }
     }
@@ -99,96 +77,6 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
         //   pinv = (G G^T + reg I)^(-1) G
         // so that for covariant components w = [v·g_xi, v·g_eta, v·g_zeta],
         // the physical vector v is reconstructed by: v = pinvGT_cell * w.
-
-        // invert 3x3 matrix (row-major). return false if singular.
-        auto inv3x3 = [&](const double M[9], double invM[9]) -> bool
-        {
-            const double a00 = M[0], a01 = M[1], a02 = M[2];
-            const double a10 = M[3], a11 = M[4], a12 = M[5];
-            const double a20 = M[6], a21 = M[7], a22 = M[8];
-
-            const double c00 = a11 * a22 - a12 * a21;
-            const double c01 = a02 * a21 - a01 * a22;
-            const double c02 = a01 * a12 - a02 * a11;
-
-            const double c10 = a12 * a20 - a10 * a22;
-            const double c11 = a00 * a22 - a02 * a20;
-            const double c12 = a02 * a10 - a00 * a12;
-
-            const double c20 = a10 * a21 - a11 * a20;
-            const double c21 = a01 * a20 - a00 * a21;
-            const double c22 = a00 * a11 - a01 * a10;
-
-            const double det = a00 * c00 + a01 * c10 + a02 * c20;
-            if (std::fabs(det) < 1e-300)
-                return false;
-
-            const double invdet = 1.0 / det;
-
-            invM[0] = c00 * invdet;
-            invM[1] = c01 * invdet;
-            invM[2] = c02 * invdet;
-            invM[3] = c10 * invdet;
-            invM[4] = c11 * invdet;
-            invM[5] = c12 * invdet;
-            invM[6] = c20 * invdet;
-            invM[7] = c21 * invdet;
-            invM[8] = c22 * invdet;
-            return true;
-        };
-
-        // pinv(X^T) with Tikhonov: (X X^T + reg I)^-1 X
-        auto build_pinv_transpose = [&](const double X[9], double pinv[9])
-        {
-            // S = X X^T (3x3)
-            double S[9] = {0.0};
-            for (int r = 0; r < 3; ++r)
-                for (int c = 0; c < 3; ++c)
-                {
-                    double s = 0.0;
-                    for (int kk = 0; kk < 3; ++kk)
-                        s += X[r * 3 + kk] * X[c * 3 + kk];
-                    S[r * 3 + c] = s;
-                }
-
-            const double tr = S[0] + S[4] + S[8];
-            double reg = 1e-14 * (tr + 1e-300); // scale-aware regularization
-
-            double Sinv[9];
-            bool ok = false;
-
-            for (int it = 0; it < 8; ++it)
-            {
-                double Stmp[9] = {
-                    S[0] + reg, S[1], S[2],
-                    S[3], S[4] + reg, S[5],
-                    S[6], S[7], S[8] + reg};
-
-                if (inv3x3(Stmp, Sinv))
-                {
-                    ok = true;
-                    break;
-                }
-                reg *= 10.0;
-            }
-
-            if (!ok)
-            {
-                for (int i = 0; i < 9; ++i)
-                    pinv[i] = 0.0;
-                return;
-            }
-
-            // pinv = Sinv * X
-            for (int r = 0; r < 3; ++r)
-                for (int c = 0; c < 3; ++c)
-                {
-                    double s = 0.0;
-                    for (int kk = 0; kk < 3; ++kk)
-                        s += Sinv[r * 3 + kk] * X[kk * 3 + c];
-                    pinv[r * 3 + c] = s;
-                }
-        };
 
         auto &pinvGTc_ = fields.field("pinvGT_cell");
         auto &axi_ = fields.field("a_xi");
@@ -219,8 +107,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                             g_xi[1], g_eta[1], g_ze[1],
                             g_xi[2], g_eta[2], g_ze[2]};
 
-                        double pinvG[9];
-                        build_pinv_transpose(Gm, pinvG);
+                        const auto pinvG =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Gm));
 
                         for (int m = 0; m < 9; ++m)
                             pinvGTc(i, j, k, m) = pinvG[m];
@@ -256,96 +145,6 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
             return (i >= lo.i && i < hi.i &&
                     j >= lo.j && j < hi.j &&
                     k >= lo.k && k < hi.k);
-        };
-
-        // invert 3x3 matrix (row-major). return false if singular.
-        auto inv3x3 = [&](const double M[9], double invM[9]) -> bool
-        {
-            const double a00 = M[0], a01 = M[1], a02 = M[2];
-            const double a10 = M[3], a11 = M[4], a12 = M[5];
-            const double a20 = M[6], a21 = M[7], a22 = M[8];
-
-            const double c00 = a11 * a22 - a12 * a21;
-            const double c01 = a02 * a21 - a01 * a22;
-            const double c02 = a01 * a12 - a02 * a11;
-
-            const double c10 = a12 * a20 - a10 * a22;
-            const double c11 = a00 * a22 - a02 * a20;
-            const double c12 = a02 * a10 - a00 * a12;
-
-            const double c20 = a10 * a21 - a11 * a20;
-            const double c21 = a01 * a20 - a00 * a21;
-            const double c22 = a00 * a11 - a01 * a10;
-
-            const double det = a00 * c00 + a01 * c10 + a02 * c20;
-            if (std::fabs(det) < 1e-300)
-                return false;
-
-            const double invdet = 1.0 / det;
-
-            invM[0] = c00 * invdet;
-            invM[1] = c01 * invdet;
-            invM[2] = c02 * invdet;
-            invM[3] = c10 * invdet;
-            invM[4] = c11 * invdet;
-            invM[5] = c12 * invdet;
-            invM[6] = c20 * invdet;
-            invM[7] = c21 * invdet;
-            invM[8] = c22 * invdet;
-            return true;
-        };
-
-        // pinv(X^T) with Tikhonov: (X X^T + reg I)^-1 X
-        auto build_pinv_transpose = [&](const double X[9], double pinv[9])
-        {
-            // S = X X^T (3x3)
-            double S[9] = {0.0};
-            for (int r = 0; r < 3; ++r)
-                for (int c = 0; c < 3; ++c)
-                {
-                    double s = 0.0;
-                    for (int kk = 0; kk < 3; ++kk)
-                        s += X[r * 3 + kk] * X[c * 3 + kk];
-                    S[r * 3 + c] = s;
-                }
-
-            const double tr = S[0] + S[4] + S[8];
-            double reg = 1e-14 * (tr + 1e-300); // scale-aware regularization
-
-            double Sinv[9];
-            bool ok = false;
-
-            for (int it = 0; it < 8; ++it)
-            {
-                double Stmp[9] = {
-                    S[0] + reg, S[1], S[2],
-                    S[3], S[4] + reg, S[5],
-                    S[6], S[7], S[8] + reg};
-
-                if (inv3x3(Stmp, Sinv))
-                {
-                    ok = true;
-                    break;
-                }
-                reg *= 10.0;
-            }
-
-            if (!ok)
-            {
-                for (int i = 0; i < 9; ++i)
-                    pinv[i] = 0.0;
-                return;
-            }
-
-            // pinv = Sinv * X
-            for (int r = 0; r < 3; ++r)
-                for (int c = 0; c < 3; ++c)
-                {
-                    double s = 0.0;
-                    for (int kk = 0; kk < 3; ++kk)
-                        s += Sinv[r * 3 + kk] * X[kk * 3 + c];
-                    pinv[r * 3 + c] = s;
-                }
         };
 
         for (int ib = 0; ib < grd->nblock; ++ib)
@@ -429,8 +228,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 g_xi[1], g_eta[1], g_ze[1],
                                 g_xi[2], g_eta[2], g_ze[2]};
 
-                            double pinvG[9];
-                            build_pinv_transpose(Gm, pinvG);
+                            const auto pinvG =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Gm));
                             for (int m = 0; m < 9; ++m)
                                 pinvGT(i, j, k, m) = pinvG[m];
 
@@ -450,8 +250,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 A_xi_edge[1], A_eta[1], A_zeta[1],
                                 A_xi_edge[2], A_eta[2], A_zeta[2]};
 
-                            double pinvA[9];
-                            build_pinv_transpose(Am, pinvA);
+                            const auto pinvA =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Am));
                             for (int m = 0; m < 9; ++m)
                                 pinvAT(i, j, k, m) = pinvA[m];
                         }
@@ -503,8 +304,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 g_xi[1], g_eta[1], g_ze[1],
                                 g_xi[2], g_eta[2], g_ze[2]};
 
-                            double pinvG[9];
-                            build_pinv_transpose(Gm, pinvG);
+                            const auto pinvG =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Gm));
                             for (int m = 0; m < 9; ++m)
                                 pinvGT(i, j, k, m) = pinvG[m];
 
@@ -524,8 +326,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 A_xi_edge[1], A_eta_edge[1], A_zeta[1],
                                 A_xi_edge[2], A_eta_edge[2], A_zeta[2]};
 
-                            double pinvA[9];
-                            build_pinv_transpose(Am, pinvA);
+                            const auto pinvA =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Am));
                             for (int m = 0; m < 9; ++m)
                                 pinvAT(i, j, k, m) = pinvA[m];
                         }
@@ -576,8 +379,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 g_xi[1], g_eta[1], g_ze[1],
                                 g_xi[2], g_eta[2], g_ze[2]};
 
-                            double pinvG[9];
-                            build_pinv_transpose(Gm, pinvG);
+                            const auto pinvG =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Gm));
                             for (int m = 0; m < 9; ++m)
                                 pinvGT(i, j, k, m) = pinvG[m];
 
@@ -597,8 +401,9 @@ void populate_legacy_reconstruction_cache(Field &fields, Grid &grid)
                                 A_xi_edge[1], A_eta[1], A_ze_edge[1],
                                 A_xi_edge[2], A_eta[2], A_ze_edge[2]};
 
-                            double pinvA[9];
-                            build_pinv_transpose(Am, pinvA);
+                            const auto pinvA =
+                                mpcns::geometry::regularized_pseudoinverse_transpose(
+                                    mpcns::geometry::matrix3_from_row_major(Am));
                             for (int m = 0; m < 9; ++m)
                                 pinvAT(i, j, k, m) = pinvA[m];
                         }

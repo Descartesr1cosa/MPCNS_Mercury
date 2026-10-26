@@ -1,7 +1,7 @@
 # Legacy Metric Publisher Seams
 
-Status: Units 16-19 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
-Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation. Unit 19 verified the typed GeometryBuild readback and the pre-extraction singular-edge polygon/fallback closure reference in every mode.
+Status: Units 16-20 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
+Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation. Unit 19 verified the typed GeometryBuild readback and the pre-extraction singular-edge polygon/fallback closure reference in every mode. Unit 20 verified every reconstruction-cache field against the pre-extraction implementation after moving its pure kernels.
 
 ## Purpose
 
@@ -56,9 +56,15 @@ independent numerical oracle.
 
 The variable-valence edge registry now supplies `SingularEdgeGeometryInput` to the pure geometry closure. It retains alias equivalence, field collection/publication, ownership, and MPI reductions. The closure module owns only center ordering, polygon area, the existing volume-over-length fallback, and the corresponding inverse Hodge value.
 
+## Pure reconstruction kernels and singular publication
+
+`reconstruction_kernels` now owns the four-edge cell covariant-basis average and the regularized 3x3 pseudo-inverse. `legacy_reconstruction_metric_publisher` owns only legacy coordinate/Field access and edge-local stencil assembly. The Z0 pre-Unit-16 reference compares all `a_*`, `pinvGT_*`, and `pinvAT_*` field entries exactly in every mode.
+
+`legacy_singular_edge_metric_publisher` owns only the final `Astar_*` and inverse-Hodge catalog writes for a closed singular edge. `SingularEdgeRegistry` retains topology aliases, MPI reductions, geometry input collection, closure, and weights. No owner or synchronization schedule changed.
+
 ## Allowed next changes
 
 1. Replace the borrowed GeometryBuild result with owned immutable storage only after field-by-field Mercury comparison is available.
-2. Extract a pure 3x3 regularized pseudo-inverse only after its legacy equivalence test passes.
-3. Separate registry topology collection from the remaining legacy Field/Grid publication adapters without changing its MPI reduction schedule.
+2. Replace the borrowed GeometryBuild result with owned immutable storage only after field-by-field Mercury comparison is available.
+3. Separate registry topology collection from the remaining legacy Field/Grid read adapters without changing its MPI reduction schedule.
 4. Keep non-diagonal/consistent Hodge work behind `HodgeOperator`; it must not modify this compatibility path.

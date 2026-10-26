@@ -47,7 +47,8 @@ if(NOT TARGET mpcns_geometry)
         ../src/mpcns/geometry/geometry_primitives.cpp
         ../src/mpcns/geometry/geometry_snapshot.cpp
         ../src/mpcns/geometry/geometry_builder.cpp
-        ../src/mpcns/geometry/singular_edge_geometry.cpp)
+        ../src/mpcns/geometry/singular_edge_geometry.cpp
+        ../src/mpcns/geometry/reconstruction_kernels.cpp)
     target_include_directories(mpcns_geometry PUBLIC ../include)
 endif()
 
@@ -61,7 +62,8 @@ if(NOT TARGET mpcns_legacy_geometry)
         ../src/mpcns/compat/legacy_primal_metric_publisher.cpp
         ../src/mpcns/compat/legacy_reconstruction_metric_publisher.cpp
         ../src/mpcns/compat/legacy_field_reconstruction.cpp
-        ../src/mpcns/compat/legacy_metric_diagnostics.cpp)
+        ../src/mpcns/compat/legacy_metric_diagnostics.cpp
+        ../src/mpcns/compat/legacy_singular_edge_metric_publisher.cpp)
     target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
     target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete mpcns_geometry)
 endif()

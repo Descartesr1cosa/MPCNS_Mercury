@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-19 verified by the 3-rank Z0 suite. Unit 19 added the typed GeometryBuilder hand-off and separated singular-edge dual-polygon geometry from the topology/MPI registry. All gates passed in all ten halo modes.
+Status: Accepted design baseline; Units 1-20 verified by the 3-rank Z0 suite. Unit 20 isolated the cell covariant-basis and regularized 3x3 pseudo-inverse kernels, and moved singular-edge legacy Hodge publication behind compat. All gates passed in all ten halo modes.
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -146,6 +146,8 @@ Coordinate ghost exchange is a one-time parallel preparation step. GeometrySnaps
 `GeometryBuilder` is the typed structural boundary between a geometry producer and geometry consumers. It accepts `GeometryBuildInput` (ordered `GeometryBlock` views) and returns `GeometryBuildResult` (a complete `GeometrySnapshot` plus its block count). During migration, `LegacyGeometryBuildPipeline` preserves the five legacy publisher calls and supplies those views to the builder; the geometry target still sees neither `Grid`, `Field`, MPI, nor solver types.
 
 The dual polygon around an extraordinary edge is now closed by the pure `close_singular_edge_geometry` operation. `SingularEdgeRegistry` remains responsible only for quotient topology, ownership, MPI reductions, legacy field publication, and collecting the typed input. This keeps the physical/topological seam explicit without changing the current closure formula.
+
+The reconstruction cache now delegates its cell covariant-basis average and regularized 3x3 pseudo-inverse to pure geometry kernels. The compatibility publisher retains only Grid/Field reads, the historical edge-local stencil selection, and field writes. The pseudo-inverse preserves the existing Gram-product order, `1e-14 * (trace + 1e-300)` regularization, eight retry attempts, `1e-300` determinant threshold, and zero fallback exactly.
 
 PrimalGeometry is the only source for finite-volume and DEC primal metrics. A legacy JDxi-like face vector and a corresponding GCL face metric must use the same coordinate stencil or be checked by a geometry consistency diagnostic.
 

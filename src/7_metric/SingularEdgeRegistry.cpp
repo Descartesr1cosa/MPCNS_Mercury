@@ -4,6 +4,7 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "3_field/Field.h"
 #include "1_grid/1_MPCNS_Grid.h"
+#include "mpcns/compat/legacy_singular_edge_metric_publisher.hpp"
 #include "mpcns/geometry/singular_edge_geometry.hpp"
 
 #include <algorithm>
@@ -228,18 +229,8 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         for (auto &c : e.local_incident_cells) c.weight = gv[e.global_id] > 0.0 ? c.measure/gv[e.global_id] : 0.0;
         for (auto &f:e.local_incident_faces) f.weight = gfm[e.global_id] > 0.0 ? f.measure/gfm[e.global_id] : 0.0;
 
-        // Publish the corrected scalar Hodge data to every local alias.  The
-        // vector-valued Sstar remains untouched until a dual-polygon vector
-        // reconstruction is requested by an operator.
-        for (const auto &a:e.aliases)
-        {
-            const auto &x=a.edge;
-            if (x.rank!=rank_ || x.block<0 || x.block>=fields.num_blocks()) continue;
-            FieldBlock &astar=fields.field(std::string("Astar_")+axis_suffix(x.axis),x.block);
-            FieldBlock &hinv=fields.field(std::string("Hodge_star_inverse_2form_to_1form_edge_")+axis_suffix(x.axis)+"_lumped",x.block);
-            if (contains_inner(astar,x.i,x.j,x.k)) astar(x.i,x.j,x.k,0)=e.dual_area;
-            if (contains_inner(hinv,x.i,x.j,x.k)) hinv(x.i,x.j,x.k,0)=e.inverse_hodge;
-        }
+        // Keep the legacy Field catalog at an explicit compatibility seam.
+        mpcns::compat::publish_legacy_singular_edge_hodge(fields, e, rank_);
     }
 
 }
