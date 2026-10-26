@@ -1,5 +1,6 @@
 #include "MercurySolver.h"
 #include "0_basic/LayoutTraits.h"
+#include "mpcns/operators/faraday_operator.hpp"
 #include <algorithm>
 
 void MercurySolver::ApplyStationaryWallNonResistiveEMF_()
@@ -166,6 +167,8 @@ void MercurySolver::AssembleRHS_Induction_CT_()
         if (!Exi.is_allocated())
             continue;
 
-        CTOperators::CurlEdgeToFace(ib, Exi, Eeta, Eze, RHSBxi, RHSBeta, RHSBze, /*multiper=*/-1.0);
+        const mpcns::state::PrimalEdgeFormView emf{Exi, Eeta, Eze};
+        const mpcns::state::PrimalFaceFormView rhs{RHSBxi, RHSBeta, RHSBze};
+        mpcns::operators::FaradayOperator::compute_rhs(emf, rhs);
     }
 }

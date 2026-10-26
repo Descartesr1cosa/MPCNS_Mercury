@@ -1,5 +1,7 @@
 #include "MercurySolver.h"
 
+#include "mpcns/operators/faraday_operator.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -382,8 +384,10 @@ PetscErrorCode MercurySolver::MatMultImplicitResistive_(Mat A, Vec X, Vec Y)
             if (!Exi.is_allocated())
                 continue;
 
-            CTOperators::CurlEdgeToFace(ib, Exi, Eet, Eze, Bxi, Bet, Bze,
-                                        -S->implicit_resistive_dt_);
+            const mpcns::state::PrimalEdgeFormView emf{Exi, Eet, Eze};
+            const mpcns::state::PrimalFaceFormView delta_flux{Bxi, Bet, Bze};
+            mpcns::operators::FaradayOperator::advance(
+                emf, delta_flux, S->implicit_resistive_dt_);
         }
 
         S->mercury_bound_.Sync("dB");
@@ -514,8 +518,9 @@ void MercurySolver::ApplyImplicitResistiveUpdate_(double dt_step)
         if (!Exi.is_allocated())
             continue;
 
-        CTOperators::CurlEdgeToFace(ib, Exi, Eet, Eze, Rxi, Ret, Rze,
-                                    /*multiper=*/-1.0);
+        const mpcns::state::PrimalEdgeFormView emf{Exi, Eet, Eze};
+        const mpcns::state::PrimalFaceFormView rhs{Rxi, Ret, Rze};
+        mpcns::operators::FaradayOperator::compute_rhs(emf, rhs);
     }
 
     RestoreImplicitResistiveBstar_();

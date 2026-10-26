@@ -390,7 +390,7 @@ This is intentionally a boundary-only migration: no Hodge formula, physical-edge
 
 `mpcns::discrete` is now the sole implementation of the three primal incidence maps: `apply_d0`, `apply_d1`, and `apply_d2`. The old `DEC` entry points remain compatibility facades only, including the former Faraday update. Thus a future physics module can depend on typed 0/1/2/3-form views without importing a Field catalog or duplicating an orientation stencil.
 
-`mpcns::operators::ElectromagneticOperators` provides two allocation-free local compositions: magnetic-flux advancement through `B <- B - dt d1(E)`, and current evaluation through `inverse_star_1(d1_transpose(star_2(B)))`. Scratch views are caller-owned and the caller remains responsible for halo/owner synchronization before invoking an operator. The operator owns no Grid, Field, topology construction, MPI, boundary condition, or time-step decision.
+`mpcns::operators::ElectromagneticOperators` provides the allocation-free current composition `inverse_star_1(d1_transpose(star_2(B)))`. Scratch views are caller-owned and the caller remains responsible for halo/owner synchronization before invoking an operator. The operator owns no Grid, Field, topology construction, MPI, boundary condition, or time-step decision.
 
 This is the intended MHD entry point: ideal, Hall, ambipolar, resistive, and implicit modules should first construct EMF/current cochain views, use this composition, and keep their physical closures outside the discrete layer.
 
@@ -399,3 +399,13 @@ This is the intended MHD entry point: ideal, Hall, ambipolar, resistive, and imp
 Mercury now owns a private face-located `Jstar_*` workspace with no output, coupling, physical-boundary, halo, or owner-sync contract. `ComputeRegularEdgeCurrent_` binds the unchanged legacy diagonal Hodge coefficients and invokes `ElectromagneticOperators` for both the production `B -> J` path and the implicit-resistive `dB -> dJ` path.
 
 Alias reduction, singular-edge replacement, and the existing Jedge/dJ boundary synchronization remain outside the local operator in exactly their prior order. Consequently this migration removes the duplicated regular-edge Hodge/curl loops without changing the quotient-edge or boundary algorithms. MercuryZ4 compilation and the generated three-rank cube gate passed; a protected production Mercury case remains the next numerical acceptance gate.
+
+## 15. Unit 25: topology-only Faraday interface
+
+`FaradayOperator` isolates the metric-free induction topology from the
+Hodge-dependent current composition. `compute_rhs(E, rhs)` writes
+`rhs = -d1(E)`, while `advance(E, B, dt)` performs `B -= dt*d1(E)`.
+Both operations consume typed primal cochains and own neither geometry nor
+communication policy.
+
+Mercury explicit induction, the implicit resistive matrix action, and the

@@ -5,14 +5,6 @@
 namespace mpcns::operators
 {
 
-void ElectromagneticOperators::advance_magnetic_flux(
-    const state::PrimalEdgeFormView &emf,
-    state::PrimalFaceFormView magnetic_flux,
-    double dt) const
-{
-    discrete::subtract_d1(emf, magnetic_flux, dt);
-}
-
 void ElectromagneticOperators::compute_current(
     const state::PrimalFaceFormView &magnetic_flux,
     MagneticCurrentWorkspace workspace,

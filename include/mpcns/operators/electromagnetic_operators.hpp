@@ -23,10 +23,6 @@ public:
     {
     }
 
-    void advance_magnetic_flux(const state::PrimalEdgeFormView &emf,
-                               state::PrimalFaceFormView magnetic_flux,
-                               double dt) const;
-
     void compute_current(const state::PrimalFaceFormView &magnetic_flux,
                          MagneticCurrentWorkspace workspace,
                          state::PrimalEdgeFormView current) const;
