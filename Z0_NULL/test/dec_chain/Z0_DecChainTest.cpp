@@ -11,6 +11,8 @@
 #include "mpcns/compat/legacy_field_reconstruction.hpp"
 #include "mpcns/compat/legacy_metric_diagnostics.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
+#include "mpcns/operators/electromagnetic_operators.hpp"
+
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/discrete/dual_face_inverse_hodge.hpp"
 #include "mpcns/geometry/singular_edge_geometry.hpp"
@@ -1829,6 +1831,7 @@ namespace Z0_TEST
 
             const mpcns::discrete::LumpedHodge hodge{
                 mpcns::compat::bind_legacy_lumped_hodge_coefficients(field, ib)};
+            const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
             const mpcns::state::PrimalFaceFormView magnetic_flux{
                 b_xi, b_eta, b_zeta};
             const mpcns::state::DualEdgeFormView dual_edge_work{
@@ -1837,10 +1840,11 @@ namespace Z0_TEST
                 j_xi, j_eta, j_zeta};
             const mpcns::state::PrimalEdgeFormView electric_current{
                 j_xi, j_eta, j_zeta};
+            const mpcns::operators::MagneticCurrentWorkspace workspace{
+                dual_edge_work, dual_current};
+            electromagnetic.compute_current(
+                magnetic_flux, workspace, electric_current);
 
-            hodge.apply_star_2(magnetic_flux, dual_edge_work);
-            mpcns::discrete::apply_d1_transpose(dual_edge_work, dual_current);
-            hodge.apply_inverse_star_1(dual_current, electric_current);
         }
         apply_legacy_current_from_magnetic_flux(field, geometry_ids);
         const double hodge_current_difference = std::max(

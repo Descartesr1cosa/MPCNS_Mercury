@@ -382,3 +382,9 @@ The initial topology refactor should establish:
 6. owner/alias/sign relation;
 7. tests for d1*d0 = 0 and d2*d1 = 0;
 8. tests for interface owner/sign consistency.
+
+## 15. Foundation operator contract
+
+The production bottom layer exposes typed primal zero, edge, face, and three-form views. `mpcns::discrete` owns the exact oriented `d0`, `d1`, `d2`, and `d1_transpose` stencils; `DEC` names are compatibility callers and do not contain independent formulas. `mpcns::operators::ElectromagneticOperators` is the first physics-facing composition boundary: it combines a supplied Hodge implementation with those incidence maps but accepts only cochain views and caller-owned workspace.
+
+Every caller must synchronize input halos and perform any required owner reconciliation through `halo` outside this API. This makes local arithmetic testable independently from MPI scheduling, while preserving a single explicit place where each MHD stage declares its communication needs.

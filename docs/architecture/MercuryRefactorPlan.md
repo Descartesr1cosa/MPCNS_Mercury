@@ -385,3 +385,11 @@ No Hodge formula, MPI schedule, boundary treatment, solver parameter, or Mercury
 The remaining singular-edge Grid/Field reads are now behind `mpcns::compat::LegacySingularEdgeDataSource` and `collect_legacy_singular_edge_measures`. The registry is reduced to topology-to-quotient mapping, its unchanged MPI reductions, valence filtering, pure dual-polygon closure, normalized contribution weights, and catalog publication. The shared alias and incident-entity records live in storage-independent `mpcns::mesh`.
 
 This is intentionally a boundary-only migration: no Hodge formula, physical-edge classification rule, collective ordering, mesh partition behavior, or Mercury solve path changes. Both Z0 and MercuryZ4 compile with at most four jobs; the full three-rank, ten-mode Z0 gate passed. The next safe step is to make the collector consume a typed geometry/partition view rather than Field/Grid, only after a Mercury case-level comparison is available.
+
+## 13. Unit 23: complete incidence and electromagnetic composition
+
+`mpcns::discrete` is now the sole implementation of the three primal incidence maps: `apply_d0`, `apply_d1`, and `apply_d2`. The old `DEC` entry points remain compatibility facades only, including the former Faraday update. Thus a future physics module can depend on typed 0/1/2/3-form views without importing a Field catalog or duplicating an orientation stencil.
+
+`mpcns::operators::ElectromagneticOperators` provides two allocation-free local compositions: magnetic-flux advancement through `B <- B - dt d1(E)`, and current evaluation through `inverse_star_1(d1_transpose(star_2(B)))`. Scratch views are caller-owned and the caller remains responsible for halo/owner synchronization before invoking an operator. The operator owns no Grid, Field, topology construction, MPI, boundary condition, or time-step decision.
+
+This is the intended MHD entry point: ideal, Hall, ambipolar, resistive, and implicit modules should first construct EMF/current cochain views, use this composition, and keep their physical closures outside the discrete layer.

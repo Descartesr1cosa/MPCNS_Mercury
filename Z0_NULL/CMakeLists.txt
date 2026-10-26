@@ -42,6 +42,13 @@ if(NOT TARGET mpcns_discrete)
     target_include_directories(mpcns_discrete PUBLIC ../include)
 endif()
 
+if(NOT TARGET mpcns_operators)
+    add_library(mpcns_operators STATIC
+        ../src/mpcns/operators/electromagnetic_operators.cpp)
+    target_include_directories(mpcns_operators PUBLIC ../include)
+    target_link_libraries(mpcns_operators PUBLIC mpcns_discrete)
+endif()
+
 if(NOT TARGET mpcns_geometry)
     add_library(mpcns_geometry STATIC
         ../src/mpcns/geometry/geometry_primitives.cpp
@@ -101,6 +108,7 @@ add_executable(z0_null
 
 target_link_libraries(z0_null PRIVATE
     mpcns_discrete
+    mpcns_operators
     mpcns_legacy_geometry
     ${MPI_LIBRARIES}
     stdc++fs)

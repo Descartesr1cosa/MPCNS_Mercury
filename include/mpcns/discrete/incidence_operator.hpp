@@ -34,23 +34,27 @@ inline double d1_zeta_at(const state::PrimalEdgeFormView &edge, int i, int j, in
 
 } // namespace detail
 
-// Apply the oriented primal incidence operator d1: C^1 -> C^2.  The optional
-// scale preserves the legacy CT multiplier without introducing a second curl
-// stencil.
+// Oriented primal incidence operators. They contain no metric, Field catalog,
+// MPI, ownership, or boundary decision; callers synchronize input cochains
+// before application and reconcile output cochains through their Halo policy.
+void apply_d0(const state::PrimalZeroFormView &node,
+              state::PrimalEdgeFormView edge);
+
 void apply_d1(const state::PrimalEdgeFormView &edge,
               state::PrimalFaceFormView face,
               double scale = 1.0);
 
-// Subtract a scaled oriented primal incidence operator from an existing
-// 2-form.  This preserves the established Faraday update order,
-// face -= dt * d1(edge).
+void apply_d2(const state::PrimalFaceFormView &face,
+              state::PrimalThreeFormView cell);
+
+// Subtract a scaled d1 from an existing 2-form. This is the Faraday update
+// primitive, face -= dt * d1(edge).
 void subtract_d1(const state::PrimalEdgeFormView &edge,
                  state::PrimalFaceFormView face,
                  double scale);
 
-// Apply the transpose incidence operator d1^T: dual 1-form -> dual 2-form.
-// The caller supplies the Hodge-transformed dual 1-form; no geometric scale is
-// embedded in this purely topological operator.
+// Apply d1 transpose. The input must already have the metric/Hodge action
+// appropriate for the requested codifferential.
 void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
                         state::DualFaceFormView dual_face,
                         double scale = 1.0);

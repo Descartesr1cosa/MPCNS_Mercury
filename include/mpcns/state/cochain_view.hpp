@@ -5,9 +5,14 @@
 namespace mpcns::state
 {
 
-// Transitional typed views over the existing three directional FieldBlock
-// storage.  A future StateLayout will provide the same views without exposing
-// FieldBlock to numerical operators.
+// Transitional typed views over the existing FieldBlock storage. A future
+// StateLayout may provide the same views without exposing FieldBlock.
+struct PrimalZeroFormView
+{
+    FieldBlock &node;
+    int component = 0;
+};
+
 struct PrimalEdgeFormView
 {
     FieldBlock &xi;
@@ -24,10 +29,15 @@ struct PrimalFaceFormView
     int component = 0;
 };
 
-// The dual complex is stored on the complementary primal locations during the
-// transition: dual edges live on primal faces and dual faces live on primal
-// edges.  The distinct types preserve the mathematical meaning even though
-// their current backend storage has the same shape.
+struct PrimalThreeFormView
+{
+    FieldBlock &cell;
+    int component = 0;
+};
+
+// The dual complex is stored on complementary primal locations during the
+// transition. Distinct types preserve mathematical meaning even when storage
+// shape is currently identical.
 struct DualEdgeFormView
 {
     FieldBlock &xi;
@@ -44,9 +54,7 @@ struct DualFaceFormView
     int component = 0;
 };
 
-// Scalar geometric data live at a staggered location but are not cochains.
-// These types prevent a diagonal Hodge scale from being confused with a field
-// value at a call site.
+// Scalar geometric data live at staggered locations but are not cochains.
 struct PrimalFaceScalarView
 {
     FieldBlock &xi;

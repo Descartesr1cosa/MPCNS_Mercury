@@ -51,6 +51,13 @@ if(NOT TARGET mpcns_discrete)
     target_include_directories(mpcns_discrete PUBLIC ../include)
 endif()
 
+if(NOT TARGET mpcns_operators)
+    add_library(mpcns_operators STATIC
+        ../src/mpcns/operators/electromagnetic_operators.cpp)
+    target_include_directories(mpcns_operators PUBLIC ../include)
+    target_link_libraries(mpcns_operators PUBLIC mpcns_discrete)
+endif()
+
 if(NOT TARGET mpcns_geometry)
     add_library(mpcns_geometry STATIC
         ../src/mpcns/geometry/geometry_primitives.cpp
@@ -98,6 +105,7 @@ ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
 # Link MPI and PETSc.
 target_link_libraries(MercuryZ4 PRIVATE
     mpcns_discrete
+    mpcns_operators
     mpcns_legacy_geometry
     ${MPI_LIBRARIES}
     PkgConfig::PETSC
