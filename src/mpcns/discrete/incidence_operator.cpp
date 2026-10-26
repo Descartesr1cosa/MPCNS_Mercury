@@ -141,17 +141,16 @@ void subtract_d1(const state::PrimalEdgeFormView &edge,
     apply_d1_impl<true>(edge, face, scale);
 }
 
-template <class DualEdgeForm>
+template <class DualEdgeForm, class DualFaceForm>
 void apply_d1_transpose_impl(const DualEdgeForm &dual_edge,
-                        state::DualFaceFormView dual_face,
-                        double scale)
+                             DualFaceForm dual_face,
+                             double scale)
 {
     {
-        const Int3 lo = dual_face.xi.inner_lo();
-        const Int3 hi = dual_face.xi.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(dual_face.xi);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     dual_face.xi(i, j, k, dual_face.component) = scale *
                         ((dual_edge.eta(i, j, k - 1, dual_edge.component) -
                           dual_edge.eta(i, j, k, dual_edge.component)) +
@@ -159,11 +158,10 @@ void apply_d1_transpose_impl(const DualEdgeForm &dual_edge,
                           dual_edge.zeta(i, j - 1, k, dual_edge.component)));
     }
     {
-        const Int3 lo = dual_face.eta.inner_lo();
-        const Int3 hi = dual_face.eta.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(dual_face.eta);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     dual_face.eta(i, j, k, dual_face.component) = scale *
                         ((dual_edge.xi(i, j, k, dual_edge.component) -
                           dual_edge.xi(i, j, k - 1, dual_edge.component)) +
@@ -171,11 +169,10 @@ void apply_d1_transpose_impl(const DualEdgeForm &dual_edge,
                           dual_edge.zeta(i, j, k, dual_edge.component)));
     }
     {
-        const Int3 lo = dual_face.zeta.inner_lo();
-        const Int3 hi = dual_face.zeta.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(dual_face.zeta);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     dual_face.zeta(i, j, k, dual_face.component) = scale *
                         ((dual_edge.xi(i, j - 1, k, dual_edge.component) -
                           dual_edge.xi(i, j, k, dual_edge.component)) +
@@ -193,6 +190,13 @@ void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
 
 void apply_d1_transpose(const state::DualEdgeFormStateView &dual_edge,
                         state::DualFaceFormView dual_face,
+                        double scale)
+{
+    apply_d1_transpose_impl(dual_edge, dual_face, scale);
+}
+
+void apply_d1_transpose(const state::DualEdgeFormStateView &dual_edge,
+                        state::DualFaceFormStateView dual_face,
                         double scale)
 {
     apply_d1_transpose_impl(dual_edge, dual_face, scale);

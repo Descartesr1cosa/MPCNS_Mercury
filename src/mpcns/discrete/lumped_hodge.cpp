@@ -26,6 +26,20 @@ Bounds full_bounds(const state::StateView &view)
     return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
 }
 
+Bounds inner_bounds(const FieldBlock &view)
+{
+    const Int3 lo = view.inner_lo();
+    const Int3 hi = view.inner_hi();
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
+Bounds inner_bounds(const state::StateView &view)
+{
+    const auto &lo = view.inner_extent().lo;
+    const auto &hi = view.inner_extent().hi;
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
 template <class Source, class Target>
 void apply_snapshot_star_2_component(const Source &source, Target &&target,
                                      const geometry::ConstFieldView &coefficient,
@@ -57,7 +71,47 @@ void apply_snapshot_star_2(const PrimalFace &primal_face, DualEdge dual_edge,
                                     primal_face.component, dual_edge.component);
 }
 
+template <class Source, class Target>
+void apply_snapshot_inverse_star_1_component(
+    const Source &source, Target &&target,
+    const geometry::ConstFieldView &coefficient,
+    int source_component, int target_component)
+{
+    const Bounds b = inner_bounds(target);
+    for (int i = b.ilo; i < b.ihi; ++i)
+        for (int j = b.jlo; j < b.jhi; ++j)
+            for (int k = b.klo; k < b.khi; ++k)
+            {
+                const core::LogicalIndex index{i, j, k};
+                target(i, j, k, target_component) =
+                    source(i, j, k, source_component) * coefficient.value(index);
+            }
+}
+
+template <class DualFace, class PrimalEdge>
+void apply_snapshot_inverse_star_1(
+    const DualFace &dual_face, PrimalEdge primal_edge,
+    const geometry::LumpedHodgeGeometry &coefficients)
+{
+    apply_snapshot_inverse_star_1_component(
+        dual_face.xi, primal_edge.xi, coefficients.inverse_star_primal_1.xi,
+        dual_face.component, primal_edge.component);
+    apply_snapshot_inverse_star_1_component(
+        dual_face.eta, primal_edge.eta, coefficients.inverse_star_primal_1.eta,
+        dual_face.component, primal_edge.component);
+    apply_snapshot_inverse_star_1_component(
+        dual_face.zeta, primal_edge.zeta, coefficients.inverse_star_primal_1.zeta,
+        dual_face.component, primal_edge.component);
+}
+
 } // namespace
+
+void HodgeOperator::apply_inverse_star_1(
+    const state::DualFaceFormStateView &,
+    state::PrimalEdgeFormStateView) const
+{
+    throw std::logic_error("HodgeOperator does not support StateView inverse star-1");
+}
 
 LumpedHodge::LumpedHodge(LumpedHodgeCoefficients coefficients)
     : coefficients_(coefficients)
@@ -170,30 +224,14 @@ void SnapshotLumpedHodge::apply_inverse_star_1(
     const state::DualFaceFormView &dual_face,
     state::PrimalEdgeFormView primal_edge) const
 {
-    const auto apply = [](const FieldBlock &source, FieldBlock &target,
-                          const geometry::ConstFieldView &coefficient,
-                          int source_component, int target_component)
-    {
-        const Int3 lo = target.inner_lo();
-        const Int3 hi = target.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                {
-                    const core::LogicalIndex index{i, j, k};
-                    target(i, j, k, target_component) =
-                        source(i, j, k, source_component) * coefficient.value(index);
-                }
-    };
-    apply(dual_face.xi, primal_edge.xi,
-          coefficients_.inverse_star_primal_1.xi,
-          dual_face.component, primal_edge.component);
-    apply(dual_face.eta, primal_edge.eta,
-          coefficients_.inverse_star_primal_1.eta,
-          dual_face.component, primal_edge.component);
-    apply(dual_face.zeta, primal_edge.zeta,
-          coefficients_.inverse_star_primal_1.zeta,
-          dual_face.component, primal_edge.component);
+    apply_snapshot_inverse_star_1(dual_face, primal_edge, coefficients_);
+}
+
+void SnapshotLumpedHodge::apply_inverse_star_1(
+    const state::DualFaceFormStateView &dual_face,
+    state::PrimalEdgeFormStateView primal_edge) const
+{
+    apply_snapshot_inverse_star_1(dual_face, primal_edge, coefficients_);
 }
 
 } // namespace mpcns::discrete

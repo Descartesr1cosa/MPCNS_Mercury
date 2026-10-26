@@ -146,6 +146,13 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
     const IdTriplet &fid_Bface,
     const IdTriplet &fid_Jedge)
 {
+    const auto state_b_xi = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.xi);
+    const auto state_b_eta = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.eta);
+    const auto state_b_zeta = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.zeta);
+    const auto state_j_xi = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Jedge.xi);
+    const auto state_j_eta = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Jedge.eta);
+    const auto state_j_zeta = state_layout_binding_.quantity_id_for_legacy_field_id(fid_Jedge.zeta);
+
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
         FieldBlock &Bxi = fld_->field(fid_Bface.xi, iblk);
@@ -170,21 +177,22 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
         const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
 
         const mpcns::state::PrimalFaceFormStateView magnetic_flux{
-            state_view_adapter_->view(
-                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.xi), iblk),
-            state_view_adapter_->view(
-                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.eta), iblk),
-            state_view_adapter_->view(
-                state_layout_binding_.quantity_id_for_legacy_field_id(fid_Bface.zeta), iblk)};
+            state_view_adapter_->view(state_b_xi, iblk),
+            state_view_adapter_->view(state_b_eta, iblk),
+            state_view_adapter_->view(state_b_zeta, iblk)};
         const JstarStateBlockViews &jstar = jstar_state_views_[static_cast<std::size_t>(iblk)];
         hodge.apply_star_2(magnetic_flux,
                            mpcns::state::DualEdgeFormStateView{jstar.xi, jstar.eta, jstar.zeta});
 
-        const mpcns::state::PrimalEdgeFormView current{
-            Jxi, Jeta, Jzeta};
+        // Jedge intentionally aliases its historical dual-face intermediate
+        // and final primal-edge state through these three borrowed views.
+        const mpcns::state::StateView j_xi = state_view_adapter_->view(state_j_xi, iblk);
+        const mpcns::state::StateView j_eta = state_view_adapter_->view(state_j_eta, iblk);
+        const mpcns::state::StateView j_zeta = state_view_adapter_->view(state_j_zeta, iblk);
         electromagnetic.compute_current_from_star_2(
             mpcns::state::DualEdgeFormStateView{jstar.xi, jstar.eta, jstar.zeta},
-            mpcns::state::DualFaceFormView{Jxi, Jeta, Jzeta}, current);
+            mpcns::state::DualFaceFormStateView{j_xi, j_eta, j_zeta},
+            mpcns::state::PrimalEdgeFormStateView{j_xi, j_eta, j_zeta});
     }
 }
 

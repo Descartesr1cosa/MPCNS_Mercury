@@ -2190,8 +2190,12 @@ namespace Z0_TEST
         const auto state_star_xi = star_state_binding.layout.find("dual_edge_work_xi");
         const auto state_star_eta = star_state_binding.layout.find("dual_edge_work_eta");
         const auto state_star_zeta = star_state_binding.layout.find("dual_edge_work_zeta");
+        const auto state_j_xi_id = star_state_binding.layout.find("J_legacy_xi");
+        const auto state_j_eta_id = star_state_binding.layout.find("J_legacy_eta");
+        const auto state_j_zeta_id = star_state_binding.layout.find("J_legacy_zeta");
         double state_star_difference = 0.0;
         double state_transpose_difference = 0.0;
+        double state_inverse_difference = 0.0;
         double state_current_difference = 0.0;
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
@@ -2214,6 +2218,23 @@ namespace Z0_TEST
                 !j_xi.is_allocated() || !j_eta.is_allocated() || !j_zeta.is_allocated() || !state_j_xi.is_allocated() ||
                 !state_j_eta.is_allocated() || !state_j_zeta.is_allocated())
                 continue;
+
+            // Exercise the full star/curl/inverse chain with non-zero values
+            // across the source ghost extent; the transpose then consumes the
+            // negative-offset values adjacent to each output inner boundary.
+            const auto seed_flux = [ib](FieldBlock &value, double direction)
+            {
+                const Int3 lo = value.get_lo();
+                const Int3 hi = value.get_hi();
+                for (int i = lo.i; i < hi.i; ++i)
+                    for (int j = lo.j; j < hi.j; ++j)
+                        for (int k = lo.k; k < hi.k; ++k)
+                            value(i, j, k, 0) = direction + 0.125 * ib +
+                                0.031 * i - 0.017 * j + 0.013 * k;
+            };
+            seed_flux(b_xi, 0.25);
+            seed_flux(b_eta, -0.50);
+            seed_flux(b_zeta, 0.75);
 
             const mpcns::discrete::SnapshotLumpedHodge hodge{
                 hodge_snapshot.block(static_cast<std::size_t>(ib)).lumped_hodge};
@@ -2281,6 +2302,13 @@ namespace Z0_TEST
 
             const mpcns::state::DualFaceFormView state_dual_current{
                 state_j_xi, state_j_eta, state_j_zeta};
+            const mpcns::state::DualFaceFormStateView state_dual_current_view{
+                star_state_adapter.view(state_j_xi_id, ib),
+                star_state_adapter.view(state_j_eta_id, ib),
+                star_state_adapter.view(state_j_zeta_id, ib)};
+            const mpcns::state::PrimalEdgeFormStateView state_current_view{
+                state_dual_current_view.xi, state_dual_current_view.eta,
+                state_dual_current_view.zeta};
             // Directly compare the intermediate curl before inverse star-1.
             // This exercises all three transpose stencils, including their
             // negative-offset ghost reads, independently of the final Hodge.
@@ -2288,15 +2316,29 @@ namespace Z0_TEST
             const auto old_curl_xi = snapshot_full(state_j_xi);
             const auto old_curl_eta = snapshot_full(state_j_eta);
             const auto old_curl_zeta = snapshot_full(state_j_zeta);
-            mpcns::discrete::apply_d1_transpose(state_dual_edge, state_dual_current);
+            mpcns::discrete::apply_d1_transpose(state_dual_edge, state_dual_current_view);
             state_transpose_difference = std::max(state_transpose_difference,
                 std::max(compare_full(state_j_xi, old_curl_xi),
                     std::max(compare_full(state_j_eta, old_curl_eta),
                              compare_full(state_j_zeta, old_curl_zeta))));
 
-            electromagnetic.compute_current_from_star_2(
-                state_dual_edge, state_dual_current,
+            // The historical Jedge allocation is intentionally reused in
+            // place: first as a dual-face curl, then as a primal-edge current.
+            hodge.apply_inverse_star_1(
+                state_dual_current,
                 mpcns::state::PrimalEdgeFormView{state_j_xi, state_j_eta, state_j_zeta});
+            const auto old_inverse_xi = snapshot_full(state_j_xi);
+            const auto old_inverse_eta = snapshot_full(state_j_eta);
+            const auto old_inverse_zeta = snapshot_full(state_j_zeta);
+            mpcns::discrete::apply_d1_transpose(state_dual_edge, state_dual_current_view);
+            hodge.apply_inverse_star_1(state_dual_current_view, state_current_view);
+            state_inverse_difference = std::max(state_inverse_difference,
+                std::max(compare_full(state_j_xi, old_inverse_xi),
+                    std::max(compare_full(state_j_eta, old_inverse_eta),
+                             compare_full(state_j_zeta, old_inverse_zeta))));
+
+            electromagnetic.compute_current_from_star_2(
+                state_dual_edge, state_dual_current_view, state_current_view);
             state_star_difference = std::max(state_star_difference,
                 std::max(compare_full(work_xi, old_star_xi),
                     std::max(compare_full(work_eta, old_star_eta),
@@ -2304,6 +2346,7 @@ namespace Z0_TEST
         }
         state_star_difference = Z0_TEST::global_max(state_star_difference);
         state_transpose_difference = Z0_TEST::global_max(state_transpose_difference);
+        state_inverse_difference = Z0_TEST::global_max(state_inverse_difference);
         state_current_difference = std::max(
             max_difference_inner(field, "E_xi", "J_legacy_xi"),
             std::max(max_difference_inner(field, "E_eta", "J_legacy_eta"),
@@ -2314,6 +2357,9 @@ namespace Z0_TEST
         passed &= print_result("StateView d1 transpose matches legacy full extent exactly",
                                state_transpose_difference == 0.0,
                                max_detail(state_transpose_difference));
+        passed &= print_result("StateView inverse star-1 matches legacy full extent exactly",
+                               state_inverse_difference == 0.0,
+                               max_detail(state_inverse_difference));
         passed &= print_result("StateView star-2 continuation matches legacy B-to-J exactly",
                                state_current_difference == 0.0,
                                max_detail(state_current_difference));

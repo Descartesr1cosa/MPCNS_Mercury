@@ -632,3 +632,36 @@ storage); maximum error is exactly zero. The next minimal unit, 4C-3, may add
 a StateView output to inverse-star-1 while retaining its one existing
 axis-safe numerical kernel and keeping all reconstruction, singular-edge,
 and communication steps unchanged.
+
+## 29. State Unit 4C-3: complete StateView local current chain
+
+The production regular current composition is now entirely typed StateView
+data access: induced (or delta) primal-face flux, Workspace-backed dual-edge
+Jstar, StateView dual-face curl storage, and StateView primal-edge Jedge
+output. Jedge deliberately aliases one existing FieldStorage allocation across
+its intermediate dual 2-form and final primal 1-form identities. The legacy
+adapter is the only FieldStorage boundary; Mercury no longer passes a
+FieldBlock cochain into star-2, d1-transpose, or inverse-star-1.
+
+`d1_transpose` has a fully StateView output overload. Its legacy, mixed, and
+fully StateView entries instantiate one stencil with the same inner output
+range and ghost-read offsets. Snapshot inverse-star-1 likewise has legacy and
+StateView entries that call one component kernel; it retains `source *
+coefficient` evaluation order and writes only the historical target inner
+extent. A narrow virtual StateView bridge on `HodgeOperator` rejects unsupported
+implementations explicitly; `SnapshotLumpedHodge` supplies the production
+override, without a cast or a hierarchy rewrite.
+
+The Z0 DEC gate seeds non-zero magnetic flux through the entire ghost extent,
+then exactly compares legacy and StateView Jstar, curl, inverse-star-1 result,
+and complete continuation for every direction and local block. It also repeats
+the intentional in-place Jedge reuse. No temporary cochain, extra State array,
+or hot-loop bind/allocation was introduced. The remaining FieldBlock uses in
+the current workflow are storage-allocation checks, the explicit legacy/compat
+operator entries, and the later singular-edge/owner-alias/boundary stages.
+
+State Unit 5 should be an acceptance-only audit before any broader migration:
+exercise a fixed Mercury case for ordinary B-to-J and implicit delta-B-to-delta-J,
+compare B/J/divB and fluid monitors against the 4C-2 baseline, and inventory
+the remaining FieldBlock consumers. It must not start Parallel or Physics
+extraction by itself.

@@ -16,6 +16,10 @@ public:
                               state::DualEdgeFormView dual_edge) const = 0;
     virtual void apply_inverse_star_1(const state::DualFaceFormView &dual_face,
                                       state::PrimalEdgeFormView primal_edge) const = 0;
+    // StateView is an incremental bridge for local operator composition.
+    // Implementations that do not support it reject the call explicitly.
+    virtual void apply_inverse_star_1(const state::DualFaceFormStateView &dual_face,
+                                      state::PrimalEdgeFormStateView primal_edge) const;
 };
 
 struct LumpedHodgeCoefficients
@@ -59,6 +63,8 @@ public:
                       state::DualEdgeFormStateView dual_edge) const;
     void apply_inverse_star_1(const state::DualFaceFormView &dual_face,
                               state::PrimalEdgeFormView primal_edge) const override;
+    void apply_inverse_star_1(const state::DualFaceFormStateView &dual_face,
+                              state::PrimalEdgeFormStateView primal_edge) const override;
 
 private:
     const geometry::LumpedHodgeGeometry &coefficients_;

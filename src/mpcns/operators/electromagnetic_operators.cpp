@@ -25,8 +25,8 @@ void ElectromagneticOperators::compute_current_from_star_2(
 
 void ElectromagneticOperators::compute_current_from_star_2(
     const state::DualEdgeFormStateView &star_2_flux,
-    state::DualFaceFormView curl_star_2_flux,
-    state::PrimalEdgeFormView current) const
+    state::DualFaceFormStateView curl_star_2_flux,
+    state::PrimalEdgeFormStateView current) const
 {
     discrete::apply_d1_transpose(star_2_flux, curl_star_2_flux);
     finish_current_from_curl_(curl_star_2_flux, current);
@@ -35,6 +35,13 @@ void ElectromagneticOperators::compute_current_from_star_2(
 void ElectromagneticOperators::finish_current_from_curl_(
     state::DualFaceFormView curl_star_2_flux,
     state::PrimalEdgeFormView current) const
+{
+    hodge_.apply_inverse_star_1(curl_star_2_flux, current);
+}
+
+void ElectromagneticOperators::finish_current_from_curl_(
+    state::DualFaceFormStateView curl_star_2_flux,
+    state::PrimalEdgeFormStateView current) const
 {
     hodge_.apply_inverse_star_1(curl_star_2_flux, current);
 }
