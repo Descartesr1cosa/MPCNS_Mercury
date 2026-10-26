@@ -1,34 +1,32 @@
 #include "7_metric/Metric.h"
 
 #include "mpcns/compat/legacy_field_reconstruction.hpp"
-#include "mpcns/compat/legacy_geometry_field_registration.hpp"
-#include "mpcns/compat/legacy_lumped_metric_publisher.hpp"
+#include "mpcns/compat/legacy_geometry_build_pipeline.hpp"
 #include "mpcns/compat/legacy_metric_diagnostics.hpp"
-#include "mpcns/compat/legacy_primal_metric_publisher.hpp"
-#include "mpcns/compat/legacy_reconstruction_metric_publisher.hpp"
 
 namespace METRIC
 {
 void register_metric_fields(Field &fields, int geometry_ghost)
 {
-    mpcns::compat::register_legacy_geometry_fields(fields, geometry_ghost);
+    mpcns::compat::LegacyGeometryBuildPipeline{}.register_fields(
+        fields, geometry_ghost);
 }
 
 void compute_metric_fields(Field &fields, Grid &grid)
 {
-    // Dependency order is intentional; compatibility publishers retain legacy storage.
+    // The compatibility pipeline preserves the historical publication order.
     // Do not reorder without an exact field-by-field regression gate.
-    mpcns::compat::populate_legacy_primal_face_and_cell_metrics(fields, grid);
-    mpcns::compat::populate_legacy_lumped_face_and_edge_metrics(fields, grid);
-    mpcns::compat::populate_legacy_reconstruction_cache(fields, grid);
-    mpcns::compat::populate_legacy_primal_edge_vectors(fields, grid);
-    mpcns::compat::populate_legacy_diagonal_hodge_closure(fields, grid);
+    const mpcns::compat::LegacyGeometryBuildRequest request{fields, grid};
+    mpcns::compat::LegacyGeometryBuildPipeline{}.publish(request);
 }
 
 void build_field_geometry(Field &fields, Grid &grid, int geometry_ghost)
 {
-    register_metric_fields(fields, geometry_ghost);
-    compute_metric_fields(fields, grid);
+    const mpcns::compat::LegacyGeometryBuildRequest request{fields, grid};
+    // Finalization validates the typed GeometryBuilder hand-off. The returned
+    // snapshot borrows existing storage and is intentionally not retained here.
+    mpcns::compat::LegacyGeometryBuildPipeline{}.build(
+        request, geometry_ghost);
 }
 
 MetricDiagnostics diagnose_metric_fields(Field &fields)

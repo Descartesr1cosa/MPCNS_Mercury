@@ -1,7 +1,7 @@
 # Legacy Metric Publisher Seams
 
-Status: Units 16-18 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
-Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation.
+Status: Units 16-19 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
+Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation. Unit 19 verified the typed GeometryBuild readback and the pre-extraction singular-edge polygon/fallback closure reference in every mode.
 
 ## Purpose
 
@@ -50,9 +50,15 @@ facade call and every diagnostic counter against the extracted adapter at an
 inner sample of every local block; this is a delegation gate, not an
 independent numerical oracle.
 
+## Typed build hand-off
+
+`LegacyGeometryBuildPipeline` now owns the compatibility sequence: register the 43 legacy fields, publish the five ordered metric groups, borrow the resulting field views, and pass an ordered `GeometryBuildInput` to `GeometryBuilder::finalize`. The result is a structurally complete, immutable-in-use `GeometrySnapshot`; it still borrows the current storage and makes no numerical or MPI decision.
+
+The variable-valence edge registry now supplies `SingularEdgeGeometryInput` to the pure geometry closure. It retains alias equivalence, field collection/publication, ownership, and MPI reductions. The closure module owns only center ordering, polygon area, the existing volume-over-length fallback, and the corresponding inverse Hodge value.
+
 ## Allowed next changes
 
-1. Give a future `GeometryBuilder` a typed input and result model, then publish the result through these adapters.
+1. Replace the borrowed GeometryBuild result with owned immutable storage only after field-by-field Mercury comparison is available.
 2. Extract a pure 3x3 regularized pseudo-inverse only after its legacy equivalence test passes.
-3. Give `SingularEdgeRegistry` topology/dual-geometry inputs and retain its current closure as the reference.
+3. Separate registry topology collection from the remaining legacy Field/Grid publication adapters without changing its MPI reduction schedule.
 4. Keep non-diagonal/consistent Hodge work behind `HodgeOperator`; it must not modify this compatibility path.

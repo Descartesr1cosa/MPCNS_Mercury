@@ -6,12 +6,14 @@
 #include "8_dec/DecOps.h"
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
 #include "mpcns/compat/legacy_geometry_field_registration.hpp"
+#include "mpcns/compat/legacy_geometry_build_pipeline.hpp"
 #include "mpcns/compat/legacy_geometry_snapshot.hpp"
 #include "mpcns/compat/legacy_field_reconstruction.hpp"
 #include "mpcns/compat/legacy_metric_diagnostics.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/discrete/dual_face_inverse_hodge.hpp"
+#include "mpcns/geometry/singular_edge_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -226,6 +228,171 @@ namespace
                implementation_diagnostics.near_axis_singular);
         update(facade_diagnostics.near_axis_capped,
                implementation_diagnostics.near_axis_capped);
+        return Z0_TEST::global_max(max_difference);
+    }
+
+    struct SingularEdgeClosureReference
+    {
+        double dual_area = 0.0;
+        double inverse_hodge = 0.0;
+        std::array<double, 3> canonical_edge_vector{{0.0, 0.0, 0.0}};
+        bool used_incident_polygon = false;
+    };
+
+    SingularEdgeClosureReference legacy_singular_edge_closure_reference(
+        const mpcns::geometry::SingularEdgeGeometryInput &input)
+    {
+        SingularEdgeClosureReference result;
+        if (input.tangent_sample_count > 0)
+            for (int component = 0; component < 3; ++component)
+                result.canonical_edge_vector[component] =
+                    input.tangent_sum[component] / input.tangent_sample_count;
+
+        if (input.incident_dual_centers.size() >= 3)
+        {
+            auto points = input.incident_dual_centers;
+            std::array<double, 3> center{{0.0, 0.0, 0.0}};
+            for (const auto &point : points)
+                for (int component = 0; component < 3; ++component)
+                    center[component] += point[component];
+            for (int component = 0; component < 3; ++component)
+                center[component] /= points.size();
+
+            std::array<double, 3> tangent = input.tangent_sum;
+            const auto norm = [](const std::array<double, 3> &vector)
+            {
+                return std::sqrt(vector[0] * vector[0] +
+                                 vector[1] * vector[1] +
+                                 vector[2] * vector[2]);
+            };
+            const double tangent_norm = norm(tangent);
+            if (tangent_norm > 0.0)
+                for (double &component : tangent)
+                    component /= tangent_norm;
+
+            const std::array<double, 3> reference =
+                std::abs(tangent[0]) < 0.9
+                    ? std::array<double, 3>{{1.0, 0.0, 0.0}}
+                    : std::array<double, 3>{{0.0, 1.0, 0.0}};
+            std::array<double, 3> u{{
+                tangent[1] * reference[2] - tangent[2] * reference[1],
+                tangent[2] * reference[0] - tangent[0] * reference[2],
+                tangent[0] * reference[1] - tangent[1] * reference[0]}};
+            const double u_norm = norm(u);
+            if (u_norm > 0.0)
+                for (double &component : u)
+                    component /= u_norm;
+            const std::array<double, 3> v{{
+                tangent[1] * u[2] - tangent[2] * u[1],
+                tangent[2] * u[0] - tangent[0] * u[2],
+                tangent[0] * u[1] - tangent[1] * u[0]}};
+
+            std::sort(points.begin(), points.end(),
+                      [&](const std::array<double, 3> &lhs,
+                          const std::array<double, 3> &rhs)
+                      {
+                          const auto angle =
+                              [&](const std::array<double, 3> &point)
+                          {
+                              double du = 0.0;
+                              double dv = 0.0;
+                              for (int component = 0; component < 3;
+                                   ++component)
+                              {
+                                  du += (point[component] - center[component]) *
+                                        u[component];
+                                  dv += (point[component] - center[component]) *
+                                        v[component];
+                              }
+                              return std::atan2(dv, du);
+                          };
+                          return angle(lhs) < angle(rhs);
+                      });
+
+            std::array<double, 3> area_vector{{0.0, 0.0, 0.0}};
+            for (std::size_t index = 0; index < points.size(); ++index)
+            {
+                const auto &lhs = points[index];
+                const auto &rhs = points[(index + 1) % points.size()];
+                area_vector[0] += lhs[1] * rhs[2] - lhs[2] * rhs[1];
+                area_vector[1] += lhs[2] * rhs[0] - lhs[0] * rhs[2];
+                area_vector[2] += lhs[0] * rhs[1] - lhs[1] * rhs[0];
+            }
+            result.dual_area = 0.5 * norm(area_vector);
+            result.used_incident_polygon = result.dual_area > 0.0;
+        }
+
+        if (!(result.dual_area > 0.0))
+            result.dual_area = input.fallback_dual_area;
+        result.inverse_hodge =
+            result.dual_area > 0.0 ? input.primal_length / result.dual_area
+                                   : 0.0;
+        return result;
+    }
+
+    double max_difference_from_singular_edge_geometry_closure()
+    {
+        using Input = mpcns::geometry::SingularEdgeGeometryInput;
+        using Vector = mpcns::geometry::CartesianVector;
+
+        std::vector<Input> cases;
+        Input polygon;
+        polygon.primal_length = 4.0;
+        polygon.tangent_sum = {{0.0, 0.0, 2.0}};
+        polygon.tangent_sample_count = 2;
+        polygon.incident_dual_centers = {
+            Vector{{0.0, 1.0, 0.0}},
+            Vector{{1.0, 0.0, 0.0}},
+            Vector{{0.0, -1.0, 0.0}},
+            Vector{{-1.0, 0.0, 0.0}}};
+        polygon.fallback_dual_area = 9.0;
+        cases.push_back(polygon);
+
+        Input insufficient;
+        insufficient.primal_length = 6.0;
+        insufficient.tangent_sum = {{0.0, 0.0, 4.0}};
+        insufficient.tangent_sample_count = 2;
+        insufficient.incident_dual_centers = {
+            Vector{{0.0, 0.0, 0.0}},
+            Vector{{1.0, 0.0, 0.0}}};
+        insufficient.fallback_dual_area = 3.0;
+        cases.push_back(insufficient);
+
+        Input degenerate;
+        degenerate.primal_length = 5.0;
+        degenerate.tangent_sum = {{0.0, 0.0, 3.0}};
+        degenerate.tangent_sample_count = 3;
+        degenerate.incident_dual_centers = {
+            Vector{{-1.0, 0.0, 0.0}},
+            Vector{{0.0, 0.0, 0.0}},
+            Vector{{1.0, 0.0, 0.0}}};
+        degenerate.fallback_dual_area = 4.0;
+        cases.push_back(degenerate);
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+
+        for (const Input &input : cases)
+        {
+            const SingularEdgeClosureReference expected =
+                legacy_singular_edge_closure_reference(input);
+            const mpcns::geometry::SingularEdgeGeometry actual =
+                mpcns::geometry::close_singular_edge_geometry(input);
+            update(expected.dual_area, actual.dual_area);
+            update(expected.inverse_hodge, actual.inverse_hodge);
+            for (int component = 0; component < 3; ++component)
+                update(expected.canonical_edge_vector[component],
+                       actual.canonical_edge_vector[component]);
+            if (expected.used_incident_polygon != actual.used_incident_polygon)
+                max_difference = std::numeric_limits<double>::infinity();
+        }
         return Z0_TEST::global_max(max_difference);
     }
 
@@ -1363,9 +1530,17 @@ namespace
         Field &field,
         const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
     {
-        const mpcns::geometry::GeometrySnapshot snapshot =
-            mpcns::compat::borrow_legacy_geometry_snapshot(grid, field);
-        double max_difference = snapshot.is_complete() ? 0.0 : std::numeric_limits<double>::infinity();
+        const mpcns::geometry::GeometryBuildResult build_result =
+            mpcns::compat::LegacyGeometryBuildPipeline{}.finalize(
+                mpcns::compat::LegacyGeometryBuildRequest{field, grid});
+        const mpcns::geometry::GeometrySnapshot &snapshot =
+            build_result.snapshot;
+        double max_difference =
+            snapshot.is_complete() &&
+                    build_result.completed_block_count ==
+                        static_cast<std::size_t>(grid.nblock)
+                ? 0.0
+                : std::numeric_limits<double>::infinity();
 
         const auto update = [&](double lhs, double rhs)
         {
@@ -1591,6 +1766,13 @@ namespace Z0_TEST
             primal_edge_vector_difference == 0.0,
             max_detail(primal_edge_vector_difference));
 
+        const double singular_edge_closure_difference =
+            max_difference_from_singular_edge_geometry_closure();
+        passed &= print_result(
+            "MPCNS singular-edge closure matches legacy polygon/fallback reference",
+            singular_edge_closure_difference == 0.0,
+            max_detail(singular_edge_closure_difference));
+
         const double axis_safe_policy_cases_difference =
             max_difference_from_axis_safe_inverse_star_policy_cases();
         passed &= print_result(
@@ -1624,7 +1806,7 @@ namespace Z0_TEST
 
         const double geometry_snapshot_difference =
             max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);
-        passed &= print_result("GeometrySnapshot reads exact legacy geometry",
+        passed &= print_result("GeometryBuild pipeline reads exact legacy geometry",
                                geometry_snapshot_difference == 0.0,
                                max_detail(geometry_snapshot_difference));
 

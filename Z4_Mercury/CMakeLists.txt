@@ -54,7 +54,9 @@ endif()
 if(NOT TARGET mpcns_geometry)
     add_library(mpcns_geometry STATIC
         ../src/mpcns/geometry/geometry_primitives.cpp
-        ../src/mpcns/geometry/geometry_snapshot.cpp)
+        ../src/mpcns/geometry/geometry_snapshot.cpp
+        ../src/mpcns/geometry/geometry_builder.cpp
+        ../src/mpcns/geometry/singular_edge_geometry.cpp)
     target_include_directories(mpcns_geometry PUBLIC ../include)
 endif()
 
@@ -63,6 +65,7 @@ if(NOT TARGET mpcns_legacy_geometry)
         ../src/mpcns/compat/legacy_geometry_field_ids.cpp
         ../src/mpcns/compat/legacy_geometry_field_registration.cpp
         ../src/mpcns/compat/legacy_geometry_snapshot.cpp
+        ../src/mpcns/compat/legacy_geometry_build_pipeline.cpp
         ../src/mpcns/compat/legacy_lumped_metric_publisher.cpp
         ../src/mpcns/compat/legacy_primal_metric_publisher.cpp
         ../src/mpcns/compat/legacy_reconstruction_metric_publisher.cpp

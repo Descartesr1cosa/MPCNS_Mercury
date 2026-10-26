@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-18 verified by the 3-rank Z0 suite. Unit 16 separated reconstruction-cache and diagonal-Hodge publication; Unit 17 separated primal face/cell and edge-vector publication; Unit 18 separated Field-backed reconstruction and metric diagnostics. All gates passed in all ten halo modes.
+Status: Accepted design baseline; Units 1-19 verified by the 3-rank Z0 suite. Unit 19 added the typed GeometryBuilder hand-off and separated singular-edge dual-polygon geometry from the topology/MPI registry. All gates passed in all ten halo modes.
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -142,6 +142,10 @@ public:
 ~~~
 
 Coordinate ghost exchange is a one-time parallel preparation step. GeometrySnapshot is then built from a closed local mesh view and remains read-only for the run; geometry code itself performs no MPI.
+
+`GeometryBuilder` is the typed structural boundary between a geometry producer and geometry consumers. It accepts `GeometryBuildInput` (ordered `GeometryBlock` views) and returns `GeometryBuildResult` (a complete `GeometrySnapshot` plus its block count). During migration, `LegacyGeometryBuildPipeline` preserves the five legacy publisher calls and supplies those views to the builder; the geometry target still sees neither `Grid`, `Field`, MPI, nor solver types.
+
+The dual polygon around an extraordinary edge is now closed by the pure `close_singular_edge_geometry` operation. `SingularEdgeRegistry` remains responsible only for quotient topology, ownership, MPI reductions, legacy field publication, and collecting the typed input. This keeps the physical/topological seam explicit without changing the current closure formula.
 
 PrimalGeometry is the only source for finite-volume and DEC primal metrics. A legacy JDxi-like face vector and a corresponding GCL face metric must use the same coordinate stencil or be checked by a geometry consistency diagnostic.
 

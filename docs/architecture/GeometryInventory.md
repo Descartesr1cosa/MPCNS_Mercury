@@ -1,6 +1,6 @@
 # Mercury Geometry Inventory and Migration Boundary
 
-Status: audited; borrowed GeometrySnapshot compatibility boundary, legacy field-publishing contract, and Metric consumer facades implemented
+Status: audited; typed GeometryBuilder hand-off, borrowed GeometrySnapshot compatibility boundary, legacy field-publishing contract, and Metric consumer facades implemented
 
 ## 1. The two existing geometry layers
 
@@ -139,6 +139,10 @@ results and all diagnostic counters against the extracted modules in every
 halo mode. This is an interface-preservation gate; it introduces no new
 geometry storage or formula.
 
+Unit 19 adds the first complete typed build hand-off. `LegacyGeometryBuildPipeline` owns legacy registration and the contractual five publisher calls; it then converts the borrowed views into `GeometryBuildInput` and asks `GeometryBuilder` to return a validated `GeometryBuildResult`. The result is still a zero-copy view, but no geometry consumer now needs to know the legacy construction path. Z0 checks that the pipeline result reads exactly the same local coordinates, metrics, and reconstruction cache as the Field backend.
+
+The extraordinary-edge dual polygon is also now a pure `mpcns::geometry` operation. `SingularEdgeRegistry` gathers aliases, centers, lengths, and fallback measures through the existing topology/MPI route, while `close_singular_edge_geometry` computes center ordering, polygon area, fallback selection, inverse Hodge, and canonical vector. A test-only copy of the pre-extraction polygon/fallback arithmetic agrees exactly for nondegenerate, insufficient, and collinear center sets.
+
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
@@ -158,12 +162,12 @@ ten-mode, three-rank Z0 halo suite passed this gate with `max=0.000000`.
 1. Replace the borrowed compatibility backing with owned immutable geometry
    storage only after a full field-by-field comparison against each protected
    Mercury case is available.
-2. Move the field-derived metric construction behind a builder that produces
-   `PrimalGeometry`, `DualGeometry`, `LumpedHodge`, and
-   `ReconstructionCache` separately while retaining the old field catalog as
-   a publishing adapter.
-3. Give `SingularEdgeRegistry` a topology/dual-geometry input instead of
-   `Field` and `Grid`; retain its current numerical closure as the reference.
+2. Replace the borrowed `GeometryBuildResult` with owned `PrimalGeometry`,
+   `DualGeometry`, `LumpedHodge`, and `ReconstructionCache` storage while
+   retaining the old field catalog as a publishing adapter.
+3. Move the remaining `SingularEdgeRegistry` Field/Grid reads and writes
+   behind dedicated topology-input and publishing adapters; retain its MPI
+   schedule and current closure as the reference.
 4. Replace `Face_beta` and `Edge_alpha` callers with a `LumpedHodge` API only
    after field-by-field agreement diagnostics exist.
 

@@ -4,6 +4,7 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "3_field/Field.h"
 #include "1_grid/1_MPCNS_Grid.h"
+#include "mpcns/geometry/singular_edge_geometry.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -198,55 +199,31 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
     {
         auto &e = entries_[entry_index];
         gid_to_index_[e.global_id] = entry_index;
-        e.primal_length = gln[e.global_id] ? gl[e.global_id]/gln[e.global_id] : 0.0;
-        // The dual face is the polygon through the centers of the real cells
-        // incident on this quotient edge.  Sum(V/L) is a primal cross-section
-        // measure and overestimates this polygon at extraordinary valence.
-        e.dual_area=0.0;
-        auto center_it=incident_centers.find(e.global_id);
-        if(center_it!=incident_centers.end() && center_it->second.size()>=3)
-        {
-            auto points=center_it->second;
-            std::array<double,3> center{{0.0,0.0,0.0}};
-            for(const auto &p:points) for(int q=0;q<3;++q) center[q]+=p[q];
-            for(int q=0;q<3;++q) center[q]/=points.size();
-            std::array<double,3> tangent{{gdr[3*e.global_id],gdr[3*e.global_id+1],gdr[3*e.global_id+2]}};
-            double tn=std::sqrt(tangent[0]*tangent[0]+tangent[1]*tangent[1]+tangent[2]*tangent[2]);
-            if(tn>0.0) for(double &v:tangent) v/=tn;
-            std::array<double,3> ref=std::abs(tangent[0])<0.9 ? std::array<double,3>{{1,0,0}} : std::array<double,3>{{0,1,0}};
-            std::array<double,3> u{{tangent[1]*ref[2]-tangent[2]*ref[1],
-                                    tangent[2]*ref[0]-tangent[0]*ref[2],
-                                    tangent[0]*ref[1]-tangent[1]*ref[0]}};
-            double un=std::sqrt(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
-            if(un>0.0) for(double &v:u) v/=un;
-            std::array<double,3> v{{tangent[1]*u[2]-tangent[2]*u[1],
-                                    tangent[2]*u[0]-tangent[0]*u[2],
-                                    tangent[0]*u[1]-tangent[1]*u[0]}};
-            std::sort(points.begin(),points.end(),[&](const auto &a,const auto &b)
-            {
-                auto angle=[&](const auto &p)
-                {
-                    double du=0.0,dv=0.0;
-                    for(int q=0;q<3;++q) { du+=(p[q]-center[q])*u[q]; dv+=(p[q]-center[q])*v[q]; }
-                    return std::atan2(dv,du);
-                };
-                return angle(a)<angle(b);
-            });
-            std::array<double,3> area_vec{{0.0,0.0,0.0}};
-            for(std::size_t n=0;n<points.size();++n)
-            {
-                const auto &a=points[n], &b=points[(n+1)%points.size()];
-                area_vec[0]+=a[1]*b[2]-a[2]*b[1];
-                area_vec[1]+=a[2]*b[0]-a[0]*b[2];
-                area_vec[2]+=a[0]*b[1]-a[1]*b[0];
-            }
-            e.dual_area=0.5*std::sqrt(area_vec[0]*area_vec[0]+area_vec[1]*area_vec[1]+area_vec[2]*area_vec[2]);
-        }
-        if(!(e.dual_area>0.0))
-            e.dual_area=e.primal_length>0.0 ? gv[e.global_id]/e.primal_length : 0.0;
-        e.inverse_hodge = e.dual_area > 0.0 ? e.primal_length/e.dual_area : 0.0;
-        if (gln[e.global_id] > 0)
-            for (int q=0;q<3;++q) e.canonical_edge_vector[q]=gdr[3*e.global_id+q]/gln[e.global_id];
+        e.primal_length =
+            gln[e.global_id] ? gl[e.global_id] / gln[e.global_id] : 0.0;
+
+        // Topology and MPI collect the physical incident centers above. The
+        // quotient-edge dual polygon itself is now a pure geometry closure.
+        mpcns::geometry::SingularEdgeGeometryInput closure_input;
+        closure_input.primal_length = e.primal_length;
+        closure_input.tangent_sum = {{
+            gdr[3 * e.global_id],
+            gdr[3 * e.global_id + 1],
+            gdr[3 * e.global_id + 2]}};
+        closure_input.tangent_sample_count = gln[e.global_id];
+        const auto center_it = incident_centers.find(e.global_id);
+        if (center_it != incident_centers.end())
+            closure_input.incident_dual_centers = center_it->second;
+        closure_input.fallback_dual_area =
+            e.primal_length > 0.0
+                ? gv[e.global_id] / e.primal_length
+                : 0.0;
+
+        const mpcns::geometry::SingularEdgeGeometry closure =
+            mpcns::geometry::close_singular_edge_geometry(closure_input);
+        e.dual_area = closure.dual_area;
+        e.inverse_hodge = closure.inverse_hodge;
+        e.canonical_edge_vector = closure.canonical_edge_vector;
         e.global_valid_cell_count=gc[e.global_id]; e.global_valid_face_count=gf[e.global_id];
         for (auto &c : e.local_incident_cells) c.weight = gv[e.global_id] > 0.0 ? c.measure/gv[e.global_id] : 0.0;
         for (auto &f:e.local_incident_faces) f.weight = gfm[e.global_id] > 0.0 ? f.measure/gfm[e.global_id] : 0.0;

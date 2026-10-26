@@ -123,6 +123,7 @@ public:
 
     std::size_t block_count() const { return blocks_.size(); }
     const GeometryBlock &block(std::size_t index) const;
+    const std::vector<GeometryBlock> &blocks() const { return blocks_; }
     bool is_complete() const;
 
 private:
