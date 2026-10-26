@@ -5,6 +5,7 @@
 #include "7_metric/Metric.h"
 #include "8_dec/DecOps.h"
 #include "mpcns/compat/legacy_geometry_field_ids.hpp"
+#include "mpcns/compat/legacy_geometry_field_registration.hpp"
 #include "mpcns/compat/legacy_geometry_snapshot.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
@@ -356,6 +357,33 @@ namespace
         }
         return Z0_TEST::global_max(max_difference);
     }
+
+    double legacy_geometry_catalog_layout_difference(
+        const Field &field,
+        int geometry_ghost)
+    {
+        double max_difference = 0.0;
+        for (const auto &registration :
+             mpcns::compat::legacy_geometry_field_registrations())
+        {
+            if (!field.has_field(registration.legacy_name))
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                continue;
+            }
+
+            const FieldDescriptor &descriptor =
+                field.descriptor(registration.legacy_name);
+            const bool matches =
+                descriptor.name == registration.legacy_name &&
+                descriptor.location == registration.location &&
+                descriptor.ncomp == registration.component_count &&
+                descriptor.nghost == registration.ghost_layers(geometry_ghost);
+            if (!matches)
+                max_difference = std::numeric_limits<double>::infinity();
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
 }
 
 namespace Z0_TEST
@@ -372,6 +400,14 @@ namespace Z0_TEST
         const DEC::FaceFormNames b{"B_xi", "B_eta", "B_zeta"};
 
         fill_all_with_nan(field);
+        const double geometry_catalog_difference =
+            legacy_geometry_catalog_layout_difference(
+                field, param.GetInt("ngg"));
+        passed &= print_result(
+            "Legacy geometry field layout matches catalog exactly",
+            geometry_catalog_difference == 0.0,
+            max_detail(geometry_catalog_difference));
+
         fill_phi(field);
         DEC::d0_node_to_edge(field, "phi", e);
         DEC::d1_edge_to_face(field, e, b);

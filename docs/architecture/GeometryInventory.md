@@ -1,6 +1,6 @@
 # Mercury Geometry Inventory and Migration Boundary
 
-Status: audited; borrowed GeometrySnapshot compatibility boundary implemented
+Status: audited; borrowed GeometrySnapshot compatibility boundary and legacy field-publishing contract implemented
 
 ## 1. The two existing geometry layers
 
@@ -70,6 +70,13 @@ formula is introduced.
 directory for this migration.  `METRIC::register_metric_fields` and
 `LegacyGeometryFieldIds` use the same constants, so a future catalog rename
 cannot silently register one name and bind another.
+
+The registration metadata itself is now a separate compatibility contract:
+legacy_geometry_field_registration owns all 43 legacy entries and preserves
+their historical registration order, stagger location, component count, and
+ghost-width rule.  It is the publishing adapter from a future geometry
+builder to the current Field backend; it performs no metric calculation.
+Z0 verifies that the live catalog exactly matches this contract.
 
 ## 4. GeometrySnapshot compatibility boundary
 

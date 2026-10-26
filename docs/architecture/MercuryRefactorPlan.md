@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1–7 implementation in review (3-rank Z0 Hodge and GeometrySnapshot gates passed; catalog unification pending validation)
+Status: Accepted design baseline; Units 1-8 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, and field-name catalog gates passed; field-publishing gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -281,6 +281,13 @@ Legacy metric catalog spellings are now declared once in
 registration and the compatibility ID adapter consume this directory.  This
 is a naming-boundary change only and requires the usual exact Z0 gate before
 subsequent geometry-builder extraction.
+
+The next seam is the geometry field-publishing contract.  The 43 legacy
+geometry field registrations (catalog name, stagger location, component
+count, ghost-width rule, and historical order) now live in
+mpcns::compat::legacy_geometry_field_registration.  Metric.cpp is only a
+backward-compatible caller.  The Z0 suite checks that the resulting catalog
+matches that contract exactly; metric formulas and storage are unchanged.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.
