@@ -109,11 +109,20 @@ the compatibility metric code retains all Grid/Field reads.  Z0 compares every
 local Jac entry with an independent copy of the legacy six-face stencil before
 the migration can continue.
 
+Dual-face area vectors at primal edges (`Sstar_xi`, `Sstar_eta`, and
+`Sstar_zeta`) now use the same pure quadrilateral-area primitive. Their
+topology-dependent choice of the four surrounding dual-cell centers remains
+in the legacy publisher, together with the field writes and inverse-Hodge
+calculation. The Z0 dual-face gate independently evaluates the former
+two-triangle stencil for every vector component and local ghost entry; exact
+equality is required before dual geometry moves out of the compatibility
+layer.
+
 The next pure primitive is geometry_primitives::euclidean_norm.  Its first
 consumer scope is deliberately restricted to primal-face magnitude, dual-edge
-length at a face, and the corresponding lumped star-2 scale.  Edge and
-dual-face closure remain on their legacy code path.  The Z0 gate recalculates
-all three face families with the former stencil, including the zero-area
+length at a face, and the corresponding lumped star-2 scale. Edge-length,
+dual-face magnitude, and inverse-Hodge closure remain on their legacy code path.
+The Z0 gate recalculates all three face families with the former stencil, including the zero-area
 guard, and requires exact agreement.
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only

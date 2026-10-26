@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-11 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, and cell-volume gates passed; face-metric gate awaiting validation)
+Status: Accepted design baseline; Units 1-12 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, cell-volume, and face-metric gates passed; dual-face-area gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -305,10 +305,18 @@ stencil and requires exact equality before the next primitive is extracted.
 
 geometry_primitives::euclidean_norm is now used only by the three primal-face
 metric paths: face area, dual-edge length, and the diagonal star-2 scale.
-The existing edge/dual-face and inverse-Hodge calculations still use their
-legacy local implementation.  Z0 independently checks every local area,
+The edge-length, dual-face magnitude, and inverse-Hodge calculations still
+use their legacy local implementation. Z0 independently checks every local area,
 dual-edge length, and star-2 value against the former stencil before this
 boundary expands.
+
+The same quadrilateral primitive now also computes the dual-face area vector
+at each primal edge (`Sstar_xi`, `Sstar_eta`, and `Sstar_zeta`). The legacy
+compatibility routine still selects the four dual-cell centers, writes the
+legacy fields, and evaluates the inverse Hodge scale. The new Z0 gate
+independently reconstructs every `Sstar` vector with the prior two-triangle
+stencil over the complete local/ghost range and requires exact equality before
+dual geometry is extracted further.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.

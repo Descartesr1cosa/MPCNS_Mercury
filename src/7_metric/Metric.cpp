@@ -20,12 +20,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
 {
     Grid *grd = &grid;
 
-    auto cross = [&](const std::array<double, 3> &a, const std::array<double, 3> &b) -> std::array<double, 3>
-    {
-        return {a[1] * b[2] - a[2] * b[1],
-                a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0]};
-    };
     auto minus = [&](const std::array<double, 3> &a, const std::array<double, 3> &b) -> std::array<double, 3>
     {
         return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
@@ -281,20 +275,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
             return {x(i, j, k), y(i, j, k), z(i, j, k)};
         };
 
-        // Quad area vector via two triangles (same style as your face Area computation)
-        // p00--p10
-        //  |    |
-        // p01--p11
-        auto quad_area_vec = [&](const std::array<double, 3> &p00,
-                                 const std::array<double, 3> &p10,
-                                 const std::array<double, 3> &p01,
-                                 const std::array<double, 3> &p11) -> std::array<double, 3>
-        {
-            // area = 0.5*( (p10-p00)x(p01-p00) + (p01-p11)x(p10-p11) )
-            auto a0 = cross(minus(p10, p00), minus(p01, p00));
-            auto a1 = cross(minus(p01, p11), minus(p10, p11));
-            return scale(plus(a0, a1), 0.5);
-        };
 
         for (int ib = 0; ib < grd->nblock; ++ib)
         {
@@ -489,7 +469,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             auto p01 = get_cellc(cx, cy, cz, i + 1, j, k + 1);
                             auto p11 = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
 
-                            auto Avec = quad_area_vec(p00, p10, p01, p11);
+                            const auto Avec = mpcns::geometry::quadrilateral_area_vector(
+                                p00, p10, p01, p11);
                             Sstar(i, j, k, 0) = Avec[0];
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
@@ -527,7 +508,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             auto p01 = get_cellc(cx, cy, cz, i, j + 1, k + 1);
                             auto p11 = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
 
-                            auto Avec = quad_area_vec(p00, p10, p01, p11);
+                            const auto Avec = mpcns::geometry::quadrilateral_area_vector(
+                                p00, p10, p01, p11);
                             Sstar(i, j, k, 0) = Avec[0];
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
@@ -565,7 +547,8 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             auto p01 = get_cellc(cx, cy, cz, i, j + 1, k + 1);
                             auto p11 = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
 
-                            auto Avec = quad_area_vec(p00, p10, p01, p11);
+                            const auto Avec = mpcns::geometry::quadrilateral_area_vector(
+                                p00, p10, p01, p11);
                             Sstar(i, j, k, 0) = Avec[0];
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
