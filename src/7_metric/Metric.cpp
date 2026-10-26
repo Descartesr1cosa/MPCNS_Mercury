@@ -20,10 +20,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
 {
     Grid *grd = &grid;
 
-    auto dot = [&](const std::array<double, 3> &a, const std::array<double, 3> &b)
-    {
-        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    };
     auto cross = [&](const std::array<double, 3> &a, const std::array<double, 3> &b) -> std::array<double, 3>
     {
         return {a[1] * b[2] - a[2] * b[1],
@@ -172,16 +168,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                                                     cy(i + 1, j + 1, k + 1),
                                                     cz(i + 1, j + 1, k + 1)};
 
-                        double V = 0.0;
-
-                        auto dot = [&](const std::array<double, 3> &a, const std::array<double, 3> &b)
-                        {
-                            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-                        };
-                        auto minus = [&](const std::array<double, 3> &a, const std::array<double, 3> &b)
-                        {
-                            return std::array<double, 3>{a[0] - b[0], a[1] - b[1], a[2] - b[2]};
-                        };
 
                         // 下面要小心：对 minus 面，把 A 反号变成“对 cell 的外法向”
                         // 并且 face center 要用对应那 4 个顶点的平均
@@ -194,7 +180,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i, j, k) + x(i, j + 1, k) + x(i, j, k + 1) + x(i, j + 1, k + 1)),
                             0.25 * (y(i, j, k) + y(i, j + 1, k) + y(i, j, k + 1) + y(i, j + 1, k + 1)),
                             0.25 * (z(i, j, k) + z(i, j + 1, k) + z(i, j, k + 1) + z(i, j + 1, k + 1))};
-                        V += dot(Af_xm, minus(xf_xm, xc));
 
                         // --- xi+ face at i+1 ---
                         std::array<double, 3> Af_xp = {A_xi(i + 1, j, k, 0),
@@ -204,7 +189,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i + 1, j, k) + x(i + 1, j + 1, k) + x(i + 1, j, k + 1) + x(i + 1, j + 1, k + 1)),
                             0.25 * (y(i + 1, j, k) + y(i + 1, j + 1, k) + y(i + 1, j, k + 1) + y(i + 1, j + 1, k + 1)),
                             0.25 * (z(i + 1, j, k) + z(i + 1, j + 1, k) + z(i + 1, j, k + 1) + z(i + 1, j + 1, k + 1))};
-                        V += dot(Af_xp, minus(xf_xp, xc));
 
                         // --- eta- face at j ---
                         std::array<double, 3> Af_em = {-A_et(i, j, k, 0),
@@ -214,7 +198,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i, j, k) + x(i + 1, j, k) + x(i, j, k + 1) + x(i + 1, j, k + 1)),
                             0.25 * (y(i, j, k) + y(i + 1, j, k) + y(i, j, k + 1) + y(i + 1, j, k + 1)),
                             0.25 * (z(i, j, k) + z(i + 1, j, k) + z(i, j, k + 1) + z(i + 1, j, k + 1))};
-                        V += dot(Af_em, minus(xf_em, xc));
 
                         // --- eta+ face at j+1 ---
                         std::array<double, 3> Af_ep = {A_et(i, j + 1, k, 0),
@@ -224,7 +207,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i, j + 1, k) + x(i + 1, j + 1, k) + x(i, j + 1, k + 1) + x(i + 1, j + 1, k + 1)),
                             0.25 * (y(i, j + 1, k) + y(i + 1, j + 1, k) + y(i, j + 1, k + 1) + y(i + 1, j + 1, k + 1)),
                             0.25 * (z(i, j + 1, k) + z(i + 1, j + 1, k) + z(i, j + 1, k + 1) + z(i + 1, j + 1, k + 1))};
-                        V += dot(Af_ep, minus(xf_ep, xc));
 
                         // --- zeta- face at k ---
                         std::array<double, 3> Af_zm = {-A_ze(i, j, k, 0),
@@ -234,7 +216,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i, j, k) + x(i + 1, j, k) + x(i, j + 1, k) + x(i + 1, j + 1, k)),
                             0.25 * (y(i, j, k) + y(i + 1, j, k) + y(i, j + 1, k) + y(i + 1, j + 1, k)),
                             0.25 * (z(i, j, k) + z(i + 1, j, k) + z(i, j + 1, k) + z(i + 1, j + 1, k))};
-                        V += dot(Af_zm, minus(xf_zm, xc));
 
                         // --- zeta+ face at k+1 ---
                         std::array<double, 3> Af_zp = {A_ze(i, j, k + 1, 0),
@@ -244,9 +225,12 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             0.25 * (x(i, j, k + 1) + x(i + 1, j, k + 1) + x(i, j + 1, k + 1) + x(i + 1, j + 1, k + 1)),
                             0.25 * (y(i, j, k + 1) + y(i + 1, j, k + 1) + y(i, j + 1, k + 1) + y(i + 1, j + 1, k + 1)),
                             0.25 * (z(i, j, k + 1) + z(i + 1, j, k + 1) + z(i, j + 1, k + 1) + z(i + 1, j + 1, k + 1))};
-                        V += dot(Af_zp, minus(xf_zp, xc));
-
-                        Jac(i, j, k, 0) = V / 3.0;
+                        const std::array<mpcns::geometry::OrientedFaceGeometry, 6> faces = {{
+                            {Af_xm, xf_xm}, {Af_xp, xf_xp},
+                            {Af_em, xf_em}, {Af_ep, xf_ep},
+                            {Af_zm, xf_zm}, {Af_zp, xf_zp}}};
+                        Jac(i, j, k, 0) =
+                            mpcns::geometry::cell_volume_from_oriented_faces(xc, faces);
                     }
         }
     }

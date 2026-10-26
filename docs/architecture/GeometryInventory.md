@@ -101,6 +101,14 @@ uses it only for the three primal face-area-vector families.  A Z0 regression
 recomputes all local JDxi, JDet, and JDze entries using the former stencil;
 only an exact comparison permits further primal-geometry movement.
 
+The cell-volume quadrature is now isolated as
+geometry_primitives::cell_volume_from_oriented_faces.  Its input is six
+already-oriented face area vectors and centroids plus the historical dual-cell
+reference point.  The primitive preserves the original ordered accumulation;
+the compatibility metric code retains all Grid/Field reads.  Z0 compares every
+local Jac entry with an independent copy of the legacy six-face stencil before
+the migration can continue.
+
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
 metric fields exactly; it allocates nothing and changes no numerical result.

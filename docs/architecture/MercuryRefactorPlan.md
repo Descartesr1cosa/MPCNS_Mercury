@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-9 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, and field-publishing gates passed; quadrilateral-area gate awaiting validation)
+Status: Accepted design baseline; Units 1-10 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, and quadrilateral-area gates passed; cell-volume gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -295,6 +295,13 @@ same two-triangle arithmetic as the legacy code.  Metric.cpp calls it only for
 JDxi, JDet, and JDze.  Z0 independently recomputes every local JD value with
 the former stencil and requires an exact zero difference before any subsequent
 primal-geometry extraction proceeds.
+
+The next pure kernel is geometry_primitives::cell_volume_from_oriented_faces.
+It preserves the historical ordered six-face divergence-theorem accumulation:
+xi-minus, xi-plus, eta-minus, eta-plus, zeta-minus, zeta-plus.  Metric.cpp
+still owns the legacy face centroids and Field access; only the pure quadrature
+is moved.  Z0 independently evaluates every local Jac entry using the prior
+stencil and requires exact equality before the next primitive is extracted.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.

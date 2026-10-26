@@ -384,6 +384,143 @@ namespace
         return Z0_TEST::global_max(max_difference);
     }
 
+    double max_difference_from_legacy_cell_volume_stencil(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        using Point = std::array<double, 3>;
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto subtract = [](const Point &lhs, const Point &rhs)
+        {
+            return Point{lhs[0] - rhs[0],
+                         lhs[1] - rhs[1],
+                         lhs[2] - rhs[2]};
+        };
+        const auto dot = [](const Point &lhs, const Point &rhs)
+        {
+            return lhs[0] * rhs[0] +
+                   lhs[1] * rhs[1] +
+                   lhs[2] * rhs[2];
+        };
+        const auto face_center = [](const Point &p00,
+                                    const Point &p10,
+                                    const Point &p01,
+                                    const Point &p11)
+        {
+            return Point{0.25 * (p00[0] + p10[0] + p01[0] + p11[0]),
+                         0.25 * (p00[1] + p10[1] + p01[1] + p11[1]),
+                         0.25 * (p00[2] + p10[2] + p01[2] + p11[2])};
+        };
+
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            FieldBlock &jac = field.field(geometry_ids.primal_cell_volume, ib);
+            FieldBlock &area_xi =
+                field.field(geometry_ids.primal_face_area_vector.xi, ib);
+            FieldBlock &area_eta =
+                field.field(geometry_ids.primal_face_area_vector.eta, ib);
+            FieldBlock &area_zeta =
+                field.field(geometry_ids.primal_face_area_vector.zeta, ib);
+            if (!jac.is_allocated() || !area_xi.is_allocated() ||
+                !area_eta.is_allocated() || !area_zeta.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                continue;
+            }
+
+            const Block &block = grid.grids(ib);
+            const auto node = [&](int i, int j, int k)
+            {
+                return Point{block.x(i, j, k),
+                             block.y(i, j, k),
+                             block.z(i, j, k)};
+            };
+            const auto cell_center = [&](int i, int j, int k)
+            {
+                return Point{block.dual_x(i + 1, j + 1, k + 1),
+                             block.dual_y(i + 1, j + 1, k + 1),
+                             block.dual_z(i + 1, j + 1, k + 1)};
+            };
+
+            const Int3 lo = jac.get_lo();
+            const Int3 hi = jac.get_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const Point center = cell_center(i, j, k);
+                        double volume_sum = 0.0;
+
+                        volume_sum += dot(
+                            Point{-area_xi(i, j, k, 0),
+                                  -area_xi(i, j, k, 1),
+                                  -area_xi(i, j, k, 2)},
+                            subtract(face_center(node(i, j, k),
+                                                 node(i, j + 1, k),
+                                                 node(i, j, k + 1),
+                                                 node(i, j + 1, k + 1)),
+                                     center));
+                        volume_sum += dot(
+                            Point{area_xi(i + 1, j, k, 0),
+                                  area_xi(i + 1, j, k, 1),
+                                  area_xi(i + 1, j, k, 2)},
+                            subtract(face_center(node(i + 1, j, k),
+                                                 node(i + 1, j + 1, k),
+                                                 node(i + 1, j, k + 1),
+                                                 node(i + 1, j + 1, k + 1)),
+                                     center));
+                        volume_sum += dot(
+                            Point{-area_eta(i, j, k, 0),
+                                  -area_eta(i, j, k, 1),
+                                  -area_eta(i, j, k, 2)},
+                            subtract(face_center(node(i, j, k),
+                                                 node(i + 1, j, k),
+                                                 node(i, j, k + 1),
+                                                 node(i + 1, j, k + 1)),
+                                     center));
+                        volume_sum += dot(
+                            Point{area_eta(i, j + 1, k, 0),
+                                  area_eta(i, j + 1, k, 1),
+                                  area_eta(i, j + 1, k, 2)},
+                            subtract(face_center(node(i, j + 1, k),
+                                                 node(i + 1, j + 1, k),
+                                                 node(i, j + 1, k + 1),
+                                                 node(i + 1, j + 1, k + 1)),
+                                     center));
+                        volume_sum += dot(
+                            Point{-area_zeta(i, j, k, 0),
+                                  -area_zeta(i, j, k, 1),
+                                  -area_zeta(i, j, k, 2)},
+                            subtract(face_center(node(i, j, k),
+                                                 node(i + 1, j, k),
+                                                 node(i, j + 1, k),
+                                                 node(i + 1, j + 1, k)),
+                                     center));
+                        volume_sum += dot(
+                            Point{area_zeta(i, j, k + 1, 0),
+                                  area_zeta(i, j, k + 1, 1),
+                                  area_zeta(i, j, k + 1, 2)},
+                            subtract(face_center(node(i, j, k + 1),
+                                                 node(i + 1, j, k + 1),
+                                                 node(i, j + 1, k + 1),
+                                                 node(i + 1, j + 1, k + 1)),
+                                     center));
+                        update(volume_sum / 3.0, jac(i, j, k, 0));
+                    }
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
     double max_difference_from_geometry_snapshot(
         Grid &grid,
         Field &field,
@@ -574,6 +711,12 @@ namespace Z0_TEST
         passed &= print_result("MPCNS quadrilateral area primitive matches legacy JD stencil exactly",
                                primal_face_area_difference == 0.0,
                                max_detail(primal_face_area_difference));
+        const double cell_volume_difference =
+            max_difference_from_legacy_cell_volume_stencil(
+                *field.grd, field, geometry_ids);
+        passed &= print_result("MPCNS cell-volume primitive matches legacy Jac stencil exactly",
+                               cell_volume_difference == 0.0,
+                               max_detail(cell_volume_difference));
         const double geometry_snapshot_difference =
             max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);
         passed &= print_result("GeometrySnapshot reads exact legacy geometry",
