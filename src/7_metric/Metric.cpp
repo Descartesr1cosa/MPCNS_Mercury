@@ -2,6 +2,7 @@
 
 #include "3_field/Field.h"
 #include "mpcns/compat/legacy_geometry_field_registration.hpp"
+#include "mpcns/geometry/geometry_primitives.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,23 +61,18 @@ void compute_metric_fields(Field &fields, Grid &grid)
             // Int3 inner_range_hi = data.inner_hi();
             Int3 inner_range_lo = data.get_lo();
             Int3 inner_range_hi = data.get_hi();
-            std::array<double, 3> ori, ori_xp, ori_yp, ori_xyp, rx, ry, rx_, ry_, Area;
             for (int i = inner_range_lo.i; i < inner_range_hi.i; i++)
                 for (int j = inner_range_lo.j; j < inner_range_hi.j; j++)
                     for (int k = inner_range_lo.k; k < inner_range_hi.k; k++)
                     {
-                        ori = {x(i, j, k), y(i, j, k), z(i, j, k)};
-                        ori_xp = {x(i, j + 1, k), y(i, j + 1, k), z(i, j + 1, k)};
-                        ori_yp = {x(i, j, k + 1), y(i, j, k + 1), z(i, j, k + 1)};
-                        ori_xyp = {x(i, j + 1, k + 1), y(i, j + 1, k + 1), z(i, j + 1, k + 1)};
-                        rx = minus(ori_xp, ori);
-                        ry = minus(ori_yp, ori);
-                        rx_ = minus(ori_yp, ori_xyp);
-                        ry_ = minus(ori_xp, ori_xyp);
-                        Area = plus(cross(rx, ry), cross(rx_, ry_));
-                        data(i, j, k, 0) = 0.5 * Area[0];
-                        data(i, j, k, 1) = 0.5 * Area[1];
-                        data(i, j, k, 2) = 0.5 * Area[2];
+                        const auto area = mpcns::geometry::quadrilateral_area_vector(
+                            {x(i, j, k), y(i, j, k), z(i, j, k)},
+                            {x(i, j + 1, k), y(i, j + 1, k), z(i, j + 1, k)},
+                            {x(i, j, k + 1), y(i, j, k + 1), z(i, j, k + 1)},
+                            {x(i, j + 1, k + 1), y(i, j + 1, k + 1), z(i, j + 1, k + 1)});
+                        data(i, j, k, 0) = area[0];
+                        data(i, j, k, 1) = area[1];
+                        data(i, j, k, 2) = area[2];
                     }
         }
     }
@@ -95,23 +91,18 @@ void compute_metric_fields(Field &fields, Grid &grid)
             // Int3 inner_range_hi = data.inner_hi();
             Int3 inner_range_lo = data.get_lo();
             Int3 inner_range_hi = data.get_hi();
-            std::array<double, 3> ori, ori_xp, ori_yp, ori_xyp, rx, ry, rx_, ry_, Area;
             for (int i = inner_range_lo.i; i < inner_range_hi.i; i++)
                 for (int j = inner_range_lo.j; j < inner_range_hi.j; j++)
                     for (int k = inner_range_lo.k; k < inner_range_hi.k; k++)
                     {
-                        ori = {x(i, j, k), y(i, j, k), z(i, j, k)};
-                        ori_xp = {x(i, j, k + 1), y(i, j, k + 1), z(i, j, k + 1)};
-                        ori_yp = {x(i + 1, j, k), y(i + 1, j, k), z(i + 1, j, k)};
-                        ori_xyp = {x(i + 1, j, k + 1), y(i + 1, j, k + 1), z(i + 1, j, k + 1)};
-                        rx = minus(ori_xp, ori);
-                        ry = minus(ori_yp, ori);
-                        rx_ = minus(ori_yp, ori_xyp);
-                        ry_ = minus(ori_xp, ori_xyp);
-                        Area = plus(cross(rx, ry), cross(rx_, ry_));
-                        data(i, j, k, 0) = 0.5 * Area[0];
-                        data(i, j, k, 1) = 0.5 * Area[1];
-                        data(i, j, k, 2) = 0.5 * Area[2];
+                        const auto area = mpcns::geometry::quadrilateral_area_vector(
+                            {x(i, j, k), y(i, j, k), z(i, j, k)},
+                            {x(i, j, k + 1), y(i, j, k + 1), z(i, j, k + 1)},
+                            {x(i + 1, j, k), y(i + 1, j, k), z(i + 1, j, k)},
+                            {x(i + 1, j, k + 1), y(i + 1, j, k + 1), z(i + 1, j, k + 1)});
+                        data(i, j, k, 0) = area[0];
+                        data(i, j, k, 1) = area[1];
+                        data(i, j, k, 2) = area[2];
                     }
         }
     }
@@ -130,23 +121,18 @@ void compute_metric_fields(Field &fields, Grid &grid)
             // Int3 inner_range_hi = data.inner_hi();
             Int3 inner_range_lo = data.get_lo();
             Int3 inner_range_hi = data.get_hi();
-            std::array<double, 3> ori, ori_xp, ori_yp, ori_xyp, rx, ry, rx_, ry_, Area;
             for (int i = inner_range_lo.i; i < inner_range_hi.i; i++)
                 for (int j = inner_range_lo.j; j < inner_range_hi.j; j++)
                     for (int k = inner_range_lo.k; k < inner_range_hi.k; k++)
                     {
-                        ori = {x(i, j, k), y(i, j, k), z(i, j, k)};
-                        ori_xp = {x(i + 1, j, k), y(i + 1, j, k), z(i + 1, j, k)};
-                        ori_yp = {x(i, j + 1, k), y(i, j + 1, k), z(i, j + 1, k)};
-                        ori_xyp = {x(i + 1, j + 1, k), y(i + 1, j + 1, k), z(i + 1, j + 1, k)};
-                        rx = minus(ori_xp, ori);
-                        ry = minus(ori_yp, ori);
-                        rx_ = minus(ori_yp, ori_xyp);
-                        ry_ = minus(ori_xp, ori_xyp);
-                        Area = plus(cross(rx, ry), cross(rx_, ry_));
-                        data(i, j, k, 0) = 0.5 * Area[0];
-                        data(i, j, k, 1) = 0.5 * Area[1];
-                        data(i, j, k, 2) = 0.5 * Area[2];
+                        const auto area = mpcns::geometry::quadrilateral_area_vector(
+                            {x(i, j, k), y(i, j, k), z(i, j, k)},
+                            {x(i + 1, j, k), y(i + 1, j, k), z(i + 1, j, k)},
+                            {x(i, j + 1, k), y(i, j + 1, k), z(i, j + 1, k)},
+                            {x(i + 1, j + 1, k), y(i + 1, j + 1, k), z(i + 1, j + 1, k)});
+                        data(i, j, k, 0) = area[0];
+                        data(i, j, k, 1) = area[1];
+                        data(i, j, k, 2) = area[2];
                     }
         }
     }

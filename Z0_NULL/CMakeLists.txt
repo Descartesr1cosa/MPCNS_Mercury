@@ -43,6 +43,7 @@ endif()
 
 if(NOT TARGET mpcns_geometry)
     add_library(mpcns_geometry STATIC
+        ../src/mpcns/geometry/geometry_primitives.cpp
         ../src/mpcns/geometry/geometry_snapshot.cpp)
     target_include_directories(mpcns_geometry PUBLIC ../include)
 endif()

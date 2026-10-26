@@ -93,6 +93,14 @@ ReconstructionCache: covariant bases and cell/edge pseudo-inverses
 GeometrySnapshot: ordered local GeometryBlock views
 ~~~
 
+The first calculation extracted from the legacy metric routine is the pure
+geometry primitive geometry_primitives::quadrilateral_area_vector.  It has no
+Grid, Field, MPI, or Mercury dependency and preserves the historical
+two-triangle orientation and operation order.  The legacy metric publisher
+uses it only for the three primal face-area-vector families.  A Z0 regression
+recomputes all local JDxi, JDet, and JDze entries using the former stencil;
+only an exact comparison permits further primal-geometry movement.
+
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
 metric fields exactly; it allocates nothing and changes no numerical result.

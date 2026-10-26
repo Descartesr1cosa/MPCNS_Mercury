@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-8 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, and field-name catalog gates passed; field-publishing gate awaiting validation)
+Status: Accepted design baseline; Units 1-9 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, and field-publishing gates passed; quadrilateral-area gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -288,6 +288,13 @@ count, ghost-width rule, and historical order) now live in
 mpcns::compat::legacy_geometry_field_registration.  Metric.cpp is only a
 backward-compatible caller.  The Z0 suite checks that the resulting catalog
 matches that contract exactly; metric formulas and storage are unchanged.
+
+The first pure metric kernel is now geometry_primitives::quadrilateral_area_vector.
+It computes the oriented area vector of a non-planar quadrilateral using the
+same two-triangle arithmetic as the legacy code.  Metric.cpp calls it only for
+JDxi, JDet, and JDze.  Z0 independently recomputes every local JD value with
+the former stencil and requires an exact zero difference before any subsequent
+primal-geometry extraction proceeds.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.
