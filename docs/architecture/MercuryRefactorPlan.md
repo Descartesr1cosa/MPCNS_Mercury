@@ -521,7 +521,7 @@ invalid IDs, and a deliberately allocation-domain-inactive `FieldBlock`.
 `SimulationState` is a non-owning lifetime anchor for one immutable
 `StateLayout`. It produces checked `StateHandle`s only; it neither allocates a
 second state array nor owns a Field catalog. `Workspace` accepts only handles
-whose `QuantityKind` is `Workspace` and explicitly binds/release borrowed
+whose `StorageRole` is `Workspace` and explicitly binds/release borrowed
 `StateView`s. It copies only view metadata, never field values, and callers
 must release/clear bindings before their storage backend is reconfigured or
 destroyed.
@@ -560,3 +560,26 @@ and cross-`SimulationState` handle rejection. Unit 4B should migrate only the
 regular `Jstar` binding/setup portion of the current path to this API, leaving
 the Hodge, `d1` transpose, owner/alias reconciliation, and all numerical loops
 unchanged for its separate regression.
+
+## 26. State Unit 4B: production Jstar Workspace binding
+
+`StateView` now records the local process block index provided by the legacy
+adapter. `Workspace::bind` verifies that this identity matches its binding key,
+so a correct quantity view borrowed from another local block is rejected before
+it can replace a binding.
+
+MercurySolver owns one `SimulationState`, one `Workspace`, and three Jstar
+handles. Construction creates them after the legacy layout/adapter and binds
+every complete local Jstar triplet once. The setup checks that each borrowed
+view aliases the exact `FieldBlock` allocation. Destruction order releases the
+Workspace before the State/layout adapter; application-owned FieldStorage must
+outlive the solver. Inactive complete triplets are skipped, while partial
+triplets fail setup explicitly.
+
+This is a production storage-lifetime migration, not yet a StateView numerical
+operator migration. `SnapshotLumpedHodge`, `d1_transpose`, and
+`ElectromagneticOperators` still consume legacy FieldBlock cochain views in
+`ComputeRegularEdgeCurrent_`, for both ordinary B-to-J and implicit delta-B to
+delta-J calls. Their formulas, field addresses, stencil order, alias handling,
+and synchronization order are unchanged. The next State unit should add the
+smallest compatible StateView Jstar bridge for this current operator only.

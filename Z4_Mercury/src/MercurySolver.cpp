@@ -34,10 +34,22 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     state_rhs_b_xi_ = state_layout_binding_.layout.find("RHS_B_xi");
     state_rhs_b_eta_ = state_layout_binding_.layout.find("RHS_B_eta");
     state_rhs_b_zeta_ = state_layout_binding_.layout.find("RHS_B_zeta");
+    const auto state_jstar_xi = state_layout_binding_.layout.find("Jstar_xi");
+    const auto state_jstar_eta = state_layout_binding_.layout.find("Jstar_eta");
+    const auto state_jstar_zeta = state_layout_binding_.layout.find("Jstar_zeta");
     if (!state_e_xi_.is_valid() || !state_e_eta_.is_valid() ||
         !state_e_zeta_.is_valid() || !state_rhs_b_xi_.is_valid() ||
-        !state_rhs_b_eta_.is_valid() || !state_rhs_b_zeta_.is_valid())
+        !state_rhs_b_eta_.is_valid() || !state_rhs_b_zeta_.is_valid() ||
+        !state_jstar_xi.is_valid() || !state_jstar_eta.is_valid() ||
+        !state_jstar_zeta.is_valid())
         throw std::runtime_error("MercurySolver requires electromagnetic StateLayout quantities");
+    simulation_state_ = std::make_unique<mpcns::state::SimulationState>(
+        state_layout_binding_.layout);
+    state_workspace_ = std::make_unique<mpcns::state::Workspace>(*simulation_state_);
+    state_jstar_xi_ = simulation_state_->handle(state_jstar_xi);
+    state_jstar_eta_ = simulation_state_->handle(state_jstar_eta);
+    state_jstar_zeta_ = simulation_state_->handle(state_jstar_zeta);
+    SetupJstarWorkspace_();
 
     // Geometry is complete before the solver is constructed. Retain the
     // immutable-in-use typed view so physics operators do not rebind legacy

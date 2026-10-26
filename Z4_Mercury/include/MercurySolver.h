@@ -12,6 +12,7 @@
 #include "7_metric/SingularEdgeRegistry.h"
 #include "mpcns/compat/legacy_state_view_adapter.hpp"
 #include "mpcns/geometry/geometry_snapshot.hpp"
+#include "mpcns/state/simulation_state.hpp"
 
 #include <petscksp.h>
 
@@ -81,8 +82,14 @@ private:
     mpcns::geometry::GeometrySnapshot geometry_snapshot_;
     mpcns::compat::LegacyStateLayoutBinding state_layout_binding_;
     std::unique_ptr<mpcns::compat::LegacyStateViewAdapter> state_view_adapter_;
+    // Declaration order defines destruction: Workspace is released before its
+    // SimulationState, adapter, and layout. Application-owned FieldStorage
+    // must outlive this solver and every borrowed StateView.
+    std::unique_ptr<mpcns::state::SimulationState> simulation_state_;
+    std::unique_ptr<mpcns::state::Workspace> state_workspace_;
     mpcns::state::QuantityId state_e_xi_, state_e_eta_, state_e_zeta_;
     mpcns::state::QuantityId state_rhs_b_xi_, state_rhs_b_eta_, state_rhs_b_zeta_;
+    mpcns::state::StateHandle state_jstar_xi_, state_jstar_eta_, state_jstar_zeta_;
 
     // --- constants ---
     double gamma_{0.0};
@@ -217,6 +224,7 @@ private:
     void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
     void Calc_J_Edge();
+    void SetupJstarWorkspace_();
     void ComputeRegularEdgeCurrent_(const IdTriplet &fid_Bface,
                                     const IdTriplet &fid_Jedge);
     void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,

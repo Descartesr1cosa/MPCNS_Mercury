@@ -44,6 +44,7 @@ void Workspace::validate_view(StateHandle handle, int local_block_id,
         throw std::invalid_argument("Workspace requires a bound StateView");
     const QuantityDescriptor &quantity = state_->layout().descriptor(handle.quantity());
     if (view.quantity().value() != handle.quantity().value() ||
+        view.local_block_id() != local_block_id ||
         view.location() != quantity.location ||
         view.component_count() != quantity.component_count)
         throw std::invalid_argument("Workspace View does not match its StateHandle layout");

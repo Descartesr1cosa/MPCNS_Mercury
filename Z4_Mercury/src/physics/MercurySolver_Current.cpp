@@ -156,6 +156,10 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
         FieldBlock &Jeta = fld_->field(fid_Jedge.eta, iblk);
         FieldBlock &Jzeta = fld_->field(fid_Jedge.zeta, iblk);
 
+        // Jstar storage identity and lifetime are established once by
+        // SetupJstarWorkspace_. These legacy FieldBlock references remain only
+        // because SnapshotLumpedHodge and d1_transpose have not yet acquired
+        // StateView overloads; they address the same zero-copy storage.
         FieldBlock &star_xi = fld_->field(fid_.fid_Jstar.xi, iblk);
         FieldBlock &star_eta = fld_->field(fid_.fid_Jstar.eta, iblk);
         FieldBlock &star_zeta = fld_->field(fid_.fid_Jstar.zeta, iblk);
@@ -178,6 +182,40 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
             Jxi, Jeta, Jzeta};
 
         electromagnetic.compute_current(magnetic_flux, workspace, current);
+    }
+}
+
+void MercurySolver::SetupJstarWorkspace_()
+{
+    if (!fld_ || !state_view_adapter_ || !state_workspace_)
+        throw std::logic_error("MercurySolver Jstar Workspace requires initialized State services");
+
+    for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
+    {
+        const bool has_xi = fld_->field(fid_.fid_Jstar.xi, iblk).is_allocated();
+        const bool has_eta = fld_->field(fid_.fid_Jstar.eta, iblk).is_allocated();
+        const bool has_zeta = fld_->field(fid_.fid_Jstar.zeta, iblk).is_allocated();
+        if (!has_xi && !has_eta && !has_zeta)
+            continue;
+        if (!has_xi || !has_eta || !has_zeta)
+            throw std::logic_error("MercurySolver Jstar Workspace requires a complete local triplet");
+
+        const auto bind_jstar = [&](mpcns::state::StateHandle handle, int field_id)
+        {
+            state_workspace_->bind(handle, iblk,
+                                   state_view_adapter_->view(handle.quantity(), iblk));
+            // This one-time check proves that the production Workspace holds
+            // the exact FieldStorage allocation subsequently consumed by the
+            // legacy Hodge/DEC operator bridge.
+            const mpcns::state::StateView view = state_workspace_->view(handle, iblk);
+            FieldBlock &legacy = fld_->field(field_id, iblk);
+            const Int3 lo = legacy.get_lo();
+            if (&view(lo.i, lo.j, lo.k, 0) != &legacy(lo.i, lo.j, lo.k, 0))
+                throw std::logic_error("MercurySolver Jstar Workspace lost zero-copy storage identity");
+        };
+        bind_jstar(state_jstar_xi_, fid_.fid_Jstar.xi);
+        bind_jstar(state_jstar_eta_, fid_.fid_Jstar.eta);
+        bind_jstar(state_jstar_zeta_, fid_.fid_Jstar.zeta);
     }
 }
 

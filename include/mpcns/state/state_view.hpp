@@ -29,14 +29,14 @@ public:
                    core::LogicalBox inner_extent, int component_count,
                    std::ptrdiff_t stride_i, std::ptrdiff_t stride_j,
                    std::ptrdiff_t stride_k, std::ptrdiff_t stride_component,
-                   StaggerLocation location, QuantityId quantity)
+                   StaggerLocation location, QuantityId quantity, int local_block_id)
         : logical_origin_(logical_origin), extent_(extent), inner_extent_(inner_extent),
           component_count_(component_count), stride_i_(stride_i), stride_j_(stride_j),
           stride_k_(stride_k), stride_component_(stride_component), location_(location),
-          quantity_(quantity)
+          quantity_(quantity), local_block_id_(local_block_id)
     {
         if (!logical_origin_ || component_count_ <= 0 || stride_component_ <= 0 ||
-            !quantity_.is_valid())
+            !quantity_.is_valid() || local_block_id_ < 0)
             throw std::invalid_argument("StateView requires valid contiguous component storage");
     }
 
@@ -46,6 +46,7 @@ public:
     int component_count() const { return component_count_; }
     StaggerLocation location() const { return location_; }
     QuantityId quantity() const { return quantity_; }
+    int local_block_id() const { return local_block_id_; }
 
     // Unchecked, inline hot-path access. Callers must use indices inside
     // extent() and a component in [0, component_count()).
@@ -76,6 +77,7 @@ private:
     std::ptrdiff_t stride_component_ = 1;
     StaggerLocation location_ = StaggerLocation::Cell;
     QuantityId quantity_{};
+    int local_block_id_ = -1;
 };
 
 using StateView = BasicStateView<double>;

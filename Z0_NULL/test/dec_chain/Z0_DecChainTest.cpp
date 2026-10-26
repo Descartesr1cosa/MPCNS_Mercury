@@ -1883,6 +1883,10 @@ namespace
             if (!legacy.is_allocated())
                 return std::numeric_limits<double>::infinity();
             const auto borrowed = adapter.view(quantity, ib);
+            if (borrowed.local_block_id() != ib ||
+                &borrowed(legacy.get_lo().i, legacy.get_lo().j, legacy.get_lo().k, 0) !=
+                    &legacy(legacy.get_lo().i, legacy.get_lo().j, legacy.get_lo().k, 0))
+                return std::numeric_limits<double>::infinity();
             workspace.bind(handle, ib, borrowed);
             const Int3 lo = legacy.get_lo();
             const double original = legacy(lo.i, lo.j, lo.k, 0);
@@ -1896,6 +1900,9 @@ namespace
         workspace.bind(handle, 0, adapter.view(quantity, 0));
         if (!workspace.is_bound(handle, 0) || !workspace.is_bound(handle, 1))
             return std::numeric_limits<double>::infinity();
+        bool swapped_block_rejected = false;
+        try { workspace.bind(handle, 0, adapter.view(quantity, 1)); }
+        catch (const std::invalid_argument &) { swapped_block_rejected = true; }
         for (int ib = 0; ib < 2; ++ib)
         {
             FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
@@ -1916,7 +1923,7 @@ namespace
             double one_value = 0.0;
             mpcns::state::StateView wrong_components{
                 &one_value, valid_view.extent(), valid_view.inner_extent(), 2,
-                1, 1, 1, 1, valid_view.location(), quantity};
+                1, 1, 1, 1, valid_view.location(), quantity, 0};
             workspace.bind(handle, 0, wrong_components);
         }
         catch (const std::invalid_argument &) { component_mismatch_rejected = true; }
@@ -1938,7 +1945,7 @@ namespace
             const Int3 lo = legacy.get_lo();
             legacy(lo.i, lo.j, lo.k, 0) = original_values[static_cast<std::size_t>(ib)];
         }
-        return non_workspace_rejected && component_mismatch_rejected && foreign_handle_rejected &&
+        return swapped_block_rejected && non_workspace_rejected && component_mismatch_rejected && foreign_handle_rejected &&
                        unbound_rejected && !workspace.is_bound(handle, 0) && !workspace.is_bound(handle, 1)
                    ? max_difference
                    : std::numeric_limits<double>::infinity();
@@ -2171,7 +2178,7 @@ namespace Z0_TEST
                                state_view_difference == 0.0,
                                max_detail(state_view_difference));
         const double simulation_state_workspace = simulation_state_workspace_difference(field);
-        passed &= print_result("SimulationState Workspace is explicit, non-owning, and zero-copy",
+        passed &= print_result("SimulationState Workspace is multi-block, zero-copy, and safely keyed",
                                simulation_state_workspace == 0.0,
                                max_detail(simulation_state_workspace));
 
