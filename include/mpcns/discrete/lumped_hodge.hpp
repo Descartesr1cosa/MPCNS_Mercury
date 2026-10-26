@@ -2,6 +2,7 @@
 
 #include "mpcns/geometry/geometry_snapshot.hpp"
 #include "mpcns/state/cochain_view.hpp"
+#include "mpcns/compat/legacy_cochain_view.hpp"
 
 namespace mpcns::discrete
 {

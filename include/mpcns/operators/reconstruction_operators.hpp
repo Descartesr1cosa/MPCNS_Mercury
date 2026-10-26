@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mpcns/compat/legacy_cochain_view.hpp"
 #include "mpcns/state/cochain_view.hpp"
 
 namespace mpcns::operators

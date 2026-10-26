@@ -507,3 +507,29 @@ immutable `StateLayout` contract before returning a view.
 The explicit Mercury Faraday RHS path now binds cached `QuantityId`s once at
 solver construction and invokes the StateView overload. Its stencil remains in
 the shared incidence operator; no communication or boundary ordering changed.
+
+Unit 2 closure moved the legacy `FieldBlock` cochain structs into
+`mpcns::compat::legacy_cochain_view`; the public State cochain header now
+contains only StateView-based types. Both legacy and StateView `d1` entry
+points instantiate one implementation, preserving the historical component
+expressions and floating-point evaluation order. Z0 checks all three
+directions, multiple components, logical inner and ghost extents, const access,
+invalid IDs, and a deliberately allocation-domain-inactive `FieldBlock`.
+
+## 24. State Unit 3: minimal SimulationState and Workspace lifetime seam
+
+`SimulationState` is a non-owning lifetime anchor for one immutable
+`StateLayout`. It produces checked `StateHandle`s only; it neither allocates a
+second state array nor owns a Field catalog. `Workspace` accepts only handles
+whose `QuantityKind` is `Workspace` and explicitly binds/release borrowed
+`StateView`s. It copies only view metadata, never field values, and callers
+must release/clear bindings before their storage backend is reconfigured or
+destroyed.
+
+The first Unit 3 slice intentionally has no new production-operator migration:
+`LegacyStateViewAdapter` remains the sole FieldStorage adapter and existing
+Mercury Faraday use remains unchanged. Z0 verifies direct workspace writes are
+visible through the original FieldBlock, rejects non-workspace and unbound
+handles, and confirms release semantics. The next State unit should migrate one
+additional explicitly-scoped scratch consumer to this lifecycle API rather than
+introducing an owning SimulationState.

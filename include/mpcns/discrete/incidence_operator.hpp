@@ -1,38 +1,10 @@
 #pragma once
 
 #include "mpcns/state/cochain_view.hpp"
+#include "mpcns/compat/legacy_cochain_view.hpp"
 
 namespace mpcns::discrete
 {
-
-namespace detail
-{
-
-inline double d1_xi_at(const state::PrimalEdgeFormView &edge, int i, int j, int k)
-{
-    return (edge.eta(i, j, k, edge.component) -
-            edge.eta(i, j, k + 1, edge.component)) +
-           (edge.zeta(i, j + 1, k, edge.component) -
-            edge.zeta(i, j, k, edge.component));
-}
-
-inline double d1_eta_at(const state::PrimalEdgeFormView &edge, int i, int j, int k)
-{
-    return (edge.xi(i, j, k + 1, edge.component) -
-            edge.xi(i, j, k, edge.component)) +
-           (edge.zeta(i, j, k, edge.component) -
-            edge.zeta(i + 1, j, k, edge.component));
-}
-
-inline double d1_zeta_at(const state::PrimalEdgeFormView &edge, int i, int j, int k)
-{
-    return (edge.xi(i, j, k, edge.component) -
-            edge.xi(i, j + 1, k, edge.component)) +
-           (edge.eta(i + 1, j, k, edge.component) -
-            edge.eta(i, j, k, edge.component));
-}
-
-} // namespace detail
 
 // Oriented primal incidence operators. They contain no metric, Field catalog,
 // MPI, ownership, or boundary decision; callers synchronize input cochains

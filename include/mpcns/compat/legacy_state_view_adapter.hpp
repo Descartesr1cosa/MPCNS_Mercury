@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mpcns/compat/legacy_state_layout.hpp"
-#include "mpcns/state/cochain_view.hpp"
+#include "mpcns/state/state_view.hpp"
 
 class Field;
 

@@ -15,40 +15,54 @@ inline void write_scaled(double &destination, double scale, double value)
         destination = scale * value;
 }
 
-template <bool kSubtract>
-void apply_d1_impl(const state::PrimalEdgeFormView &edge,
-                   state::PrimalFaceFormView face,
-                   double scale)
+struct Bounds { int ilo, jlo, klo, ihi, jhi, khi; };
+
+Bounds inner_bounds(const FieldBlock &view)
+{
+    const Int3 lo = view.inner_lo();
+    const Int3 hi = view.inner_hi();
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
+Bounds inner_bounds(const state::StateView &view)
+{
+    const auto &lo = view.inner_extent().lo;
+    const auto &hi = view.inner_extent().hi;
+    return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
+}
+
+template <bool kSubtract, class EdgeForm, class FaceForm>
+void apply_d1_impl(const EdgeForm &edge, FaceForm face, double scale)
 {
     {
-        const Int3 lo = face.xi.inner_lo();
-        const Int3 hi = face.xi.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(face.xi);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     write_scaled<kSubtract>(
                         face.xi(i, j, k, face.component), scale,
-                        detail::d1_xi_at(edge, i, j, k));
+                        (edge.eta(i, j, k, edge.component) - edge.eta(i, j, k + 1, edge.component)) +
+                        (edge.zeta(i, j + 1, k, edge.component) - edge.zeta(i, j, k, edge.component)));
     }
     {
-        const Int3 lo = face.eta.inner_lo();
-        const Int3 hi = face.eta.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(face.eta);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     write_scaled<kSubtract>(
                         face.eta(i, j, k, face.component), scale,
-                        detail::d1_eta_at(edge, i, j, k));
+                        (edge.xi(i, j, k + 1, edge.component) - edge.xi(i, j, k, edge.component)) +
+                        (edge.zeta(i, j, k, edge.component) - edge.zeta(i + 1, j, k, edge.component)));
     }
     {
-        const Int3 lo = face.zeta.inner_lo();
-        const Int3 hi = face.zeta.inner_hi();
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
+        const Bounds b = inner_bounds(face.zeta);
+        for (int i = b.ilo; i < b.ihi; ++i)
+            for (int j = b.jlo; j < b.jhi; ++j)
+                for (int k = b.klo; k < b.khi; ++k)
                     write_scaled<kSubtract>(
                         face.zeta(i, j, k, face.component), scale,
-                        detail::d1_zeta_at(edge, i, j, k));
+                        (edge.xi(i, j, k, edge.component) - edge.xi(i, j + 1, k, edge.component)) +
+                        (edge.eta(i + 1, j, k, edge.component) - edge.eta(i, j, k, edge.component)));
     }
 }
 
@@ -100,36 +114,7 @@ void apply_d1(const state::PrimalEdgeFormStateView &edge,
               state::PrimalFaceFormStateView face,
               double scale)
 {
-    {
-        const auto &lo = face.xi.inner_extent().lo;
-        const auto &hi = face.xi.inner_extent().hi;
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                    face.xi(i, j, k, face.component) = scale *
-                        ((edge.eta(i, j, k, edge.component) - edge.eta(i, j, k + 1, edge.component)) +
-                         (edge.zeta(i, j + 1, k, edge.component) - edge.zeta(i, j, k, edge.component)));
-    }
-    {
-        const auto &lo = face.eta.inner_extent().lo;
-        const auto &hi = face.eta.inner_extent().hi;
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                    face.eta(i, j, k, face.component) = scale *
-                        ((edge.xi(i, j, k + 1, edge.component) - edge.xi(i, j, k, edge.component)) +
-                         (edge.zeta(i, j, k, edge.component) - edge.zeta(i + 1, j, k, edge.component)));
-    }
-    {
-        const auto &lo = face.zeta.inner_extent().lo;
-        const auto &hi = face.zeta.inner_extent().hi;
-        for (int i = lo.i; i < hi.i; ++i)
-            for (int j = lo.j; j < hi.j; ++j)
-                for (int k = lo.k; k < hi.k; ++k)
-                    face.zeta(i, j, k, face.component) = scale *
-                        ((edge.xi(i, j, k, edge.component) - edge.xi(i, j + 1, k, edge.component)) +
-                         (edge.eta(i + 1, j, k, edge.component) - edge.eta(i, j, k, edge.component)));
-    }
+    apply_d1_impl<false>(edge, face, scale);
 }
 
 void apply_d2(const state::PrimalFaceFormView &face,

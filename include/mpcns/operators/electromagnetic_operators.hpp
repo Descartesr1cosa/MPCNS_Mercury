@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mpcns/discrete/lumped_hodge.hpp"
+#include "mpcns/compat/legacy_cochain_view.hpp"
 
 namespace mpcns::operators
 {

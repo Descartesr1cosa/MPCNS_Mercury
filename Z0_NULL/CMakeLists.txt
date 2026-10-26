@@ -36,7 +36,8 @@ aux_source_directory(../src/8_dec DIRSRCS8)
 
 if(NOT TARGET mpcns_state)
     add_library(mpcns_state STATIC
-        ../src/mpcns/state/state_layout.cpp)
+        ../src/mpcns/state/state_layout.cpp
+        ../src/mpcns/state/simulation_state.cpp)
     target_include_directories(mpcns_state PUBLIC ../include)
 endif()
 

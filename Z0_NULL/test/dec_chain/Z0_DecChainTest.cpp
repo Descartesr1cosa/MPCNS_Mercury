@@ -15,6 +15,7 @@
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
 #include "mpcns/operators/faraday_operator.hpp"
+#include "mpcns/state/simulation_state.hpp"
 
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/discrete/dual_face_inverse_hodge.hpp"
@@ -1737,13 +1738,25 @@ namespace
 
     double max_difference_from_legacy_state_view(Field &field)
     {
+        // Bind a genuinely inactive production-style FieldBlock: its allocation
+        // domain deliberately matches no Z0 block.  This is registered only
+        // after the catalog/layout equivalence check above, and has no sync
+        // contract or downstream consumer.
+        constexpr const char *inactive_name = "state_view_test_inactive";
+        if (!field.has_field(inactive_name))
+        {
+            FieldDescriptor inactive{inactive_name, StaggerLocation::Cell, 2, 1};
+            inactive.physics = "__state_view_test_inactive_domain__";
+            field.register_field(inactive);
+        }
         const auto binding = mpcns::compat::borrow_legacy_state_layout(field);
         mpcns::compat::LegacyStateViewAdapter adapter{field, binding};
         static_assert(std::is_same<decltype(std::declval<mpcns::state::ConstStateView>()(0, 0, 0)),
                                    const double &>::value,
                       "ConstStateView must not provide mutable element access");
 
-        const std::array<const char *, 4> names{{"U", "phi", "E_xi", "B_xi"}};
+        const std::array<const char *, 8> names{{
+            "U", "phi", "E_xi", "E_eta", "E_zeta", "B_xi", "B_eta", "B_zeta"}};
         double max_difference = 0.0;
         bool inactive_checked = false;
         for (const char *name : names)
@@ -1769,29 +1782,100 @@ namespace
                     view.extent().hi.j != hi.j || view.extent().hi.k != hi.k ||
                     view.component_count() != legacy.descriptor().ncomp)
                     return std::numeric_limits<double>::infinity();
-                const int component = legacy.descriptor().ncomp - 1;
-                const double original = legacy(lo.i, lo.j, lo.k, component);
-                max_difference = std::max(max_difference,
-                    std::abs(const_view.at(lo.i, lo.j, lo.k, component) - original));
-                view.at(lo.i, lo.j, lo.k, component) = original + 0.375;
-                max_difference = std::max(max_difference,
-                    std::abs(legacy(lo.i, lo.j, lo.k, component) - (original + 0.375)));
-                legacy(lo.i, lo.j, lo.k, component) = original - 0.125;
-                max_difference = std::max(max_difference,
-                    std::abs(view.at(lo.i, lo.j, lo.k, component) - (original - 0.125)));
-                legacy(lo.i, lo.j, lo.k, component) = original;
+                const Int3 inner_lo = legacy.inner_lo();
+                const std::array<Int3, 3> samples{{
+                    lo, inner_lo, Int3{hi.i - 1, hi.j - 1, hi.k - 1}}};
+                const std::array<int, 2> components{{0, legacy.descriptor().ncomp - 1}};
+                for (const Int3 &sample : samples)
+                    for (const int component : components)
+                    {
+                        const double original = legacy(sample.i, sample.j, sample.k, component);
+                        max_difference = std::max(max_difference,
+                            std::abs(const_view.at(sample.i, sample.j, sample.k, component) - original));
+                        view.at(sample.i, sample.j, sample.k, component) = original + 0.375;
+                        max_difference = std::max(max_difference,
+                            std::abs(legacy(sample.i, sample.j, sample.k, component) - (original + 0.375)));
+                        legacy(sample.i, sample.j, sample.k, component) = original - 0.125;
+                        max_difference = std::max(max_difference,
+                            std::abs(view.at(sample.i, sample.j, sample.k, component) - (original - 0.125)));
+                        legacy(sample.i, sample.j, sample.k, component) = original;
+                    }
                 bool out_of_range_rejected = false;
-                try { (void)const_view.at(hi.i, lo.j, lo.k, component); }
+                try { (void)const_view.at(hi.i, lo.j, lo.k, components.front()); }
                 catch (const std::out_of_range &) { out_of_range_rejected = true; }
                 if (!out_of_range_rejected)
                     return std::numeric_limits<double>::infinity();
             }
         }
-        // Not every compact fixture has an allocation-domain-inactive block;
-        // invalid QuantityId always exercises the adapter's safe rejection.
+        const auto inactive_id = binding.layout.find(inactive_name);
+        if (!inactive_id.is_valid())
+            return std::numeric_limits<double>::infinity();
+        for (int ib = 0; ib < field.num_blocks(); ++ib)
+        {
+            if (field.field(binding.legacy_field_id(inactive_id), ib).is_allocated())
+                return std::numeric_limits<double>::infinity();
+            try { (void)adapter.view(inactive_id, ib); }
+            catch (const std::logic_error &) { inactive_checked = true; continue; }
+            return std::numeric_limits<double>::infinity();
+        }
+
+        bool invalid_id_checked = false;
         try { (void)adapter.view(mpcns::state::QuantityId{99999}, 0); }
-        catch (const std::out_of_range &) { inactive_checked = true; }
-        return inactive_checked ? max_difference : std::numeric_limits<double>::infinity();
+        catch (const std::out_of_range &) { invalid_id_checked = true; }
+        return inactive_checked && invalid_id_checked
+                   ? max_difference
+                   : std::numeric_limits<double>::infinity();
+    }
+
+    double simulation_state_workspace_difference(Field &field)
+    {
+        constexpr const char *workspace_name = "state_view_test_workspace";
+        if (!field.has_field(workspace_name))
+        {
+            FieldDescriptor workspace{workspace_name, StaggerLocation::Cell, 2, 1};
+            workspace.value_kind = FieldValueKind::Temporary;
+            field.register_field(workspace);
+        }
+
+        const auto binding = mpcns::compat::borrow_legacy_state_layout(field);
+        const auto quantity = binding.layout.find(workspace_name);
+        if (!quantity.is_valid())
+            return std::numeric_limits<double>::infinity();
+
+        mpcns::state::SimulationState state{binding.layout};
+        const auto handle = state.handle(quantity);
+        mpcns::compat::LegacyStateViewAdapter adapter{field, binding};
+        mpcns::state::Workspace workspace{state};
+        double max_difference = 0.0;
+
+        for (int ib = 0; ib < field.num_blocks(); ++ib)
+        {
+            FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
+            if (!legacy.is_allocated())
+                return std::numeric_limits<double>::infinity();
+            const auto borrowed = adapter.view(quantity, ib);
+            workspace.bind(handle, borrowed);
+            const Int3 lo = legacy.get_lo();
+            const double original = legacy(lo.i, lo.j, lo.k, 1);
+            workspace.view(handle)(lo.i, lo.j, lo.k, 1) = original + 0.625;
+            max_difference = std::max(max_difference,
+                std::abs(legacy(lo.i, lo.j, lo.k, 1) - (original + 0.625)));
+            legacy(lo.i, lo.j, lo.k, 1) = original;
+            workspace.release(handle);
+            if (workspace.is_bound(handle))
+                return std::numeric_limits<double>::infinity();
+        }
+
+        bool non_workspace_rejected = false;
+        try { workspace.bind(state.handle(binding.layout.find("U")), adapter.view(binding.layout.find("U"), 0)); }
+        catch (const std::invalid_argument &) { non_workspace_rejected = true; }
+        workspace.clear();
+        bool unbound_rejected = false;
+        try { (void)workspace.view(handle); }
+        catch (const std::logic_error &) { unbound_rejected = true; }
+        return non_workspace_rejected && unbound_rejected
+                   ? max_difference
+                   : std::numeric_limits<double>::infinity();
     }
 
     double legacy_geometry_catalog_layout_difference(
@@ -2020,6 +2104,10 @@ namespace Z0_TEST
         passed &= print_result("StateView is zero-copy, stride-correct, and safely bounded",
                                state_view_difference == 0.0,
                                max_detail(state_view_difference));
+        const double simulation_state_workspace = simulation_state_workspace_difference(field);
+        passed &= print_result("SimulationState Workspace is explicit, non-owning, and zero-copy",
+                               simulation_state_workspace == 0.0,
+                               max_detail(simulation_state_workspace));
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {
