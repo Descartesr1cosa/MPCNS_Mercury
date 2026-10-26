@@ -481,3 +481,17 @@ cubic-sphere electromagnetic path. Cochain storage, the diagonal coefficient
 values, stencil order, singular-edge override, and all synchronization remain
 unchanged. The old Field-backed `LumpedHodge` remains as the compatibility
 implementation and regression oracle while state storage is migrated.
+
+## 22. State Unit 1: immutable layout and legacy catalog adapter
+
+`mpcns::state::StateLayout` is the immutable description of quantity identity,
+mathematical kind, staggered storage layout, ghost extent, allocation domain,
+and synchronization requirement. It owns neither values nor MPI plans.
+`mpcns::compat::LegacyStateLayoutBinding` is the only bridge from this layout
+to the current `FieldCatalog` integer IDs.
+
+The adapter preserves the exact existing catalog order and descriptors; the Z0
+gate checks every registered quantity and its reverse legacy-ID binding. This
+is the first State migration unit only: cochain views still borrow `FieldBlock`
+storage, while later units introduce typed state handles and workspace lifetime
+management without changing that backend.

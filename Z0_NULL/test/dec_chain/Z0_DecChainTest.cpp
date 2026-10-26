@@ -10,6 +10,7 @@
 #include "mpcns/compat/legacy_geometry_snapshot.hpp"
 #include "mpcns/compat/legacy_field_reconstruction.hpp"
 #include "mpcns/compat/legacy_metric_diagnostics.hpp"
+#include "mpcns/compat/legacy_state_layout.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
 
@@ -1626,6 +1627,40 @@ namespace
         return Z0_TEST::global_max(max_difference);
     }
 
+    double max_difference_from_state_layout(const Field &field)
+    {
+        const mpcns::compat::LegacyStateLayoutBinding binding =
+            mpcns::compat::borrow_legacy_state_layout(field);
+        const mpcns::state::StateLayout &layout = binding.layout;
+        if (layout.size() != static_cast<std::size_t>(field.num_fields()))
+            return std::numeric_limits<double>::infinity();
+
+        for (int field_id = 0; field_id < field.num_fields(); ++field_id)
+        {
+            const FieldDescriptor &legacy = field.descriptor(field_id);
+            const auto quantity_id = layout.find(legacy.name);
+            if (!quantity_id.is_valid() ||
+                binding.legacy_field_id(quantity_id) != field_id)
+                return std::numeric_limits<double>::infinity();
+
+            const auto &quantity = layout.descriptor(quantity_id);
+            if (quantity.canonical_name != legacy.name ||
+                quantity.external_name != legacy.name ||
+                quantity.location != legacy.location ||
+                quantity.component_count != legacy.ncomp ||
+                quantity.ghost_layers != legacy.nghost ||
+                quantity.allocation_domain != legacy.physics ||
+                quantity.synchronization.group != legacy.sync.group ||
+                quantity.synchronization.needs_coupling != legacy.sync.do_coupling ||
+                quantity.synchronization.needs_physical_boundary != legacy.sync.do_physical ||
+                quantity.synchronization.needs_halo != legacy.sync.do_halo ||
+                quantity.synchronization.halo_level != legacy.sync.halo_level ||
+                quantity.synchronization.orientation_aware != legacy.sync.orientation_aware)
+                return std::numeric_limits<double>::infinity();
+        }
+        return 0.0;
+    }
+
     double legacy_geometry_catalog_layout_difference(
         const Field &field,
         int geometry_ghost)
@@ -1818,6 +1853,11 @@ namespace Z0_TEST
         passed &= print_result("GeometryBuild pipeline reads exact legacy geometry",
                                geometry_snapshot_difference == 0.0,
                                max_detail(geometry_snapshot_difference));
+
+        const double state_layout_difference = max_difference_from_state_layout(field);
+        passed &= print_result("StateLayout exactly describes the legacy Field catalog",
+                               state_layout_difference == 0.0,
+                               max_detail(state_layout_difference));
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
         {

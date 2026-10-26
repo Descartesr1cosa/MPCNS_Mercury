@@ -34,12 +34,26 @@ aux_source_directory(../src/6_io DIRSRCS6)
 aux_source_directory(../src/7_metric DIRSRCS7)
 aux_source_directory(../src/8_dec DIRSRCS8)
 
+if(NOT TARGET mpcns_state)
+    add_library(mpcns_state STATIC
+        ../src/mpcns/state/state_layout.cpp)
+    target_include_directories(mpcns_state PUBLIC ../include)
+endif()
+
+if(NOT TARGET mpcns_state_compat)
+    add_library(mpcns_state_compat STATIC
+        ../src/mpcns/compat/legacy_state_layout.cpp)
+    target_include_directories(mpcns_state_compat PUBLIC ../include)
+    target_link_libraries(mpcns_state_compat PUBLIC mpcns_state)
+endif()
+
 if(NOT TARGET mpcns_discrete)
     add_library(mpcns_discrete STATIC
         ../src/mpcns/discrete/incidence_operator.cpp
         ../src/mpcns/discrete/lumped_hodge.cpp
         ../src/mpcns/discrete/dual_face_inverse_hodge.cpp)
     target_include_directories(mpcns_discrete PUBLIC ../include)
+    target_link_libraries(mpcns_discrete PUBLIC mpcns_state)
 endif()
 
 if(NOT TARGET mpcns_operators)
@@ -112,6 +126,7 @@ add_executable(z0_null
 
 target_link_libraries(z0_null PRIVATE
     mpcns_discrete
+    mpcns_state_compat
     mpcns_operators
     mpcns_legacy_geometry
     ${MPI_LIBRARIES}
