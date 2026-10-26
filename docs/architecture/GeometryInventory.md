@@ -117,13 +117,16 @@ calculation. The Z0 dual-face gate has passed: it independently evaluated the
 former two-triangle stencil for every vector component and local ghost entry.
 
 geometry_primitives::euclidean_norm now also supplies primal-edge lengths and
-dual-face magnitudes; its Z0 norm-stencil gate has passed. The remaining
-axis-degeneracy treatment moved into the pure discrete-layer
-`AxisSafeInverseStar1Policy`, parameterized by `DualFaceQuadrilateral` and
-explicit legacy default thresholds. The compatibility metric publisher still
-selects geometry, writes fields, and owns storage. A two-layer Z0 gate covers
-constructed collapse branches and all field-derived inverse star-1 values
-against the prior stencil before this policy seam is considered verified.
+dual-face magnitudes; its Z0 norm-stencil gate has passed. Axis-degeneracy
+treatment is in the pure discrete-layer AxisSafeInverseStar1Policy, with
+constructed-branch and field-derived Z0 checks passed.
+
+The legacy metric writes are now organized as publishers: one publishes face
+and edge measures plus inverse star-1; one publishes covariant bases and the
+cell/edge pseudo-inverse reconstruction cache; and one closes the diagonal
+Hodge fields (star 0<->3 and star 1->2). These are compatibility seams, not
+new numerical models. The reconstruction/closure split passed its combined
+3-rank Z0 validation with exact equality in all ten halo modes.
 
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only

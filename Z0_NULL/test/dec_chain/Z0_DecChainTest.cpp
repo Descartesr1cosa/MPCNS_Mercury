@@ -17,6 +17,115 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <vector>
+#include <utility>
+namespace Z0_METRIC_REFERENCE
+{
+    struct MetricPublisherSnapshot
+    {
+        const char *name;
+        int block_index;
+        Int3 lo;
+        Int3 hi;
+        int component_count;
+        std::vector<double> values;
+    };
+
+    std::vector<MetricPublisherSnapshot>
+    snapshot_metric_publisher_outputs(Field &field)
+    {
+        static constexpr std::array<const char *, 15> field_names{{
+            "a_xi",
+            "a_eta",
+            "a_zeta",
+            "pinvGT_cell",
+            "pinvGT_xi",
+            "pinvAT_xi",
+            "pinvGT_eta",
+            "pinvAT_eta",
+            "pinvGT_zeta",
+            "pinvAT_zeta",
+            "Hodge_star_0form_to_3form_cell_lumped",
+            "Hodge_star_3form_to_0form_cell_lumped",
+            "Hodge_star_1form_to_2form_edge_xi_lumped",
+            "Hodge_star_1form_to_2form_edge_eta_lumped",
+            "Hodge_star_1form_to_2form_edge_zeta_lumped"}};
+
+        std::vector<MetricPublisherSnapshot> snapshots;
+        for (const char *name : field_names)
+        {
+            const int field_id = field.field_id(name);
+            const FieldDescriptor &descriptor = field.descriptor(field_id);
+            for (int ib = 0; ib < field.num_blocks(); ++ib)
+            {
+                FieldBlock &block = field.field(field_id, ib);
+                MetricPublisherSnapshot snapshot{
+                    name, ib, block.get_lo(), block.get_hi(), descriptor.ncomp, {}};
+                if (!block.is_allocated())
+                {
+                    snapshots.push_back(std::move(snapshot));
+                    continue;
+                }
+
+                const std::size_t count =
+                    static_cast<std::size_t>(snapshot.hi.i - snapshot.lo.i) *
+                    static_cast<std::size_t>(snapshot.hi.j - snapshot.lo.j) *
+                    static_cast<std::size_t>(snapshot.hi.k - snapshot.lo.k) *
+                    static_cast<std::size_t>(snapshot.component_count);
+                snapshot.values.reserve(count);
+                for (int i = snapshot.lo.i; i < snapshot.hi.i; ++i)
+                    for (int j = snapshot.lo.j; j < snapshot.hi.j; ++j)
+                        for (int k = snapshot.lo.k; k < snapshot.hi.k; ++k)
+                            for (int m = 0; m < snapshot.component_count; ++m)
+                                snapshot.values.push_back(block(i, j, k, m));
+                snapshots.push_back(std::move(snapshot));
+            }
+        }
+        return snapshots;
+    }
+
+    double max_difference_from_metric_publisher_snapshot(
+        Field &field,
+        const std::vector<MetricPublisherSnapshot> &snapshots)
+    {
+        double max_difference = 0.0;
+        for (const MetricPublisherSnapshot &snapshot : snapshots)
+        {
+            FieldBlock &block = field.field(snapshot.name, snapshot.block_index);
+            if (!block.is_allocated() ||
+                block.get_lo().i != snapshot.lo.i ||
+                block.get_lo().j != snapshot.lo.j ||
+                block.get_lo().k != snapshot.lo.k ||
+                block.get_hi().i != snapshot.hi.i ||
+                block.get_hi().j != snapshot.hi.j ||
+                block.get_hi().k != snapshot.hi.k ||
+                block.descriptor().ncomp != snapshot.component_count)
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                continue;
+            }
+
+            std::size_t offset = 0;
+            for (int i = snapshot.lo.i; i < snapshot.hi.i; ++i)
+                for (int j = snapshot.lo.j; j < snapshot.hi.j; ++j)
+                    for (int k = snapshot.lo.k; k < snapshot.hi.k; ++k)
+                        for (int m = 0; m < snapshot.component_count; ++m)
+                        {
+                            const double expected = snapshot.values[offset++];
+                            const double actual = block(i, j, k, m);
+                            if (!std::isfinite(expected) || !std::isfinite(actual))
+                                max_difference = std::numeric_limits<double>::infinity();
+                            else
+                                max_difference = std::max(
+                                    max_difference, std::abs(expected - actual));
+                        }
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
+    void populate_reconstruction_and_diagonal_hodge(Field &fields, Grid &grid);
+}
+
 
 namespace
 {
@@ -1310,6 +1419,22 @@ namespace Z0_TEST
             "MPCNS inverse star-1 axis-safety policy matches legacy stencil exactly",
             inverse_star_policy_difference == 0.0,
             max_detail(inverse_star_policy_difference));
+        // Use the pre-Unit-16 algorithms as a test-only oracle. They write
+        // the same Field backend, so this intentionally overwrites the relocated
+        // outputs before the production coordinator rebuilds them.
+        Z0_METRIC_REFERENCE::populate_reconstruction_and_diagonal_hodge(
+            field, *field.grd);
+        const auto legacy_metric_publisher_snapshot =
+            Z0_METRIC_REFERENCE::snapshot_metric_publisher_outputs(field);
+        METRIC::compute_metric_fields(field, *field.grd);
+        const double metric_publisher_difference =
+            Z0_METRIC_REFERENCE::max_difference_from_metric_publisher_snapshot(
+                field, legacy_metric_publisher_snapshot);
+        passed &= print_result(
+            "MPCNS reconstruction cache and diagonal Hodge publishers match baseline exactly",
+            metric_publisher_difference == 0.0,
+            max_detail(metric_publisher_difference));
+
 
 
         const double geometry_snapshot_difference =

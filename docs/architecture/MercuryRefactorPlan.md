@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-14 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, cell-volume, face-metric, dual-face-area, and edge/dual-face measure gates passed; inverse-star-1 policy gate awaiting validation)
+Status: Accepted design baseline; Units 1-15 verified by the 3-rank Z0 suite. Unit 16 separates reconstruction-cache and diagonal-Hodge publication; its exact 3-rank Z0 gate has passed in all ten halo modes.
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -309,14 +309,18 @@ magnitude paths. Its three-rank Z0 gate has passed: every local edge length
 and dual-face magnitude matches the former norm stencil exactly when combined
 with the independent Sstar gate.
 
-The axis-degeneracy treatment for inverse star-1 is now represented by the
-pure `mpcns::discrete::AxisSafeInverseStar1Policy`. Its default parameters
-preserve the existing dual-collapse ratio (`1e-3`) and primal-edge absolute
-tolerance (`1e-12`), while its `DualFaceQuadrilateral` input makes the four
-legacy dual-center points explicit. `Metric.cpp` only supplies geometry and
-publishes the result. The pending Z0 gate compares both constructed regular
-and collapsed quadrilaterals and every field-derived inverse star-1 coefficient
-with an independent copy of the prior policy.
+The axis-degeneracy treatment for inverse star-1 is represented by the pure
+mpcns::discrete::AxisSafeInverseStar1Policy. Its default parameters preserve
+the existing dual-collapse ratio (1e-3) and primal-edge absolute tolerance
+(1e-12), while its DualFaceQuadrilateral input makes the four legacy
+dual-center points explicit. The Z0 gate passed for constructed regular and
+collapsed quadrilaterals and every field-derived inverse star-1 coefficient.
+
+The existing face/edge metric publisher now owns the legacy catalog writes for
+primal and dual edge/face measures plus inverse star-1. Unit 16 further splits
+reconstruction-cache publication and the diagonal Hodge closure into two
+compatibility entry points. Their call order and field backend are unchanged.
+The combined 3-rank Z0 validation passed with exact field equality in all ten halo modes.
 
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
