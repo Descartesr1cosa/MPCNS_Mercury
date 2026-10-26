@@ -1,4 +1,5 @@
 #include "1_Boundary.h"
+#include "0_MercuryFieldCatalog.h"
 #include "0_basic/Error.h"
 #include "00_Mercury_Const.h"
 
@@ -563,143 +564,37 @@ void MercuryBoundary::InstallHandlers()
 
 void MercuryBoundary::InstallDefaultGroups()
 {
-    BoundGroup gU;
-    gU.name = "Ucell";
-    gU.fields = {"U_H", "U_Na"};
-    gU.do_coupling = false;
-    gU.do_physical = true;
-    gU.do_halo = true;
-    gU.halo_level = HaloLevel::Corner3D;
-    AddGroup(gU);
+    const std::vector<Field::PairKey> coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
+    auto install_declared_group = [this, &coupling_pairs](const MERCURY_FIELD::SyncGroupSpec &spec)
+    {
+        BoundGroup group;
+        group.name = spec.name;
+        group.fields = spec.fields;
+        group.do_coupling = spec.do_coupling;
+        group.do_physical = spec.do_physical;
+        group.do_halo = spec.do_halo;
+        group.halo_level = spec.halo_level;
+        if (group.do_coupling)
+            group.coupling_pairs = coupling_pairs;
 
-    BoundGroup gJ;
-    gJ.name = "Jedge";
-    gJ.fields = {"J_xi", "J_eta", "J_zeta"};
-    gJ.do_coupling = true;
-    gJ.do_physical = true;
-    gJ.do_halo = true;
-    gJ.halo_level = HaloLevel::Corner3D;
-    gJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gJ);
+        if (group.name == "Ucell")
+            group.halo_level = HaloLevel::Corner3D;
 
-    BoundGroup gE;
-    gE.name = "Eedge";
-    gE.fields = {"E_xi", "E_eta", "E_zeta"};
-    gE.do_coupling = true;
-    gE.do_physical = true;
-    gE.do_halo = true;
-    gE.halo_level = HaloLevel::Corner3D;
-    gE.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gE);
+        AddGroup(group);
+    };
 
-    BoundGroup gEhall;
-    gEhall.name = "Ehall";
-    gEhall.fields = {"Ehall_xi", "Ehall_eta", "Ehall_zeta"};
-    gEhall.do_coupling = true;
-    gEhall.do_physical = true;
-    gEhall.do_halo = true;
-    gEhall.halo_level = HaloLevel::Corner3D;
-    gEhall.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gEhall);
+    for (const auto &spec : MERCURY_FIELD::SyncGroups())
+        install_declared_group(spec);
 
-    BoundGroup gEres;
-    gEres.name = "Eres";
-    gEres.fields = {"Eres_xi", "Eres_eta", "Eres_zeta"};
-    gEres.do_coupling = true;
-    gEres.do_physical = true;
-    gEres.do_halo = true;
-    gEres.halo_level = HaloLevel::Corner3D;
-    gEres.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gEres);
-
-    BoundGroup gEres1form;
-    gEres1form.name = "Eres1form";
-    gEres1form.fields = {"Eres_xi", "Eres_eta", "Eres_zeta"};
-    gEres1form.do_coupling = true;
-    gEres1form.do_physical = true;
-    gEres1form.do_halo = true;
-    gEres1form.halo_level = HaloLevel::Corner3D;
-    gEres1form.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gEres1form);
-
-    BoundGroup gB;
-    gB.name = "Bface";
-    gB.fields = {"B_xi", "B_eta", "B_zeta"};
-    gB.do_coupling = true;
-    gB.do_physical = true;
-    gB.do_halo = true;
-    gB.halo_level = HaloLevel::Corner3D;
-    gB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gB);
-
-    BoundGroup EfaceB;
-    EfaceB.name = "Eface";
-    EfaceB.fields = {"Eface_xi", "Eface_eta", "Eface_zeta"};
-    EfaceB.do_coupling = true;
-    EfaceB.do_physical = true;
-    EfaceB.do_halo = true;
-    EfaceB.halo_level = HaloLevel::Corner3D;
-    EfaceB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(EfaceB);
-
-    BoundGroup gBc;
-    gBc.name = "B_cell";
-    gBc.fields = {"B_cell", "Bind_cell"};
-    gBc.do_coupling = true;
-    gBc.do_physical = true;
-    gBc.do_halo = true;
-    gBc.halo_level = HaloLevel::Corner3D;
-    gBc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gBc);
-
-    BoundGroup gJc;
-    gJc.name = "J_cell";
-    gJc.fields = {"J_cell"};
-    gJc.do_coupling = true;
-    gJc.do_physical = true;
-    gJc.do_halo = true;
-    gJc.halo_level = HaloLevel::Corner3D;
-    gJc.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gJc);
-
-    BoundGroup gUplus;
-    gUplus.name = "Uplus";
-    gUplus.fields = {"U_plus"};
-    gUplus.do_coupling = false;
-    gUplus.do_physical = false;
-    gUplus.do_halo = true;
-    gUplus.halo_level = HaloLevel::Corner3D;
-    AddGroup(gUplus);
-
-    BoundGroup gdB;
-    gdB.name = "dB";
-    gdB.fields = {"dB_xi", "dB_eta", "dB_zeta"};
-    gdB.do_coupling = true;
-    gdB.do_physical = true;
-    gdB.do_halo = true;
-    gdB.halo_level = HaloLevel::Corner3D;
-    gdB.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdB);
-
-    BoundGroup gdJ;
-    gdJ.name = "dJ";
-    gdJ.fields = {"dJ_xi", "dJ_eta", "dJ_zeta"};
-    gdJ.do_coupling = true;
-    gdJ.do_physical = true;
-    gdJ.do_halo = true;
-    gdJ.halo_level = HaloLevel::Corner3D;
-    gdJ.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gdJ);
-
-    BoundGroup gBadd;
-    gBadd.name = "Badd";
-    gBadd.fields = {"Badd_xi", "Badd_eta", "Badd_zeta"};
-    gBadd.do_coupling = true;
-    gBadd.do_physical = true;
-    gBadd.do_halo = true;
-    gBadd.halo_level = HaloLevel::Corner3D;
-    gBadd.coupling_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    AddGroup(gBadd);
+    BoundGroup eres_legacy;
+    eres_legacy.name = "Eres1form";
+    eres_legacy.fields = {"Eres_xi", "Eres_eta", "Eres_zeta"};
+    eres_legacy.do_coupling = true;
+    eres_legacy.do_physical = true;
+    eres_legacy.do_halo = true;
+    eres_legacy.halo_level = HaloLevel::Corner3D;
+    eres_legacy.coupling_pairs = coupling_pairs;
+    AddGroup(eres_legacy);
 }
 
 void MercuryBoundary::Build(bool strict_check)

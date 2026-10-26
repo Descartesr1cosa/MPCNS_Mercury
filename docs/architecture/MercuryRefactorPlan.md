@@ -423,3 +423,14 @@ silently choosing a reduction rule.
 
 Physical handlers, coupling, staged halo transfer, and final owner-alias
 ordering are unchanged. This unit creates no new MPI calls.
+
+## 17. Unit 27: catalog-driven boundary groups
+
+The standard Mercury boundary groups are now created from `SyncGroups()`.
+This removes duplicated field lists and coupling flags from the boundary
+implementation while retaining the runtime group names used by physics.
+
+The Ucell three-stage boundary schedule remains an explicit compatibility
+override because it is broader than its ordinary halo contract. Eres1form
+also remains explicit as a historical alias group. No communication order
+or field membership changed.
