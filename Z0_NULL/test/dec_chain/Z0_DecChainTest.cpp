@@ -129,6 +129,75 @@ namespace Z0_METRIC_REFERENCE
 
 namespace
 {
+    double max_difference_from_legacy_primal_edge_vector_stencil(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        using Offset = std::array<int, 3>;
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto compare_direction = [&](const Block &block,
+                                           FieldBlock &actual,
+                                           const Offset &endpoint_offset)
+        {
+            if (!actual.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+
+            const Int3 lo = actual.get_lo();
+            const Int3 hi = actual.get_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const double expected[3] = {
+                            block.x(i + endpoint_offset[0],
+                                    j + endpoint_offset[1],
+                                    k + endpoint_offset[2]) - block.x(i, j, k),
+                            block.y(i + endpoint_offset[0],
+                                    j + endpoint_offset[1],
+                                    k + endpoint_offset[2]) - block.y(i, j, k),
+                            block.z(i + endpoint_offset[0],
+                                    j + endpoint_offset[1],
+                                    k + endpoint_offset[2]) - block.z(i, j, k)};
+                        for (int component = 0; component < 3; ++component)
+                            update(expected[component],
+                                   actual(i, j, k, component));
+                    }
+        };
+
+        const Offset xi_endpoint{{1, 0, 0}};
+        const Offset eta_endpoint{{0, 1, 0}};
+        const Offset zeta_endpoint{{0, 0, 1}};
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            const Block &block = grid.grids(ib);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_vector.xi, ib),
+                xi_endpoint);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_vector.eta, ib),
+                eta_endpoint);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_vector.zeta, ib),
+                zeta_endpoint);
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
     void fill_phi(Field &field)
     {
         for (int ib = 0; ib < field.num_blocks(); ++ib)
@@ -1406,6 +1475,14 @@ namespace Z0_TEST
             "MPCNS edge length and dual-face magnitude match legacy stencil exactly",
             edge_dual_measure_difference == 0.0,
             max_detail(edge_dual_measure_difference));
+        const double primal_edge_vector_difference =
+            max_difference_from_legacy_primal_edge_vector_stencil(
+                *field.grd, field, geometry_ids);
+        passed &= print_result(
+            "MPCNS primal edge vectors match legacy stencil exactly",
+            primal_edge_vector_difference == 0.0,
+            max_detail(primal_edge_vector_difference));
+
         const double axis_safe_policy_cases_difference =
             max_difference_from_axis_safe_inverse_star_policy_cases();
         passed &= print_result(

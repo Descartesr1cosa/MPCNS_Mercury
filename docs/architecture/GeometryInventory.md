@@ -121,12 +121,14 @@ dual-face magnitudes; its Z0 norm-stencil gate has passed. Axis-degeneracy
 treatment is in the pure discrete-layer AxisSafeInverseStar1Policy, with
 constructed-branch and field-derived Z0 checks passed.
 
-The legacy metric writes are now organized as publishers: one publishes face
-and edge measures plus inverse star-1; one publishes covariant bases and the
-cell/edge pseudo-inverse reconstruction cache; and one closes the diagonal
-Hodge fields (star 0<->3 and star 1->2). These are compatibility seams, not
-new numerical models. The reconstruction/closure split passed its combined
-3-rank Z0 validation with exact equality in all ten halo modes.
+The legacy metric writes are now organized as four publisher responsibilities:
+primal face/cell measures (JDxi, JDet, JDze, Jac), face/edge measures plus
+inverse star-1, reconstruction caches, and diagonal Hodge closure. The primal
+edge vectors remain a separate ordered publisher because their historical
+execution location is retained intentionally. Unit 17 moved the primal two
+responsibilities from Metric.cpp without changing their formulas. Existing
+primal-face and cell-volume gates plus the new full-range dr_* stencil gate
+passed with exact equality in all ten three-rank Z0 halo modes.
 
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only

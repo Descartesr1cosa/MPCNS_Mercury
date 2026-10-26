@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-15 verified by the 3-rank Z0 suite. Unit 16 separates reconstruction-cache and diagonal-Hodge publication; its exact 3-rank Z0 gate has passed in all ten halo modes.
+Status: Accepted design baseline; Units 1-17 verified by the 3-rank Z0 suite. Unit 16 separated reconstruction-cache and diagonal-Hodge publication; Unit 17 separated primal face/cell and edge-vector publication. Both gates passed in all ten halo modes.
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -321,6 +321,10 @@ primal and dual edge/face measures plus inverse star-1. Unit 16 further splits
 reconstruction-cache publication and the diagonal Hodge closure into two
 compatibility entry points. Their call order and field backend are unchanged.
 The combined 3-rank Z0 validation passed with exact field equality in all ten halo modes.
+
+Unit 17 then moved primal face/cell and edge-vector publishing behind the same
+compatibility boundary. The established JD/Jac gates and a new full-range dr_*
+stencil gate also passed exactly in all ten modes.
 
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
