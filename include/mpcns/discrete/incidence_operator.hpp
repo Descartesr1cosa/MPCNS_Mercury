@@ -35,4 +35,11 @@ void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
                         state::DualFaceFormView dual_face,
                         double scale = 1.0);
 
+// StateView input bridge for a dual edge 1-form whose storage may be borrowed
+// from a legacy Field backend. The output remains legacy during the
+// incremental current-operator migration.
+void apply_d1_transpose(const state::DualEdgeFormStateView &dual_edge,
+                        state::DualFaceFormView dual_face,
+                        double scale = 1.0);
+
 } // namespace mpcns::discrete

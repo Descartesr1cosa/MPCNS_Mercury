@@ -20,7 +20,23 @@ void ElectromagneticOperators::compute_current_from_star_2(
 {
     discrete::apply_d1_transpose(
         workspace.star_2_flux, workspace.curl_star_2_flux);
-    hodge_.apply_inverse_star_1(workspace.curl_star_2_flux, current);
+    finish_current_from_curl_(workspace.curl_star_2_flux, current);
+}
+
+void ElectromagneticOperators::compute_current_from_star_2(
+    const state::DualEdgeFormStateView &star_2_flux,
+    state::DualFaceFormView curl_star_2_flux,
+    state::PrimalEdgeFormView current) const
+{
+    discrete::apply_d1_transpose(star_2_flux, curl_star_2_flux);
+    finish_current_from_curl_(curl_star_2_flux, current);
+}
+
+void ElectromagneticOperators::finish_current_from_curl_(
+    state::DualFaceFormView curl_star_2_flux,
+    state::PrimalEdgeFormView current) const
+{
+    hodge_.apply_inverse_star_1(curl_star_2_flux, current);
 }
 
 } // namespace mpcns::operators

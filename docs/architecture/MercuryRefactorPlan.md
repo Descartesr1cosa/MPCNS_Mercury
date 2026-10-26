@@ -605,3 +605,30 @@ StateView star-2 and continuation gates compare all three directions over the
 full local extent and the final B-to-J output against the existing field-backed
 path. A later Unit 4C-2 may migrate only d1-transpose's Jstar input to
 StateView; inverse-star-1 and all communication remain outside that unit.
+
+## 28. State Unit 4C-2: StateView d1-transpose input bridge
+
+`apply_d1_transpose` now accepts either the legacy `DualEdgeFormView` or a
+`DualEdgeFormStateView`, while retaining the FieldBlock-backed `DualFaceFormView`
+output. Both public entries instantiate one directional implementation: the
+xi/eta/zeta signs, negative-offset input reads, output-inner iteration ranges,
+parentheses, and multiplication order are identical. Thus a dual edge 1-form
+such as Jstar keeps its mathematical identity even though its borrowed storage
+is located on the legacy primal-face allocation.
+
+The StateView overload of `ElectromagneticOperators::compute_current_from_star_2`
+passes that Jstar directly to the shared incidence entry and then invokes the
+unchanged legacy inverse-star-1 stage. `MercurySolver::ComputeRegularEdgeCurrent_`
+uses its setup-time cached Workspace views for both ordinary B-to-J and
+delta-B-to-delta-J calls; it no longer obtains Jstar FieldBlocks in the hot
+loop. Jedge remains the existing FieldBlock-backed dual-face intermediate and
+primal-edge final output. No bind, lookup by name, allocation, MPI call, halo
+operation, or owner/alias action was added to the numerical loop.
+
+The Z0 DEC gate independently snapshots the legacy transpose output before
+inverse-star-1, reruns it from the same zero-copy StateViews, and compares all
+three directions across the full local allocation (including unchanged ghost
+storage); maximum error is exactly zero. The next minimal unit, 4C-3, may add
+a StateView output to inverse-star-1 while retaining its one existing
+axis-safe numerical kernel and keeping all reconstruction, singular-edge,
+and communication steps unchanged.

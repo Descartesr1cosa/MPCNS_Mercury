@@ -156,17 +156,8 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
         FieldBlock &Jeta = fld_->field(fid_Jedge.eta, iblk);
         FieldBlock &Jzeta = fld_->field(fid_Jedge.zeta, iblk);
 
-        // Jstar storage identity and lifetime are established once by
-        // SetupJstarWorkspace_. These legacy FieldBlock references remain only
-        // because SnapshotLumpedHodge and d1_transpose have not yet acquired
-        // StateView overloads; they address the same zero-copy storage.
-        FieldBlock &star_xi = fld_->field(fid_.fid_Jstar.xi, iblk);
-        FieldBlock &star_eta = fld_->field(fid_.fid_Jstar.eta, iblk);
-        FieldBlock &star_zeta = fld_->field(fid_.fid_Jstar.zeta, iblk);
-
         if (!Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated() ||
-            !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated() ||
-            !star_xi.is_allocated() || !star_eta.is_allocated() || !star_zeta.is_allocated())
+            !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated())
             continue;
         if (static_cast<std::size_t>(iblk) >= jstar_state_views_.size() ||
             !jstar_state_views_[static_cast<std::size_t>(iblk)].xi.is_bound() ||
@@ -189,13 +180,11 @@ void MercurySolver::ComputeRegularEdgeCurrent_(
         hodge.apply_star_2(magnetic_flux,
                            mpcns::state::DualEdgeFormStateView{jstar.xi, jstar.eta, jstar.zeta});
 
-        const mpcns::operators::MagneticCurrentWorkspace workspace{
-            mpcns::state::DualEdgeFormView{star_xi, star_eta, star_zeta},
-            mpcns::state::DualFaceFormView{Jxi, Jeta, Jzeta}};
         const mpcns::state::PrimalEdgeFormView current{
             Jxi, Jeta, Jzeta};
-
-        electromagnetic.compute_current_from_star_2(workspace, current);
+        electromagnetic.compute_current_from_star_2(
+            mpcns::state::DualEdgeFormStateView{jstar.xi, jstar.eta, jstar.zeta},
+            mpcns::state::DualFaceFormView{Jxi, Jeta, Jzeta}, current);
     }
 }
 

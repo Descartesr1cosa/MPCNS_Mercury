@@ -141,7 +141,8 @@ void subtract_d1(const state::PrimalEdgeFormView &edge,
     apply_d1_impl<true>(edge, face, scale);
 }
 
-void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
+template <class DualEdgeForm>
+void apply_d1_transpose_impl(const DualEdgeForm &dual_edge,
                         state::DualFaceFormView dual_face,
                         double scale)
 {
@@ -181,6 +182,20 @@ void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
                          (dual_edge.eta(i, j, k, dual_edge.component) -
                           dual_edge.eta(i - 1, j, k, dual_edge.component)));
     }
+}
+
+void apply_d1_transpose(const state::DualEdgeFormView &dual_edge,
+                        state::DualFaceFormView dual_face,
+                        double scale)
+{
+    apply_d1_transpose_impl(dual_edge, dual_face, scale);
+}
+
+void apply_d1_transpose(const state::DualEdgeFormStateView &dual_edge,
+                        state::DualFaceFormView dual_face,
+                        double scale)
+{
+    apply_d1_transpose_impl(dual_edge, dual_face, scale);
 }
 
 } // namespace mpcns::discrete

@@ -34,7 +34,17 @@ public:
     void compute_current_from_star_2(MagneticCurrentWorkspace workspace,
                                      state::PrimalEdgeFormView current) const;
 
+    // Incremental State bridge: star-2 is a borrowed dual-edge StateView;
+    // curl storage and inverse star-1 remain legacy in this unit.
+    void compute_current_from_star_2(
+        const state::DualEdgeFormStateView &star_2_flux,
+        state::DualFaceFormView curl_star_2_flux,
+        state::PrimalEdgeFormView current) const;
+
 private:
+    void finish_current_from_curl_(state::DualFaceFormView curl_star_2_flux,
+                                   state::PrimalEdgeFormView current) const;
+
     const discrete::HodgeOperator &hodge_;
 };
 

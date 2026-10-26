@@ -2191,6 +2191,7 @@ namespace Z0_TEST
         const auto state_star_eta = star_state_binding.layout.find("dual_edge_work_eta");
         const auto state_star_zeta = star_state_binding.layout.find("dual_edge_work_zeta");
         double state_star_difference = 0.0;
+        double state_transpose_difference = 0.0;
         double state_current_difference = 0.0;
 
         for (int ib = 0; ib < field.num_blocks(); ++ib)
@@ -2246,24 +2247,6 @@ namespace Z0_TEST
             const auto old_star_xi = snapshot_full(work_xi);
             const auto old_star_eta = snapshot_full(work_eta);
             const auto old_star_zeta = snapshot_full(work_zeta);
-
-            const mpcns::state::PrimalFaceFormStateView state_magnetic_flux{
-                star_state_adapter.view(state_b_xi, ib), star_state_adapter.view(state_b_eta, ib),
-                star_state_adapter.view(state_b_zeta, ib)};
-            const mpcns::state::DualEdgeFormStateView state_dual_edge{
-                star_state_adapter.view(state_star_xi, ib), star_state_adapter.view(state_star_eta, ib),
-                star_state_adapter.view(state_star_zeta, ib)};
-            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
-            // Repeated StateView execution must overwrite the same borrowed
-            // Jstar storage deterministically without rebinding Workspace.
-            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
-
-            const mpcns::operators::MagneticCurrentWorkspace state_workspace{
-                mpcns::state::DualEdgeFormView{work_xi, work_eta, work_zeta},
-                mpcns::state::DualFaceFormView{state_j_xi, state_j_eta, state_j_zeta}};
-            electromagnetic.compute_current_from_star_2(
-                state_workspace, mpcns::state::PrimalEdgeFormView{state_j_xi, state_j_eta, state_j_zeta});
-
             const auto compare_full = [](const FieldBlock &state_value,
                                          const std::vector<double> &legacy_values)
             {
@@ -2284,12 +2267,43 @@ namespace Z0_TEST
                            ? difference
                            : std::numeric_limits<double>::infinity();
             };
+
+            const mpcns::state::PrimalFaceFormStateView state_magnetic_flux{
+                star_state_adapter.view(state_b_xi, ib), star_state_adapter.view(state_b_eta, ib),
+                star_state_adapter.view(state_b_zeta, ib)};
+            const mpcns::state::DualEdgeFormStateView state_dual_edge{
+                star_state_adapter.view(state_star_xi, ib), star_state_adapter.view(state_star_eta, ib),
+                star_state_adapter.view(state_star_zeta, ib)};
+            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
+            // Repeated StateView execution must overwrite the same borrowed
+            // Jstar storage deterministically without rebinding Workspace.
+            hodge.apply_star_2(state_magnetic_flux, state_dual_edge);
+
+            const mpcns::state::DualFaceFormView state_dual_current{
+                state_j_xi, state_j_eta, state_j_zeta};
+            // Directly compare the intermediate curl before inverse star-1.
+            // This exercises all three transpose stencils, including their
+            // negative-offset ghost reads, independently of the final Hodge.
+            mpcns::discrete::apply_d1_transpose(dual_edge_work, state_dual_current);
+            const auto old_curl_xi = snapshot_full(state_j_xi);
+            const auto old_curl_eta = snapshot_full(state_j_eta);
+            const auto old_curl_zeta = snapshot_full(state_j_zeta);
+            mpcns::discrete::apply_d1_transpose(state_dual_edge, state_dual_current);
+            state_transpose_difference = std::max(state_transpose_difference,
+                std::max(compare_full(state_j_xi, old_curl_xi),
+                    std::max(compare_full(state_j_eta, old_curl_eta),
+                             compare_full(state_j_zeta, old_curl_zeta))));
+
+            electromagnetic.compute_current_from_star_2(
+                state_dual_edge, state_dual_current,
+                mpcns::state::PrimalEdgeFormView{state_j_xi, state_j_eta, state_j_zeta});
             state_star_difference = std::max(state_star_difference,
                 std::max(compare_full(work_xi, old_star_xi),
                     std::max(compare_full(work_eta, old_star_eta),
                              compare_full(work_zeta, old_star_zeta))));
         }
         state_star_difference = Z0_TEST::global_max(state_star_difference);
+        state_transpose_difference = Z0_TEST::global_max(state_transpose_difference);
         state_current_difference = std::max(
             max_difference_inner(field, "E_xi", "J_legacy_xi"),
             std::max(max_difference_inner(field, "E_eta", "J_legacy_eta"),
@@ -2297,6 +2311,9 @@ namespace Z0_TEST
         passed &= print_result("Snapshot star-2 StateView matches legacy full extent exactly",
                                state_star_difference == 0.0,
                                max_detail(state_star_difference));
+        passed &= print_result("StateView d1 transpose matches legacy full extent exactly",
+                               state_transpose_difference == 0.0,
+                               max_detail(state_transpose_difference));
         passed &= print_result("StateView star-2 continuation matches legacy B-to-J exactly",
                                state_current_difference == 0.0,
                                max_detail(state_current_difference));
