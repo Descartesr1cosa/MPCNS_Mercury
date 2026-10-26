@@ -53,7 +53,8 @@ if(NOT TARGET mpcns_legacy_geometry)
     add_library(mpcns_legacy_geometry STATIC
         ../src/mpcns/compat/legacy_geometry_field_ids.cpp
         ../src/mpcns/compat/legacy_geometry_field_registration.cpp
-        ../src/mpcns/compat/legacy_geometry_snapshot.cpp)
+        ../src/mpcns/compat/legacy_geometry_snapshot.cpp
+        ../src/mpcns/compat/legacy_lumped_metric_publisher.cpp)
     target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
     target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete mpcns_geometry)
 endif()
