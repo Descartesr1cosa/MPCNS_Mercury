@@ -325,58 +325,7 @@ void MercurySolver::CalcImplicitDeltaJedgeFromDeltaB_()
 {
     clear_triplet(fld_, fid_.fid_dJ);
 
-    for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
-    {
-        auto &Bxi = fld_->field(fid_.fid_dB.xi, iblk);
-        auto &Beta = fld_->field(fid_.fid_dB.eta, iblk);
-        auto &Bzeta = fld_->field(fid_.fid_dB.zeta, iblk);
-
-        auto &Jxi = fld_->field(fid_.fid_dJ.xi, iblk);
-        auto &Jeta = fld_->field(fid_.fid_dJ.eta, iblk);
-        auto &Jzeta = fld_->field(fid_.fid_dJ.zeta, iblk);
-
-        auto &beta_xi = fld_->field(fid_.Face_beta.xi, iblk);
-        auto &beta_eta = fld_->field(fid_.Face_beta.eta, iblk);
-        auto &beta_zeta = fld_->field(fid_.Face_beta.zeta, iblk);
-
-        auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, iblk);
-        auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, iblk);
-        auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, iblk);
-
-        if (!Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated() ||
-            !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated() ||
-            !beta_xi.is_allocated() || !beta_eta.is_allocated() || !beta_zeta.is_allocated() ||
-            !alpha_xi.is_allocated() || !alpha_eta.is_allocated() || !alpha_zeta.is_allocated())
-            continue;
-
-        CTOperators::CurlAdjFaceToEdge(iblk,
-                                       Bxi, Beta, Bzeta,
-                                       beta_xi, beta_eta, beta_zeta,
-                                       Jxi, Jeta, Jzeta,
-                                       /*multiper=*/1.0);
-
-        {
-            Int3 lo = Jxi.inner_lo(), hi = Jxi.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jxi(i, j, k, 0) *= alpha_xi(i, j, k, 0);
-        }
-        {
-            Int3 lo = Jeta.inner_lo(), hi = Jeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jeta(i, j, k, 0) *= alpha_eta(i, j, k, 0);
-        }
-        {
-            Int3 lo = Jzeta.inner_lo(), hi = Jzeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jzeta(i, j, k, 0) *= alpha_zeta(i, j, k, 0);
-        }
-    }
+    ComputeRegularEdgeCurrent_(fid_.fid_dB, fid_.fid_dJ);
 
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_dJ);
     AssembleSingularEdgeCurrent_(fid_.fid_dB, fid_.fid_dJ);
@@ -487,7 +436,7 @@ void MercurySolver::SolveImplicitResistiveDiffusion_(double dt_step)
 
     implicit_resistive_dt_ = dt_step;
 
-    Calc_J_Edge(); // Bface -> CurlAdjFaceToEdge -> Jedge
+    Calc_J_Edge(); // Bface -> star_2 -> d1_transpose -> inverse_star_1 -> Jedge
     PackImplicitJedgeToVec_(
         implicit_resistive_b_,
         fid_.fid_J,

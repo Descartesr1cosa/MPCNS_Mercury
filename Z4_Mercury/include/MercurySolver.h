@@ -208,6 +208,8 @@ private:
     void AddHallEdgeEMF_();
     void AddAmbipolarEdgeEMF_();
     void Calc_J_Edge();
+    void ComputeRegularEdgeCurrent_(const IdTriplet &fid_Bface,
+                                    const IdTriplet &fid_Jedge);
     void AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
                                       const IdTriplet &fid_Jedge);
     void ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge);

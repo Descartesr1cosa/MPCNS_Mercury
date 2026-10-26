@@ -1,5 +1,9 @@
 #include "MercurySolver.h"
 
+#include "mpcns/compat/legacy_geometry_field_ids.hpp"
+#include "mpcns/discrete/lumped_hodge.hpp"
+#include "mpcns/operators/electromagnetic_operators.hpp"
+
 void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge)
 {
     if(!topo_) return;
@@ -137,67 +141,57 @@ void MercurySolver::AssembleSingularEdgeCurrent_(const IdTriplet &fid_Bface,
         contribution);
 }
 
-void MercurySolver::Calc_J_Edge()
+void MercurySolver::ComputeRegularEdgeCurrent_(
+    const IdTriplet &fid_Bface,
+    const IdTriplet &fid_Jedge)
 {
     for (int iblk = 0; iblk < fld_->num_blocks(); ++iblk)
     {
-        // B_xi/B_eta/B_zeta are the Bind face-flux DOFs.  Badd is prescribed
-        // analytically and must not contribute to the solved current.
-        auto &Bxi = fld_->field(fid_.fid_B.xi, iblk);
-        auto &Beta = fld_->field(fid_.fid_B.eta, iblk);
-        auto &Bzeta = fld_->field(fid_.fid_B.zeta, iblk);
+        FieldBlock &Bxi = fld_->field(fid_Bface.xi, iblk);
+        FieldBlock &Beta = fld_->field(fid_Bface.eta, iblk);
+        FieldBlock &Bzeta = fld_->field(fid_Bface.zeta, iblk);
 
-        auto &Jxi = fld_->field(fid_.fid_J.xi, iblk);
-        auto &Jeta = fld_->field(fid_.fid_J.eta, iblk);
-        auto &Jzeta = fld_->field(fid_.fid_J.zeta, iblk);
+        FieldBlock &Jxi = fld_->field(fid_Jedge.xi, iblk);
+        FieldBlock &Jeta = fld_->field(fid_Jedge.eta, iblk);
+        FieldBlock &Jzeta = fld_->field(fid_Jedge.zeta, iblk);
 
-        auto &beta_xi = fld_->field(fid_.Face_beta.xi, iblk); // Hodge *: 2-form face -> 1-form face
-        auto &beta_eta = fld_->field(fid_.Face_beta.eta, iblk);
-        auto &beta_zeta = fld_->field(fid_.Face_beta.zeta, iblk);
+        FieldBlock &star_xi = fld_->field(fid_.fid_Jstar.xi, iblk);
+        FieldBlock &star_eta = fld_->field(fid_.fid_Jstar.eta, iblk);
+        FieldBlock &star_zeta = fld_->field(fid_.fid_Jstar.zeta, iblk);
 
-        auto &alpha_xi = fld_->field(fid_.Edge_alpha.xi, iblk); // Hodge *: 2-form edge -> 1-form edge
-        auto &alpha_eta = fld_->field(fid_.Edge_alpha.eta, iblk);
-        auto &alpha_zeta = fld_->field(fid_.Edge_alpha.zeta, iblk);
+        if (!Bxi.is_allocated() || !Beta.is_allocated() || !Bzeta.is_allocated() ||
+            !Jxi.is_allocated() || !Jeta.is_allocated() || !Jzeta.is_allocated() ||
+            !star_xi.is_allocated() || !star_eta.is_allocated() || !star_zeta.is_allocated())
+            continue;
 
-        // compute J (edge 1-form) from face B (2-form)
-        // multiper 用 +1.0 J =curl B。
-        CTOperators::CurlAdjFaceToEdge(iblk,
-                                       Bxi, Beta, Bzeta,
-                                       beta_xi, beta_eta, beta_zeta,
-                                       Jxi, Jeta, Jzeta,
-                                       /*multiper=*/1.0);
+        const mpcns::discrete::LumpedHodge hodge{
+            mpcns::compat::bind_legacy_lumped_hodge_coefficients(*fld_, iblk)};
+        const mpcns::operators::ElectromagneticOperators electromagnetic{hodge};
 
-        //  J_edge^(1-form) = (alpha_edge / mu0) * Jcirc_edge
-        //     alpha = |e|/|S*|  (⋆1^{-1})
-        {
-            // Edge_xi
-            Int3 lo = Jxi.inner_lo(), hi = Jxi.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jxi(i, j, k, 0) *= (alpha_xi(i, j, k, 0));
-        }
-        {
-            // Edge_eta
-            Int3 lo = Jeta.inner_lo(), hi = Jeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jeta(i, j, k, 0) *= (alpha_eta(i, j, k, 0));
-        }
-        {
-            // Edge_zeta
-            Int3 lo = Jzeta.inner_lo(), hi = Jzeta.inner_hi();
-            for (int i = lo.i; i < hi.i; ++i)
-                for (int j = lo.j; j < hi.j; ++j)
-                    for (int k = lo.k; k < hi.k; ++k)
-                        Jzeta(i, j, k, 0) *= (alpha_zeta(i, j, k, 0));
-        }
+        const mpcns::state::PrimalFaceFormView magnetic_flux{
+            Bxi, Beta, Bzeta};
+        const mpcns::operators::MagneticCurrentWorkspace workspace{
+            mpcns::state::DualEdgeFormView{star_xi, star_eta, star_zeta},
+            mpcns::state::DualFaceFormView{Jxi, Jeta, Jzeta}};
+        const mpcns::state::PrimalEdgeFormView current{
+            Jxi, Jeta, Jzeta};
+
+        electromagnetic.compute_current(magnetic_flux, workspace, current);
     }
+}
 
+void MercurySolver::Calc_J_Edge()
+{
+    // B_xi/B_eta/B_zeta are induced face-flux DOFs. Badd is analytical and
+    // deliberately stays outside the solved-current operator.
+    ComputeRegularEdgeCurrent_(fid_.fid_B, fid_.fid_J);
+
+    // These three operations are intentionally outside the local operator:
+    // quotient aliases require a global reduction, extraordinary edges use
+    // variable-valence geometry, and the boundary owns the final halo policy.
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_J);
     AssembleSingularEdgeCurrent_(fid_.fid_B, fid_.fid_J);
-    mercury_bound_.Sync("Jedge"); // ApplyBC_EdgeJ_();
+    mercury_bound_.Sync("Jedge");
 }
 
 void MercurySolver::calc_Jcell()

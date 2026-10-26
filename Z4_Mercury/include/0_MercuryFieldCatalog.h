@@ -136,6 +136,13 @@ inline std::vector<FieldSpec> FieldSpecs()
         {"J_zeta", StaggerLocation::EdgeZe, 1, UseRuntimeGhost, "",
          SyncContract("Jedge", true, true, true, HaloLevel::Corner3D, OwnerSyncPolicy::EdgeOwner, true),
          FieldValueKind::EdgeCovariant1Form},
+        // Internal star_2(B) workspace. It has no output or halo contract.
+        {"Jstar_xi", StaggerLocation::FaceXi, 1, UseRuntimeGhost, "",
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
+        {"Jstar_eta", StaggerLocation::FaceEt, 1, UseRuntimeGhost, "",
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
+        {"Jstar_zeta", StaggerLocation::FaceZe, 1, UseRuntimeGhost, "",
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
         {"J_cell", StaggerLocation::Cell, 3, UseRuntimeGhost, "",
          SyncContract("J_cell", true, true, true),
          FieldValueKind::CartesianVector},

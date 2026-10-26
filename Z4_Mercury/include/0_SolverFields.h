@@ -44,6 +44,7 @@ struct SolverFields
     IdTriplet fid_Ehall; // (xi,eta,zeta) <- (E_xi,E_eta,E_zeta)
     IdTriplet fid_Eres;  // (xi,eta,zeta) <- (Eres_xi,Eres_eta,Eres_zeta)
     IdTriplet fid_J;     // (xi,eta,zeta) <- (J_xi,J_eta,J_zeta)
+    IdTriplet fid_Jstar; // Internal face work: star_2(B)
 
     // ---- auxiliary ----
     int fid_PV_H = -1;
@@ -158,6 +159,9 @@ struct SolverFields
         fid_J.xi = fld->field_id("J_xi");
         fid_J.eta = fld->field_id("J_eta");
         fid_J.zeta = fld->field_id("J_zeta");
+        fid_Jstar.xi = fld->field_id("Jstar_xi");
+        fid_Jstar.eta = fld->field_id("Jstar_eta");
+        fid_Jstar.zeta = fld->field_id("Jstar_zeta");
 
         // ---- auxiliary ----
         fid_PV_H = fld->field_id("PV_H");
@@ -255,6 +259,7 @@ struct SolverFields
         fid_Eres.require_all("Eres_xi/Eres_eta/Eres_zeta");
         fid_Eface.require_all("Eface_xi/Eface_eta/Eface_zeta");
         fid_J.require_all("J_xi/J_eta/J_zeta");
+        fid_Jstar.require_all("Jstar_xi/Jstar_eta/Jstar_zeta");
 
         // ---- primary / auxiliary ----
         require_id(fid_PV_H, "PV_H");
