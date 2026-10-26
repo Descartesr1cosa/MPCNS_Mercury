@@ -1,6 +1,6 @@
 # Legacy Metric Publisher Seams
 
-Status: Units 16-20 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
+Status: Units 16-21 accepted; the three-rank Z0 halo suite passed with exact equality in all ten modes.
 Verification: the pre-Unit-16 reference and new publishers matched every reconstruction-cache and diagonal-Hodge value exactly; the direct dr_* reference stencil also matched exactly (max=0.000000) in each halo mode. Unit 18 additionally verified that every legacy reconstruction and diagnostic facade has exactly the same result as its extracted compatibility implementation. Unit 19 verified the typed GeometryBuild readback and the pre-extraction singular-edge polygon/fallback closure reference in every mode. Unit 20 verified every reconstruction-cache field against the pre-extraction implementation after moving its pure kernels.
 
 ## Purpose
@@ -66,5 +66,13 @@ The variable-valence edge registry now supplies `SingularEdgeGeometryInput` to t
 
 1. Replace the borrowed GeometryBuild result with owned immutable storage only after field-by-field Mercury comparison is available.
 2. Replace the borrowed GeometryBuild result with owned immutable storage only after field-by-field Mercury comparison is available.
-3. Separate registry topology collection from the remaining legacy Field/Grid read adapters without changing its MPI reduction schedule.
+3. Replace the singular-edge collector Field/Grid source with typed geometry and partition views only after a protected Mercury case-level comparison, while retaining its MPI reduction schedule.
 4. Keep non-diagonal/consistent Hodge work behind `HodgeOperator`; it must not modify this compatibility path.
+
+## Unit 21: singular-edge collection boundary
+
+`mpcns::mesh` now owns the small, storage-free record vocabulary for quotient-edge aliases and weighted incident entities. `mpcns::compat::LegacySingularEdgeDataSource` is the sole Grid/Field boundary for singular-edge construction, and `collect_legacy_singular_edge_measures` owns the historical reads of `dl_*`, `dr_*`, `Jac`, `Area_*`, and dual-cell centers.
+
+`SingularEdgeRegistry::build` now consumes topology plus that explicit data source. It retains only candidate selection, quotient ownership, the existing MPI all-reduce/all-gather schedule, physical-face valence classification, pure geometry closure, weight normalization, and the existing singular-Hodge publisher. Thus the registry public header no longer exposes Grid, and the legacy data reads have one reviewable replacement point. No formula, alias orientation rule, MPI collective order, or solver behavior changed.
+
+Verification for this unit: Z0 and MercuryZ4 both compiled with at most four build jobs; the three-rank Z0 suite completed all ten halo modes successfully.

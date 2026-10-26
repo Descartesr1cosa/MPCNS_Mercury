@@ -9,6 +9,7 @@
 #include "0_basic/MPI_WRAPPER.h"
 #include "2_topology/TopologyBuilder.h"
 #include "7_metric/SingularEdgeRegistry.h"
+#include "mpcns/compat/legacy_singular_edge_collector.hpp"
 #include "2_topology/Topology.h"
 #include "3_field/Field.h"
 #include "4_halo/Halo.h"
@@ -54,8 +55,10 @@ int main(int arg, char **argv)
         Field *fld = new Field(grd, par, ngg);
         MercurySolver::RegisterFields(fld, ngg);
         MercurySolver::RegisterCouplingChannels(fld, topology, par->GetInt("dimension"), ngg);
+        mpcns::compat::LegacySingularEdgeDataSource singular_edge_source{
+            *fld, *grd};
         METRIC::SingularEdgeRegistry singular_edges;
-        singular_edges.build(topology, *fld, *grd, myid);
+        singular_edges.build(topology, singular_edge_source, myid);
         singular_edges.validate_or_abort();
         if (myid == 0)
             std::cout << "[SingularEdgeRegistry] physical singular edges="

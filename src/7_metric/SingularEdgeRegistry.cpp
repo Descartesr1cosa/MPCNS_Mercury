@@ -3,7 +3,7 @@
 #include "0_basic/Error.h"
 #include "0_basic/MPI_WRAPPER.h"
 #include "3_field/Field.h"
-#include "1_grid/1_MPCNS_Grid.h"
+#include "mpcns/compat/legacy_singular_edge_collector.hpp"
 #include "mpcns/compat/legacy_singular_edge_metric_publisher.hpp"
 #include "mpcns/geometry/singular_edge_geometry.hpp"
 
@@ -11,73 +11,19 @@
 #include <cmath>
 #include <iostream>
 #include <unordered_map>
-#include <set>
 #include <sstream>
 
 namespace
 {
 using TOPO::EntityAxis;
-using TOPO::EntityDim;
-using TOPO::EntityKey;
-
-bool contains_inner(const FieldBlock &f, int i, int j, int k)
-{
-    const Int3 lo = f.inner_lo(), hi = f.inner_hi();
-    return i >= lo.i && i < hi.i && j >= lo.j && j < hi.j && k >= lo.k && k < hi.k;
-}
-
-std::vector<EntityKey> incident_cells(const EntityKey &e)
-{
-    std::vector<EntityKey> out;
-    const int a = static_cast<int>(e.axis);
-    for (int s0 : {-1, 0})
-        for (int s1 : {-1, 0})
-        {
-            int i=e.i, j=e.j, k=e.k;
-            if (a == 0) { j += s0; k += s1; }
-            if (a == 1) { i += s0; k += s1; }
-            if (a == 2) { i += s0; j += s1; }
-            out.push_back(TOPO::make_cell(e.rank, e.block, i, j, k));
-        }
-    return out;
-}
-
-std::vector<EntityKey> incident_faces(const EntityKey &e)
-{
-    std::vector<EntityKey> out;
-    if (e.axis == EntityAxis::Xi)
-    {
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Eta));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k-1,EntityAxis::Eta));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Zeta));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j-1,e.k,EntityAxis::Zeta));
-    }
-    else if (e.axis == EntityAxis::Eta)
-    {
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Xi));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k-1,EntityAxis::Xi));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Zeta));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i-1,e.j,e.k,EntityAxis::Zeta));
-    }
-    else
-    {
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Xi));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j-1,e.k,EntityAxis::Xi));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i,e.j,e.k,EntityAxis::Eta));
-        out.push_back(TOPO::make_face(e.rank,e.block,e.i-1,e.j,e.k,EntityAxis::Eta));
-    }
-    return out;
-}
-
-const char *axis_suffix(EntityAxis a)
-{
-    return a == EntityAxis::Xi ? "xi" : (a == EntityAxis::Eta ? "eta" : "zeta");
-}
 } // namespace
 
 namespace METRIC
 {
-void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, Grid &grid, int rank)
+void SingularEdgeRegistry::build(
+    const TOPO::Topology &topology,
+    const mpcns::compat::LegacySingularEdgeDataSource &source,
+    int rank)
 {
     rank_ = rank;
     entries_.clear(); gid_to_index_.clear();
@@ -103,54 +49,29 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         for (const auto &m : cls.members)
             rec.aliases.push_back({m.entity, m.orient_sign, m.is_owner});
 
-        std::set<EntityKey> seen_cells, seen_faces;
-        for (const auto &a : rec.aliases)
+        const mpcns::compat::LegacySingularEdgeLocalMeasures local =
+            mpcns::compat::collect_legacy_singular_edge_measures(
+                topology, source, rank, rec.aliases);
+        rec.local_incident_cells = local.incident_cells;
+        rec.local_incident_faces = local.incident_faces;
+
+        local_length[rec.global_id] += local.primal_length_sum;
+        local_cell_measure[rec.global_id] += local.cell_measure_sum;
+        local_face_measure[rec.global_id] += local.face_measure_sum;
+        for (int component = 0; component < 3; ++component)
+            local_dr[3 * rec.global_id + component] +=
+                local.tangent_sum[component];
+        local_length_n[rec.global_id] += local.primal_length_count;
+        local_cells[rec.global_id] += local.valid_cell_count;
+        local_faces[rec.global_id] += local.valid_face_count;
+        for (const mpcns::geometry::CartesianVector &center :
+             local.incident_cell_centers)
         {
-            const EntityKey &e = a.edge;
-            if (e.rank != rank || e.block < 0 || e.block >= fields.num_blocks()) continue;
-
-            FieldBlock &dl = fields.field(std::string("dl_") + axis_suffix(e.axis), e.block);
-            if (contains_inner(dl,e.i,e.j,e.k))
-            {
-                const double L = dl(e.i,e.j,e.k,0);
-                if (std::isfinite(L) && L > 0.0) { local_length[rec.global_id] += L; ++local_length_n[rec.global_id]; }
-                FieldBlock &dr = fields.field(std::string("dr_") + axis_suffix(e.axis), e.block);
-                for (int q=0;q<3;++q)
-                    local_dr[3*rec.global_id+q] += a.orientation*dr(e.i,e.j,e.k,q);
-            }
-
-            FieldBlock &jac = fields.field("Jac", e.block);
-            for (const EntityKey &c : incident_cells(e))
-                if (seen_cells.insert(c).second && contains_inner(jac,c.i,c.j,c.k))
-                {
-                    const double v = std::abs(jac(c.i,c.j,c.k,0));
-                    if (std::isfinite(v) && v > 1.e-30)
-                    {
-                        rec.local_incident_cells.push_back({c,v,0.0,e,a.orientation});
-                        local_cell_measure[rec.global_id] += v; ++local_cells[rec.global_id];
-                        Block &blk=grid.grids(c.block);
-                        local_center_records.push_back(static_cast<double>(rec.global_id));
-                        local_center_records.push_back(blk.dual_x(c.i+1,c.j+1,c.k+1));
-                        local_center_records.push_back(blk.dual_y(c.i+1,c.j+1,c.k+1));
-                        local_center_records.push_back(blk.dual_z(c.i+1,c.j+1,c.k+1));
-                    }
-                }
-
-            for (const EntityKey &f : incident_faces(e))
-                if (seen_faces.insert(f).second)
-                {
-                    // Count and assemble each quotient (physical) face once.
-                    // Block-local aliases of the same interface face are not
-                    // distinct sectors around the physical edge.
-                    if (topology.faces.local_to_qkey.find(f) ==
-                        topology.faces.local_to_qkey.end()) continue;
-                    if (!topology.is_owner(f)) continue;
-                    FieldBlock &area = fields.field(std::string("Area_") + axis_suffix(f.axis), f.block);
-                    if (!contains_inner(area,f.i,f.j,f.k)) continue;
-                    const double av = area(f.i,f.j,f.k,0);
-                    if (std::isfinite(av) && av > 1.e-30)
-                    { rec.local_incident_faces.push_back({f,av,0.0,e,a.orientation}); local_face_measure[rec.global_id]+=av; ++local_faces[rec.global_id]; }
-                }
+            local_center_records.push_back(
+                static_cast<double>(rec.global_id));
+            local_center_records.push_back(center[0]);
+            local_center_records.push_back(center[1]);
+            local_center_records.push_back(center[2]);
         }
         gid_to_index_[rec.global_id] = entries_.size(); entries_.push_back(std::move(rec));
     }
@@ -230,7 +151,7 @@ void SingularEdgeRegistry::build(const TOPO::Topology &topology, Field &fields, 
         for (auto &f:e.local_incident_faces) f.weight = gfm[e.global_id] > 0.0 ? f.measure/gfm[e.global_id] : 0.0;
 
         // Keep the legacy Field catalog at an explicit compatibility seam.
-        mpcns::compat::publish_legacy_singular_edge_hodge(fields, e, rank_);
+        mpcns::compat::publish_legacy_singular_edge_hodge(source.fields, e, rank_);
     }
 
 }

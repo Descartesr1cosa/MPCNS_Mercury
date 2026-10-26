@@ -167,9 +167,8 @@ ten-mode, three-rank Z0 halo suite passed this gate with `max=0.000000`.
 2. Replace the borrowed `GeometryBuildResult` with owned `PrimalGeometry`,
    `DualGeometry`, `LumpedHodge`, and `ReconstructionCache` storage while
    retaining the old field catalog as a publishing adapter.
-3. Move the remaining `SingularEdgeRegistry` Field/Grid reads
-   behind dedicated topology-input and publishing adapters; retain its MPI
-   schedule and current closure as the reference.
+3. Replace the completed singular-edge collector boundary with typed geometry and partition views only after a protected Mercury case-level comparison; retain its MPI schedule and current closure as the reference.
+
 4. Replace `Face_beta` and `Edge_alpha` callers with a `LumpedHodge` API only
    after field-by-field agreement diagnostics exist.
 
@@ -185,3 +184,9 @@ current metric fields.  Its DEC-chain test computes electric current through
 value to the former fused CT formula.  It uses no workspace halo exchange.
 Only an exact zero difference permits migration of Mercury's current and
 implicit-resistive paths to the new composition.
+
+## 7. Unit 21: singular-edge collection split
+
+The variable-valence registry no longer reads legacy metric fields or Grid coordinates directly. `legacy_singular_edge_collector` is the compatibility adapter for local lengths, vectors, cell/face measures, and dual centers; the registry consumes its local result and remains responsible for the unmodified topology/MPI/closure sequence. This leaves a precise future replacement seam for typed GeometrySnapshot and partition views, without exposing those storage choices to physics callers.
+
+Z0 and MercuryZ4 compiled with no more than four build jobs, and the complete three-rank Z0 halo suite passed in all ten modes.

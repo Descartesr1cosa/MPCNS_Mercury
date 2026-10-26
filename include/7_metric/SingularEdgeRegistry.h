@@ -1,6 +1,7 @@
 #pragma once
 
 #include "2_topology/Topology.h"
+#include "mpcns/mesh/singular_edge_records.hpp"
 
 #include <cstddef>
 #include <unordered_map>
@@ -10,25 +11,16 @@
 #include <functional>
 
 class Field;
-class Grid;
+
+namespace mpcns::compat
+{
+struct LegacySingularEdgeDataSource;
+}
 
 namespace METRIC
 {
-struct SingularEdgeAlias
-{
-    TOPO::EntityKey edge;
-    int orientation = +1;
-    bool owner = false;
-};
-
-struct WeightedIncidentEntity
-{
-    TOPO::EntityKey entity;
-    double measure = 0.0;
-    double weight = 0.0;
-    TOPO::EntityKey source_alias{TOPO::EntityDim::Edge,0,0,0,0,0,TOPO::EntityAxis::Xi};
-    int source_orientation = +1;
-};
+using SingularEdgeAlias = mpcns::mesh::SingularEdgeAlias;
+using WeightedIncidentEntity = mpcns::mesh::WeightedIncidentEntity;
 
 // One record represents one edge of the quotient (physical) mesh.  Records
 // are variable-valence: no four-cell/four-block assumption is made here.
@@ -51,7 +43,10 @@ struct SingularPhysicalEdge
 class SingularEdgeRegistry
 {
 public:
-    void build(const TOPO::Topology &topology, Field &fields, Grid &grid, int rank);
+    void build(
+        const TOPO::Topology &topology,
+        const mpcns::compat::LegacySingularEdgeDataSource &source,
+        int rank);
     void validate_or_abort() const;
 
     const std::vector<SingularPhysicalEdge> &entries() const { return entries_; }

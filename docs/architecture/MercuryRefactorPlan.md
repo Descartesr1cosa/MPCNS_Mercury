@@ -379,3 +379,9 @@ Add non-diagonal Hodge behind the established interface. It remains disabled by 
 5. Build and test using no more than four cores/ranks.
 
 No Hodge formula, MPI schedule, boundary treatment, solver parameter, or Mercury case setup changes in this first unit.
+
+## 12. Unit 21: singular-edge data-source seam
+
+The remaining singular-edge Grid/Field reads are now behind `mpcns::compat::LegacySingularEdgeDataSource` and `collect_legacy_singular_edge_measures`. The registry is reduced to topology-to-quotient mapping, its unchanged MPI reductions, valence filtering, pure dual-polygon closure, normalized contribution weights, and catalog publication. The shared alias and incident-entity records live in storage-independent `mpcns::mesh`.
+
+This is intentionally a boundary-only migration: no Hodge formula, physical-edge classification rule, collective ordering, mesh partition behavior, or Mercury solve path changes. Both Z0 and MercuryZ4 compile with at most four jobs; the full three-rank, ten-mode Z0 gate passed. The next safe step is to make the collector consume a typed geometry/partition view rather than Field/Grid, only after a Mercury case-level comparison is available.

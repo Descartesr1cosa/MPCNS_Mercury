@@ -63,7 +63,9 @@ if(NOT TARGET mpcns_legacy_geometry)
         ../src/mpcns/compat/legacy_reconstruction_metric_publisher.cpp
         ../src/mpcns/compat/legacy_field_reconstruction.cpp
         ../src/mpcns/compat/legacy_metric_diagnostics.cpp
-        ../src/mpcns/compat/legacy_singular_edge_metric_publisher.cpp)
+        ../src/mpcns/compat/legacy_singular_edge_metric_publisher.cpp
+        ../src/mpcns/compat/legacy_singular_edge_collector.cpp)
+
     target_include_directories(mpcns_legacy_geometry PUBLIC ../include)
     target_link_libraries(mpcns_legacy_geometry PUBLIC mpcns_discrete mpcns_geometry)
 endif()
