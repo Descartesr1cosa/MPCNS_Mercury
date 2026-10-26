@@ -15,6 +15,9 @@ CartesianVector quadrilateral_area_vector(const CartesianVector &p00,
                                           const CartesianVector &p01,
                                           const CartesianVector &p11);
 
+// Euclidean norm of a Cartesian geometric vector.
+double euclidean_norm(const CartesianVector &vector);
+
 // Area vector and centroid of one cell face, oriented outward from the cell.
 struct OrientedFaceGeometry
 {

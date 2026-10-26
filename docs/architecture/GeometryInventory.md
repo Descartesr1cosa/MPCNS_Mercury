@@ -109,6 +109,13 @@ the compatibility metric code retains all Grid/Field reads.  Z0 compares every
 local Jac entry with an independent copy of the legacy six-face stencil before
 the migration can continue.
 
+The next pure primitive is geometry_primitives::euclidean_norm.  Its first
+consumer scope is deliberately restricted to primal-face magnitude, dual-edge
+length at a face, and the corresponding lumped star-2 scale.  Edge and
+dual-face closure remain on their legacy code path.  The Z0 gate recalculates
+all three face families with the former stencil, including the zero-area
+guard, and requires exact agreement.
+
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
 metric fields exactly; it allocates nothing and changes no numerical result.

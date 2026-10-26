@@ -521,6 +521,122 @@ namespace
         return Z0_TEST::global_max(max_difference);
     }
 
+    double max_difference_from_legacy_face_hodge_metric_stencil(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        constexpr double eps = 1e-25;
+        using Point = std::array<double, 3>;
+        using Offset = std::array<int, 3>;
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto subtract = [](const Point &lhs, const Point &rhs)
+        {
+            return Point{lhs[0] - rhs[0],
+                         lhs[1] - rhs[1],
+                         lhs[2] - rhs[2]};
+        };
+        const auto norm = [](const Point &vector)
+        {
+            return std::sqrt(vector[0] * vector[0] +
+                             vector[1] * vector[1] +
+                             vector[2] * vector[2]);
+        };
+
+        const auto compare_direction = [&](const Block &block,
+                                           FieldBlock &face_vector,
+                                           FieldBlock &face_area,
+                                           FieldBlock &dual_edge_length,
+                                           FieldBlock &star_2,
+                                           const Offset &left_offset,
+                                           const Offset &right_offset)
+        {
+            if (!face_vector.is_allocated() || !face_area.is_allocated() ||
+                !dual_edge_length.is_allocated() || !star_2.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+
+            const auto cell_center = [&](int i, int j, int k)
+            {
+                return Point{block.dual_x(i, j, k),
+                             block.dual_y(i, j, k),
+                             block.dual_z(i, j, k)};
+            };
+            const Int3 lo = face_area.get_lo();
+            const Int3 hi = face_area.get_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const Point area_vector{
+                            face_vector(i, j, k, 0),
+                            face_vector(i, j, k, 1),
+                            face_vector(i, j, k, 2)};
+                        const double area = norm(area_vector);
+                        const Point left = cell_center(
+                            i + left_offset[0],
+                            j + left_offset[1],
+                            k + left_offset[2]);
+                        const Point right = cell_center(
+                            i + right_offset[0],
+                            j + right_offset[1],
+                            k + right_offset[2]);
+                        const double dual_length = norm(subtract(right, left));
+                        const double hodge_star_2 =
+                            (area < eps) ? 0.0 : dual_length / area;
+
+                        update(area, face_area(i, j, k, 0));
+                        update(dual_length, dual_edge_length(i, j, k, 0));
+                        update(hodge_star_2, star_2(i, j, k, 0));
+                    }
+        };
+
+        const Offset xi_left{{0, 1, 1}};
+        const Offset xi_right{{1, 1, 1}};
+        const Offset eta_left{{1, 0, 1}};
+        const Offset eta_right{{1, 1, 1}};
+        const Offset zeta_left{{1, 1, 0}};
+        const Offset zeta_right{{1, 1, 1}};
+
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            const Block &block = grid.grids(ib);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_face_area_vector.xi, ib),
+                field.field(geometry_ids.primal_face_area.xi, ib),
+                field.field(geometry_ids.dual_edge_length_at_face.xi, ib),
+                field.field(geometry_ids.lumped_star_primal_2_to_dual_1.xi, ib),
+                xi_left, xi_right);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_face_area_vector.eta, ib),
+                field.field(geometry_ids.primal_face_area.eta, ib),
+                field.field(geometry_ids.dual_edge_length_at_face.eta, ib),
+                field.field(geometry_ids.lumped_star_primal_2_to_dual_1.eta, ib),
+                eta_left, eta_right);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_face_area_vector.zeta, ib),
+                field.field(geometry_ids.primal_face_area.zeta, ib),
+                field.field(geometry_ids.dual_edge_length_at_face.zeta, ib),
+                field.field(geometry_ids.lumped_star_primal_2_to_dual_1.zeta, ib),
+                zeta_left, zeta_right);
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
     double max_difference_from_geometry_snapshot(
         Grid &grid,
         Field &field,
@@ -717,6 +833,13 @@ namespace Z0_TEST
         passed &= print_result("MPCNS cell-volume primitive matches legacy Jac stencil exactly",
                                cell_volume_difference == 0.0,
                                max_detail(cell_volume_difference));
+        const double face_hodge_metric_difference =
+            max_difference_from_legacy_face_hodge_metric_stencil(
+                *field.grd, field, geometry_ids);
+        passed &= print_result(
+            "MPCNS face-area and star-2 metrics match legacy stencil exactly",
+            face_hodge_metric_difference == 0.0,
+            max_detail(face_hodge_metric_difference));
         const double geometry_snapshot_difference =
             max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);
         passed &= print_result("GeometrySnapshot reads exact legacy geometry",

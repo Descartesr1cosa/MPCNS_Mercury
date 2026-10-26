@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-10 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, and quadrilateral-area gates passed; cell-volume gate awaiting validation)
+Status: Accepted design baseline; Units 1-11 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, and cell-volume gates passed; face-metric gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -302,6 +302,13 @@ xi-minus, xi-plus, eta-minus, eta-plus, zeta-minus, zeta-plus.  Metric.cpp
 still owns the legacy face centroids and Field access; only the pure quadrature
 is moved.  Z0 independently evaluates every local Jac entry using the prior
 stencil and requires exact equality before the next primitive is extracted.
+
+geometry_primitives::euclidean_norm is now used only by the three primal-face
+metric paths: face area, dual-edge length, and the diagonal star-2 scale.
+The existing edge/dual-face and inverse-Hodge calculations still use their
+legacy local implementation.  Z0 independently checks every local area,
+dual-edge length, and star-2 value against the former stencil before this
+boundary expands.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.

@@ -1,5 +1,7 @@
 #include "mpcns/geometry/geometry_primitives.hpp"
 
+#include <cmath>
+
 namespace mpcns::geometry
 {
 namespace
@@ -43,6 +45,13 @@ CartesianVector quadrilateral_area_vector(const CartesianVector &p00,
     return {0.5 * (first_triangle[0] + second_triangle[0]),
             0.5 * (first_triangle[1] + second_triangle[1]),
             0.5 * (first_triangle[2] + second_triangle[2])};
+}
+
+double euclidean_norm(const CartesianVector &vector)
+{
+    return std::sqrt(vector[0] * vector[0] +
+                     vector[1] * vector[1] +
+                     vector[2] * vector[2]);
 }
 
 double cell_volume_from_oriented_faces(

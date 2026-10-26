@@ -325,7 +325,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         for (int k = lo.k; k < hi.k; ++k)
                         {
                             std::array<double, 3> S = {JDxi(i, j, k, 0), JDxi(i, j, k, 1), JDxi(i, j, k, 2)};
-                            double Smag = norm3(S);
+                            double Smag = mpcns::geometry::euclidean_norm(S);
                             Area(i, j, k, 0) = Smag; // |S|
 
                             // dual-edge length across this face: distance between adjacent cell centers
@@ -335,7 +335,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             // right cell (i)   => dual(i+1,j+1,k+1)
                             std::array<double, 3> cL = get_cellc(cx, cy, cz, i, j + 1, k + 1);
                             std::array<double, 3> cR = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
-                            double Lstar = norm3(minus(cR, cL));
+                            double Lstar = mpcns::geometry::euclidean_norm(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar; // |l*|
 
                             Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
@@ -357,13 +357,13 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         for (int k = lo.k; k < hi.k; ++k)
                         {
                             std::array<double, 3> S = {JDet(i, j, k, 0), JDet(i, j, k, 1), JDet(i, j, k, 2)};
-                            double Smag = norm3(S);
+                            double Smag = mpcns::geometry::euclidean_norm(S);
                             Area(i, j, k, 0) = Smag;
 
                             // FaceEt(i,j,k) separates Cell(i,j-1,k) and Cell(i,j,k)
                             std::array<double, 3> cL = get_cellc(cx, cy, cz, i + 1, j, k + 1);
                             std::array<double, 3> cR = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
-                            double Lstar = norm3(minus(cR, cL));
+                            double Lstar = mpcns::geometry::euclidean_norm(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar;
 
                             Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
@@ -385,13 +385,13 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         for (int k = lo.k; k < hi.k; ++k)
                         {
                             std::array<double, 3> S = {JDze(i, j, k, 0), JDze(i, j, k, 1), JDze(i, j, k, 2)};
-                            double Smag = norm3(S);
+                            double Smag = mpcns::geometry::euclidean_norm(S);
                             Area(i, j, k, 0) = Smag;
 
                             // FaceZe(i,j,k) separates Cell(i,j,k-1) and Cell(i,j,k)
                             std::array<double, 3> cL = get_cellc(cx, cy, cz, i + 1, j + 1, k);
                             std::array<double, 3> cR = get_cellc(cx, cy, cz, i + 1, j + 1, k + 1);
-                            double Lstar = norm3(minus(cR, cL));
+                            double Lstar = mpcns::geometry::euclidean_norm(minus(cR, cL));
                             dlst(i, j, k, 0) = Lstar;
 
                             Hodge_star_2form_to_1form_face(i, j, k, 0) = (Smag < eps) ? 0.0 : Lstar / Smag;
