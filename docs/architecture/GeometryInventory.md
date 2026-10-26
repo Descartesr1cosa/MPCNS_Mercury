@@ -117,10 +117,14 @@ calculation. The Z0 dual-face gate has passed: it independently evaluated the
 former two-triangle stencil for every vector component and local ghost entry.
 
 geometry_primitives::euclidean_norm now also supplies primal-edge lengths and
-dual-face magnitudes. The edge/dual-face inverse-Hodge closure remains on the
-legacy path. A new Z0 gate independently computes the former edge-length and
-dual-face-magnitude norm stencils for all directions and local ghost entries;
-exact agreement is required before that closure is extracted.
+dual-face magnitudes; its Z0 norm-stencil gate has passed. The remaining
+axis-degeneracy treatment moved into the pure discrete-layer
+`AxisSafeInverseStar1Policy`, parameterized by `DualFaceQuadrilateral` and
+explicit legacy default thresholds. The compatibility metric publisher still
+selects geometry, writes fields, and owns storage. A two-layer Z0 gate covers
+constructed collapse branches and all field-derived inverse star-1 values
+against the prior stencil before this policy seam is considered verified.
+
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived

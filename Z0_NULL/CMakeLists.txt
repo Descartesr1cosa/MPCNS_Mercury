@@ -37,7 +37,8 @@ aux_source_directory(../src/8_dec DIRSRCS8)
 if(NOT TARGET mpcns_discrete)
     add_library(mpcns_discrete STATIC
         ../src/mpcns/discrete/incidence_operator.cpp
-        ../src/mpcns/discrete/lumped_hodge.cpp)
+        ../src/mpcns/discrete/lumped_hodge.cpp
+        ../src/mpcns/discrete/dual_face_inverse_hodge.cpp)
     target_include_directories(mpcns_discrete PUBLIC ../include)
 endif()
 

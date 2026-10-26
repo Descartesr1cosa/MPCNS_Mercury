@@ -9,6 +9,7 @@
 #include "mpcns/compat/legacy_geometry_snapshot.hpp"
 #include "mpcns/discrete/incidence_operator.hpp"
 #include "mpcns/discrete/lumped_hodge.hpp"
+#include "mpcns/discrete/dual_face_inverse_hodge.hpp"
 
 #include <algorithm>
 #include <array>
@@ -855,6 +856,230 @@ namespace
         return Z0_TEST::global_max(max_difference);
     }
 
+    double legacy_axis_safe_inverse_star_1(
+        double primal_edge_length,
+        const std::array<double, 3> &p00,
+        const std::array<double, 3> &p10,
+        const std::array<double, 3> &p01,
+        const std::array<double, 3> &p11,
+        double dual_face_area,
+        double zero_area_tolerance)
+    {
+        constexpr double dual_collapse_ratio = 1.0e-3;
+        constexpr double primal_edge_absolute_tolerance = 1.0e-12;
+        const auto subtract = [](const std::array<double, 3> &lhs,
+                                 const std::array<double, 3> &rhs)
+        {
+            return std::array<double, 3>{lhs[0] - rhs[0],
+                                         lhs[1] - rhs[1],
+                                         lhs[2] - rhs[2]};
+        };
+        const auto norm = [](const std::array<double, 3> &vector)
+        {
+            return std::sqrt(vector[0] * vector[0] +
+                             vector[1] * vector[1] +
+                             vector[2] * vector[2]);
+        };
+
+        const double inverse_star_raw =
+            (dual_face_area < zero_area_tolerance)
+                ? 0.0
+                : (primal_edge_length / dual_face_area);
+        const double d00_10 = norm(subtract(p10, p00));
+        const double d00_01 = norm(subtract(p01, p00));
+        const double d10_11 = norm(subtract(p11, p10));
+        const double d01_11 = norm(subtract(p11, p01));
+        const double d00_11 = norm(subtract(p11, p00));
+        const double d10_01 = norm(subtract(p01, p10));
+        const double href = std::max(
+            std::max(std::max(d00_10, d00_01), std::max(d10_11, d01_11)),
+            std::max(std::max(d00_11, d10_01),
+                     std::max(primal_edge_length, zero_area_tolerance)));
+        const double side_min = std::min(
+            std::min(d00_10, d00_01),
+            std::min(d10_11, d01_11));
+        const double diagonal_min = std::min(d00_11, d10_01);
+        const bool dual_touches_axis =
+            (primal_edge_length < primal_edge_absolute_tolerance) ||
+            (side_min < dual_collapse_ratio * href) ||
+            (diagonal_min < dual_collapse_ratio * href) ||
+            (dual_face_area < dual_collapse_ratio * href * href);
+        return dual_touches_axis ? 0.0 : inverse_star_raw;
+    }
+
+    double max_difference_from_axis_safe_inverse_star_policy_cases()
+    {
+        using Point = std::array<double, 3>;
+        constexpr double zero_area_tolerance = 1.0e-25;
+        const mpcns::discrete::AxisSafeInverseStar1Policy policy;
+        const Point p00{0.0, 0.0, 0.0};
+        const Point p10{1.0, 0.0, 0.0};
+        const Point p01{0.0, 1.0, 0.0};
+        const Point p11{1.0, 1.0, 0.0};
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto compare = [&](double primal_edge_length,
+                                 const Point &case_p00,
+                                 const Point &case_p10,
+                                 const Point &case_p01,
+                                 const Point &case_p11,
+                                 double dual_face_area)
+        {
+            const double expected = legacy_axis_safe_inverse_star_1(
+                primal_edge_length, case_p00, case_p10, case_p01, case_p11,
+                dual_face_area, zero_area_tolerance);
+            const double actual = policy.apply(
+                primal_edge_length,
+                {case_p00, case_p10, case_p01, case_p11},
+                dual_face_area,
+                zero_area_tolerance);
+            update(expected, actual);
+        };
+
+        compare(1.0, p00, p10, p01, p11, 1.0);
+        compare(0.0, p00, p10, p01, p11, 1.0);
+        compare(1.0, p00, p00, p01, p11, 1.0);
+        compare(1.0, p00, p10, Point{0.0, 1.0e-4, 0.0},
+                Point{1.0, 1.0e-4, 0.0}, 1.0e-4);
+        compare(1.0, p00, p10, p01, p11, 1.0e-30);
+        return Z0_TEST::global_max(max_difference);
+    }
+
+    double max_difference_from_legacy_axis_safe_inverse_star_stencil(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        using Point = std::array<double, 3>;
+        using Offset = std::array<int, 3>;
+        constexpr double zero_area_tolerance = 1.0e-25;
+        const auto subtract = [](const Point &lhs, const Point &rhs)
+        {
+            return Point{lhs[0] - rhs[0],
+                         lhs[1] - rhs[1],
+                         lhs[2] - rhs[2]};
+        };
+        const auto norm = [](const Point &vector)
+        {
+            return std::sqrt(vector[0] * vector[0] +
+                             vector[1] * vector[1] +
+                             vector[2] * vector[2]);
+        };
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto compare_direction = [&](const Block &block,
+                                           FieldBlock &inverse_star,
+                                           FieldBlock &dual_face_vector,
+                                           const Offset &endpoint_offset,
+                                           const Offset &p00_offset,
+                                           const Offset &p10_offset,
+                                           const Offset &p01_offset,
+                                           const Offset &p11_offset)
+        {
+            if (!inverse_star.is_allocated() || !dual_face_vector.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+
+            const auto node = [&](int i, int j, int k)
+            {
+                return Point{block.x(i, j, k),
+                             block.y(i, j, k),
+                             block.z(i, j, k)};
+            };
+            const auto dual_cell_center = [&](int i, int j, int k)
+            {
+                return Point{block.dual_x(i, j, k),
+                             block.dual_y(i, j, k),
+                             block.dual_z(i, j, k)};
+            };
+            const Int3 lo = inverse_star.get_lo();
+            const Int3 hi = inverse_star.get_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const double primal_edge_length = norm(subtract(
+                            node(i + endpoint_offset[0],
+                                 j + endpoint_offset[1],
+                                 k + endpoint_offset[2]),
+                            node(i, j, k)));
+                        const Point p00 = dual_cell_center(
+                            i + p00_offset[0], j + p00_offset[1],
+                            k + p00_offset[2]);
+                        const Point p10 = dual_cell_center(
+                            i + p10_offset[0], j + p10_offset[1],
+                            k + p10_offset[2]);
+                        const Point p01 = dual_cell_center(
+                            i + p01_offset[0], j + p01_offset[1],
+                            k + p01_offset[2]);
+                        const Point p11 = dual_cell_center(
+                            i + p11_offset[0], j + p11_offset[1],
+                            k + p11_offset[2]);
+                        const Point dual_face{
+                            dual_face_vector(i, j, k, 0),
+                            dual_face_vector(i, j, k, 1),
+                            dual_face_vector(i, j, k, 2)};
+                        const double expected = legacy_axis_safe_inverse_star_1(
+                            primal_edge_length, p00, p10, p01, p11,
+                            norm(dual_face), zero_area_tolerance);
+                        update(expected, inverse_star(i, j, k, 0));
+                    }
+        };
+
+        const Offset xi_endpoint{{1, 0, 0}};
+        const Offset eta_endpoint{{0, 1, 0}};
+        const Offset zeta_endpoint{{0, 0, 1}};
+        const Offset xi_p00{{1, 0, 0}};
+        const Offset xi_p10{{1, 1, 0}};
+        const Offset xi_p01{{1, 0, 1}};
+        const Offset xi_p11{{1, 1, 1}};
+        const Offset eta_p00{{0, 1, 0}};
+        const Offset eta_p10{{1, 1, 0}};
+        const Offset eta_p01{{0, 1, 1}};
+        const Offset eta_p11{{1, 1, 1}};
+        const Offset zeta_p00{{0, 0, 1}};
+        const Offset zeta_p10{{1, 0, 1}};
+        const Offset zeta_p01{{0, 1, 1}};
+        const Offset zeta_p11{{1, 1, 1}};
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            const Block &block = grid.grids(ib);
+            compare_direction(
+                block,
+                field.field(geometry_ids.lumped_inverse_star_primal_1.xi, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.xi, ib),
+                xi_endpoint, xi_p00, xi_p10, xi_p01, xi_p11);
+            compare_direction(
+                block,
+                field.field(geometry_ids.lumped_inverse_star_primal_1.eta, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.eta, ib),
+                eta_endpoint, eta_p00, eta_p10, eta_p01, eta_p11);
+            compare_direction(
+                block,
+                field.field(geometry_ids.lumped_inverse_star_primal_1.zeta, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.zeta, ib),
+                zeta_endpoint, zeta_p00, zeta_p10, zeta_p01, zeta_p11);
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
     double max_difference_from_geometry_snapshot(
         Grid &grid,
         Field &field,
@@ -1072,6 +1297,20 @@ namespace Z0_TEST
             "MPCNS edge length and dual-face magnitude match legacy stencil exactly",
             edge_dual_measure_difference == 0.0,
             max_detail(edge_dual_measure_difference));
+        const double axis_safe_policy_cases_difference =
+            max_difference_from_axis_safe_inverse_star_policy_cases();
+        passed &= print_result(
+            "AxisSafeInverseStar1Policy matches legacy branch cases exactly",
+            axis_safe_policy_cases_difference == 0.0,
+            max_detail(axis_safe_policy_cases_difference));
+        const double inverse_star_policy_difference =
+            max_difference_from_legacy_axis_safe_inverse_star_stencil(
+                *field.grd, field, geometry_ids);
+        passed &= print_result(
+            "MPCNS inverse star-1 axis-safety policy matches legacy stencil exactly",
+            inverse_star_policy_difference == 0.0,
+            max_detail(inverse_star_policy_difference));
+
 
         const double geometry_snapshot_difference =
             max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);

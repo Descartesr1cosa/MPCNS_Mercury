@@ -3,10 +3,9 @@
 #include "3_field/Field.h"
 #include "mpcns/compat/legacy_geometry_field_registration.hpp"
 #include "mpcns/geometry/geometry_primitives.hpp"
+#include "mpcns/discrete/dual_face_inverse_hodge.hpp"
 
-#include <algorithm>
 #include <array>
-#include <cmath>
 #include <limits>
 
 namespace METRIC
@@ -27,10 +26,6 @@ void compute_metric_fields(Field &fields, Grid &grid)
     auto plus = [&](const std::array<double, 3> &a, const std::array<double, 3> &b) -> std::array<double, 3>
     {
         return {a[0] + b[0], a[1] + b[1], a[2] + b[2]};
-    };
-    auto norm3 = [&](const std::array<double, 3> &a) -> double
-    {
-        return std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
     };
     auto scale = [&](const std::array<double, 3> &a, double s) -> std::array<double, 3>
     {
@@ -382,65 +377,10 @@ void compute_metric_fields(Field &fields, Grid &grid)
             // Edge: dl, Sstar, Astar, alpha
             // -------------------------
 
-            // ------------------------------------------------------------
-            // If the dual quad around an edge has a collapsed side,
-            // then this edge is treated as axis-touching in the dual sense,
-            // and Hodge star inverse scale is set to zero directly.
-            //
-            // Geometric meaning:
-            // Hodge_star_inverse_2form_to_1form = |e| / |*e| is singular when |*e| pinches at the axis.
-            // We therefore do NOT test whether the primal edge itself lies on axis,
-            // but whether its dual face is degenerate / touching the axis.
-            // ------------------------------------------------------------
-            constexpr double HALL_DUAL_COLLAPSE_RATIO = 1e-3;
-            constexpr double HALL_EDGE_ABS_TOL = 1e-12;
-
-            auto capped_Hodge_star_inverse_2form_to_1form_from_dual =
-                [&](double L,
-                    const auto &p00, const auto &p10,
-                    const auto &p01, const auto &p11,
-                    double Amag, double eps_local) -> double
-            {
-                // raw inverse Hodge scale
-                const double Hodge_star_inverse_raw = (Amag < eps_local) ? 0.0 : (L / Amag);
-
-                // dual quad side lengths
-                const double d00_10 = norm3(minus(p10, p00));
-                const double d00_01 = norm3(minus(p01, p00));
-                const double d10_11 = norm3(minus(p11, p10));
-                const double d01_11 = norm3(minus(p11, p01));
-
-                // dual quad diagonals
-                const double d00_11 = norm3(minus(p11, p00));
-                const double d10_01 = norm3(minus(p01, p10));
-
-                // local geometric scale
-                const double href = std::max(
-                    std::max(std::max(d00_10, d00_01), std::max(d10_11, d01_11)),
-                    std::max(std::max(d00_11, d10_01), std::max(L, eps_local)));
-
-                const double side_min = std::min(
-                    std::min(d00_10, d00_01),
-                    std::min(d10_11, d01_11));
-
-                const double diag_min = std::min(d00_11, d10_01);
-
-                // dual-face touching axis / degenerate:
-                // 1) primal edge itself collapsed
-                // 2) one side of dual quad collapsed
-                // 3) dual quad diagonals collapsed
-                // 4) dual area collapsed relative to local geometric scale
-                const bool dual_touches_axis =
-                    (L < HALL_EDGE_ABS_TOL) ||
-                    (side_min < HALL_DUAL_COLLAPSE_RATIO * href) ||
-                    (diag_min < HALL_DUAL_COLLAPSE_RATIO * href) ||
-                    (Amag < HALL_DUAL_COLLAPSE_RATIO * href * href);
-
-                if (dual_touches_axis)
-                    return 0.0;
-
-                return Hodge_star_inverse_raw;
-            };
+            // Keep the accepted axis-degeneracy treatment explicit and independent
+            // from legacy Grid/Field storage.
+            const mpcns::discrete::AxisSafeInverseStar1Policy
+                axis_safe_inverse_star_1{};
 
             // EdgeXi: edge from node(i,j,k) to node(i+1,j,k)
             {
@@ -479,7 +419,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag; // Hodge_star_inverse_2form_to_1form = |e|/|S*|
-                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = axis_safe_inverse_star_1.apply(L, {p00, p10, p01, p11}, Amag, eps);
                         }
             }
 
@@ -518,7 +458,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
-                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = axis_safe_inverse_star_1.apply(L, {p00, p10, p01, p11}, Amag, eps);
                         }
             }
 
@@ -557,7 +497,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
-                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = capped_Hodge_star_inverse_2form_to_1form_from_dual(L, p00, p10, p01, p11, Amag, eps);
+                            Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = axis_safe_inverse_star_1.apply(L, {p00, p10, p01, p11}, Amag, eps);
                         }
             }
         }
