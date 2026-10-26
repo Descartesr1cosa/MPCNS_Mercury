@@ -1,6 +1,6 @@
 # MPCNS Mercury Refactor Plan
 
-Status: Accepted design baseline; Units 1-12 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, cell-volume, and face-metric gates passed; dual-face-area gate awaiting validation)
+Status: Accepted design baseline; Units 1-13 implementation in review (3-rank Z0 Hodge, GeometrySnapshot, field-name, field-publishing, quadrilateral-area, cell-volume, face-metric, and dual-face-area gates passed; edge/dual-face measure gate awaiting validation)
 Owner: Ke Xu
 Scope: bottom-layer architecture; preserve the validated Mercury physics
 
@@ -303,20 +303,20 @@ still owns the legacy face centroids and Field access; only the pure quadrature
 is moved.  Z0 independently evaluates every local Jac entry using the prior
 stencil and requires exact equality before the next primitive is extracted.
 
-geometry_primitives::euclidean_norm is now used only by the three primal-face
-metric paths: face area, dual-edge length, and the diagonal star-2 scale.
-The edge-length, dual-face magnitude, and inverse-Hodge calculations still
-use their legacy local implementation. Z0 independently checks every local area,
-dual-edge length, and star-2 value against the former stencil before this
-boundary expands.
+geometry_primitives::euclidean_norm is now used by the three primal-face
+metric paths, the three primal-edge length paths, and the three dual-face
+magnitude paths. The edge/dual-face inverse-Hodge closure, including its
+collapse and cap policy, still uses its legacy local implementation. The new
+Z0 gate independently recomputes every local edge length and dual-face
+magnitude using the former norm stencil; combined with the Sstar gate, it
+requires exact agreement before this boundary expands.
 
-The same quadrilateral primitive now also computes the dual-face area vector
-at each primal edge (`Sstar_xi`, `Sstar_eta`, and `Sstar_zeta`). The legacy
+The same quadrilateral primitive computes the dual-face area vector at each
+primal edge (`Sstar_xi`, `Sstar_eta`, and `Sstar_zeta`). The legacy
 compatibility routine still selects the four dual-cell centers, writes the
-legacy fields, and evaluates the inverse Hodge scale. The new Z0 gate
-independently reconstructs every `Sstar` vector with the prior two-triangle
-stencil over the complete local/ghost range and requires exact equality before
-dual geometry is extracted further.
+legacy fields, and evaluates the inverse Hodge scale. Its three-rank Z0 gate
+has passed, with every vector reconstructed by the prior two-triangle stencil
+over the complete local/ghost range.
 
 The current unintegrated numerical foundation also exposes `d1^T` and a
 `HodgeOperator` interface with `LumpedHodge` as its production implementation.

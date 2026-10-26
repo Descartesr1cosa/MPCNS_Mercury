@@ -757,6 +757,104 @@ namespace
         return Z0_TEST::global_max(max_difference);
     }
 
+    double max_difference_from_legacy_edge_dual_measure_stencil(
+        Grid &grid,
+        Field &field,
+        const mpcns::compat::LegacyGeometryFieldIds &geometry_ids)
+    {
+        using Point = std::array<double, 3>;
+        using Offset = std::array<int, 3>;
+
+        const auto subtract = [](const Point &lhs, const Point &rhs)
+        {
+            return Point{lhs[0] - rhs[0],
+                         lhs[1] - rhs[1],
+                         lhs[2] - rhs[2]};
+        };
+        const auto legacy_norm = [](const Point &vector)
+        {
+            return std::sqrt(vector[0] * vector[0] +
+                             vector[1] * vector[1] +
+                             vector[2] * vector[2]);
+        };
+
+        double max_difference = 0.0;
+        const auto update = [&](double expected, double actual)
+        {
+            if (!std::isfinite(expected) || !std::isfinite(actual))
+                max_difference = std::numeric_limits<double>::infinity();
+            else
+                max_difference = std::max(max_difference,
+                                          std::abs(expected - actual));
+        };
+        const auto compare_direction = [&](const Block &block,
+                                           FieldBlock &edge_length,
+                                           FieldBlock &dual_face_vector,
+                                           FieldBlock &dual_face_area,
+                                           const Offset &endpoint_offset)
+        {
+            if (!edge_length.is_allocated() || !dual_face_vector.is_allocated() ||
+                !dual_face_area.is_allocated())
+            {
+                max_difference = std::numeric_limits<double>::infinity();
+                return;
+            }
+
+            const auto node = [&](int i, int j, int k)
+            {
+                return Point{block.x(i, j, k),
+                             block.y(i, j, k),
+                             block.z(i, j, k)};
+            };
+            const Int3 lo = edge_length.get_lo();
+            const Int3 hi = edge_length.get_hi();
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const Point edge = subtract(
+                            node(i + endpoint_offset[0],
+                                 j + endpoint_offset[1],
+                                 k + endpoint_offset[2]),
+                            node(i, j, k));
+                        const Point face_vector{
+                            dual_face_vector(i, j, k, 0),
+                            dual_face_vector(i, j, k, 1),
+                            dual_face_vector(i, j, k, 2)};
+                        update(legacy_norm(edge), edge_length(i, j, k, 0));
+                        update(legacy_norm(face_vector),
+                               dual_face_area(i, j, k, 0));
+                    }
+        };
+
+        const Offset xi_endpoint{{1, 0, 0}};
+        const Offset eta_endpoint{{0, 1, 0}};
+        const Offset zeta_endpoint{{0, 0, 1}};
+        for (int ib = 0; ib < grid.nblock; ++ib)
+        {
+            const Block &block = grid.grids(ib);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_length.xi, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.xi, ib),
+                field.field(geometry_ids.dual_face_area_at_edge.xi, ib),
+                xi_endpoint);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_length.eta, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.eta, ib),
+                field.field(geometry_ids.dual_face_area_at_edge.eta, ib),
+                eta_endpoint);
+            compare_direction(
+                block,
+                field.field(geometry_ids.primal_edge_length.zeta, ib),
+                field.field(geometry_ids.dual_face_area_vector_at_edge.zeta, ib),
+                field.field(geometry_ids.dual_face_area_at_edge.zeta, ib),
+                zeta_endpoint);
+        }
+        return Z0_TEST::global_max(max_difference);
+    }
+
     double max_difference_from_geometry_snapshot(
         Grid &grid,
         Field &field,
@@ -967,6 +1065,14 @@ namespace Z0_TEST
             "MPCNS dual-face area primitive matches legacy Sstar stencil exactly",
             dual_face_area_difference == 0.0,
             max_detail(dual_face_area_difference));
+        const double edge_dual_measure_difference =
+            max_difference_from_legacy_edge_dual_measure_stencil(
+                *field.grd, field, geometry_ids);
+        passed &= print_result(
+            "MPCNS edge length and dual-face magnitude match legacy stencil exactly",
+            edge_dual_measure_difference == 0.0,
+            max_detail(edge_dual_measure_difference));
+
         const double geometry_snapshot_difference =
             max_difference_from_geometry_snapshot(*field.grd, field, geometry_ids);
         passed &= print_result("GeometrySnapshot reads exact legacy geometry",

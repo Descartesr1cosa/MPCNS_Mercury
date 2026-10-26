@@ -458,7 +458,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         {
                             auto r0 = get_node(x, y, z, i, j, k);
                             auto r1 = get_node(x, y, z, i + 1, j, k);
-                            double L = norm3(minus(r1, r0));
+                            double L = mpcns::geometry::euclidean_norm(minus(r1, r0));
                             dl(i, j, k, 0) = L; // |e|
 
                             // Dual face around this xi-edge uses 4 surrounding cell centers:
@@ -475,7 +475,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
 
-                            double Amag = norm3(Avec);
+                            double Amag = mpcns::geometry::euclidean_norm(Avec);
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag; // Hodge_star_inverse_2form_to_1form = |e|/|S*|
@@ -499,7 +499,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         {
                             auto r0 = get_node(x, y, z, i, j, k);
                             auto r1 = get_node(x, y, z, i, j + 1, k);
-                            double L = norm3(minus(r1, r0));
+                            double L = mpcns::geometry::euclidean_norm(minus(r1, r0));
                             dl(i, j, k, 0) = L;
 
                             // surrounding cells: (i-1,j,k-1),(i,j,k-1),(i-1,j,k),(i,j,k)
@@ -514,7 +514,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
 
-                            double Amag = norm3(Avec);
+                            double Amag = mpcns::geometry::euclidean_norm(Avec);
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;
@@ -538,7 +538,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                         {
                             auto r0 = get_node(x, y, z, i, j, k);
                             auto r1 = get_node(x, y, z, i, j, k + 1);
-                            double L = norm3(minus(r1, r0));
+                            double L = mpcns::geometry::euclidean_norm(minus(r1, r0));
                             dl(i, j, k, 0) = L;
 
                             // surrounding cells: (i-1,j-1,k),(i,j-1,k),(i-1,j,k),(i,j,k)
@@ -553,7 +553,7 @@ void compute_metric_fields(Field &fields, Grid &grid)
                             Sstar(i, j, k, 1) = Avec[1];
                             Sstar(i, j, k, 2) = Avec[2];
 
-                            double Amag = norm3(Avec);
+                            double Amag = mpcns::geometry::euclidean_norm(Avec);
                             Astar(i, j, k, 0) = Amag;
 
                             // Hodge_star_inverse_2form_to_1form_edge(i, j, k, 0) = (Amag < eps) ? 0.0 : L / Amag;

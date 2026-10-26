@@ -113,17 +113,14 @@ Dual-face area vectors at primal edges (`Sstar_xi`, `Sstar_eta`, and
 `Sstar_zeta`) now use the same pure quadrilateral-area primitive. Their
 topology-dependent choice of the four surrounding dual-cell centers remains
 in the legacy publisher, together with the field writes and inverse-Hodge
-calculation. The Z0 dual-face gate independently evaluates the former
-two-triangle stencil for every vector component and local ghost entry; exact
-equality is required before dual geometry moves out of the compatibility
-layer.
+calculation. The Z0 dual-face gate has passed: it independently evaluated the
+former two-triangle stencil for every vector component and local ghost entry.
 
-The next pure primitive is geometry_primitives::euclidean_norm.  Its first
-consumer scope is deliberately restricted to primal-face magnitude, dual-edge
-length at a face, and the corresponding lumped star-2 scale. Edge-length,
-dual-face magnitude, and inverse-Hodge closure remain on their legacy code path.
-The Z0 gate recalculates all three face families with the former stencil, including the zero-area
-guard, and requires exact agreement.
+geometry_primitives::euclidean_norm now also supplies primal-edge lengths and
+dual-face magnitudes. The edge/dual-face inverse-Hodge closure remains on the
+legacy path. A new Z0 gate independently computes the former edge-length and
+dual-face-magnitude norm stencils for all directions and local ghost entries;
+exact agreement is required before that closure is extracted.
 
 `mpcns::compat::borrow_legacy_geometry_snapshot(Grid&, Field&)` is the only
 legacy-aware constructor.  It borrows the current coordinates and derived
