@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mpcns/core/logical_index.hpp"
+#include "mpcns/state/state_layout.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -27,12 +28,15 @@ public:
     BasicStateView(Value *logical_origin, core::LogicalBox extent,
                    core::LogicalBox inner_extent, int component_count,
                    std::ptrdiff_t stride_i, std::ptrdiff_t stride_j,
-                   std::ptrdiff_t stride_k, std::ptrdiff_t stride_component)
+                   std::ptrdiff_t stride_k, std::ptrdiff_t stride_component,
+                   StaggerLocation location, QuantityId quantity)
         : logical_origin_(logical_origin), extent_(extent), inner_extent_(inner_extent),
           component_count_(component_count), stride_i_(stride_i), stride_j_(stride_j),
-          stride_k_(stride_k), stride_component_(stride_component)
+          stride_k_(stride_k), stride_component_(stride_component), location_(location),
+          quantity_(quantity)
     {
-        if (!logical_origin_ || component_count_ <= 0 || stride_component_ <= 0)
+        if (!logical_origin_ || component_count_ <= 0 || stride_component_ <= 0 ||
+            !quantity_.is_valid())
             throw std::invalid_argument("StateView requires valid contiguous component storage");
     }
 
@@ -40,6 +44,8 @@ public:
     const core::LogicalBox &extent() const { return extent_; }
     const core::LogicalBox &inner_extent() const { return inner_extent_; }
     int component_count() const { return component_count_; }
+    StaggerLocation location() const { return location_; }
+    QuantityId quantity() const { return quantity_; }
 
     // Unchecked, inline hot-path access. Callers must use indices inside
     // extent() and a component in [0, component_count()).
@@ -68,6 +74,8 @@ private:
     std::ptrdiff_t stride_j_ = 0;
     std::ptrdiff_t stride_k_ = 0;
     std::ptrdiff_t stride_component_ = 1;
+    StaggerLocation location_ = StaggerLocation::Cell;
+    QuantityId quantity_{};
 };
 
 using StateView = BasicStateView<double>;

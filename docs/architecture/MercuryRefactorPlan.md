@@ -533,3 +533,30 @@ visible through the original FieldBlock, rejects non-workspace and unbound
 handles, and confirms release semantics. The next State unit should migrate one
 additional explicitly-scoped scratch consumer to this lifecycle API rather than
 introducing an owning SimulationState.
+
+## 25. State Unit 4A: role-separated, multi-block Workspace bindings
+
+`QuantityKind` now contains only mathematical representation. `StorageRole`
+independently distinguishes state, derived, workspace, and coupling-buffer
+storage. The legacy descriptor has matching metadata; the catalog adapter
+preserves its existing IDs, allocation, location, components, ghosts, and
+synchronization contract while mapping the two axes separately. Mercury marks
+only the existing local `Jstar_xi/eta/zeta` face-2-form scratch fields as
+`Workspace` role in this unit. They remain `PrimalFaceForm`, and no current
+operator has been migrated to consume them through `Workspace`.
+
+`StateView` carries its immutable quantity ID and stagger location in addition
+to its non-owning layout metadata. A `Workspace` binding is now keyed by
+`(StateHandle, local_block_id)`. A replacement bind updates only that pair;
+release likewise leaves other blocks intact, while clear removes all borrowed
+bindings without touching FieldStorage. Handles are tied to a non-copyable,
+non-movable `SimulationState`; bind validates owning state, workspace role,
+quantity identity, stagger, and component count. These are setup/lifecycle
+operations, not numerical hot-path calls.
+
+Z0 covers simultaneous two-block binding, independent writes into the legacy
+blocks, single-block release, clear, role rejection, mismatched-view rejection,
+and cross-`SimulationState` handle rejection. Unit 4B should migrate only the
+regular `Jstar` binding/setup portion of the current path to this API, leaving
+the Hodge, `d1` transpose, owner/alias reconciliation, and all numerical loops
+unchanged for its separate regression.

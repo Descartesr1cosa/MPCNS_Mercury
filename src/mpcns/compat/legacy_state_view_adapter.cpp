@@ -28,7 +28,8 @@ void validate_binding(const FieldBlock &field, const state::QuantityDescriptor &
 
 template <class Value>
 state::BasicStateView<Value> make_view(const FieldBlock &field,
-                                       const state::QuantityDescriptor &quantity)
+                                       const state::QuantityDescriptor &quantity,
+                                       state::QuantityId quantity_id)
 {
     validate_binding(field, quantity);
     const Vector &array = field.raw_data();
@@ -41,12 +42,14 @@ state::BasicStateView<Value> make_view(const FieldBlock &field,
                                         logical_box(inner_lo, inner_hi),
                                         quantity.component_count,
                                         array.StrideI(), array.StrideJ(),
-                                        array.StrideK(), array.StrideComponent()};
+                                        array.StrideK(), array.StrideComponent(),
+                                        quantity.location, quantity_id};
 }
 
 template <>
 state::StateView make_view<double>(const FieldBlock &field,
-                                   const state::QuantityDescriptor &quantity)
+                                   const state::QuantityDescriptor &quantity,
+                                   state::QuantityId quantity_id)
 {
     validate_binding(field, quantity);
     FieldBlock &mutable_field = const_cast<FieldBlock &>(field);
@@ -58,7 +61,7 @@ state::StateView make_view<double>(const FieldBlock &field,
     return state::StateView{array.LogicalOriginData(), logical_box(lo, hi),
                             logical_box(inner_lo, inner_hi), quantity.component_count,
                             array.StrideI(), array.StrideJ(), array.StrideK(),
-                            array.StrideComponent()};
+                            array.StrideComponent(), quantity.location, quantity_id};
 }
 
 }
@@ -74,7 +77,7 @@ state::StateView LegacyStateViewAdapter::view(state::QuantityId quantity, int bl
     if (!fields_ || !binding_ || block < 0 || block >= fields_->num_blocks())
         throw std::out_of_range("invalid StateView quantity or block request");
     return make_view<double>(fields_->field(binding_->legacy_field_id(quantity), block),
-                             binding_->layout.descriptor(quantity));
+                             binding_->layout.descriptor(quantity), quantity);
 }
 
 state::ConstStateView LegacyStateViewAdapter::const_view(state::QuantityId quantity, int block) const
@@ -82,7 +85,7 @@ state::ConstStateView LegacyStateViewAdapter::const_view(state::QuantityId quant
     if (!fields_ || !binding_ || block < 0 || block >= fields_->num_blocks())
         throw std::out_of_range("invalid const StateView quantity or block request");
     return make_view<const double>(fields_->field(binding_->legacy_field_id(quantity), block),
-                                   binding_->layout.descriptor(quantity));
+                                   binding_->layout.descriptor(quantity), quantity);
 }
 
 } // namespace mpcns::compat

@@ -1659,9 +1659,26 @@ namespace
                 case FieldValueKind::FaceContravariant2Form: return mpcns::state::QuantityKind::PrimalFaceForm;
                 case FieldValueKind::GeometryMetric: return mpcns::state::QuantityKind::GeometryMetric;
                 case FieldValueKind::CouplingBufferOnly:
-                case FieldValueKind::Temporary: return mpcns::state::QuantityKind::Workspace;
+                case FieldValueKind::Temporary: return mpcns::state::QuantityKind::Scalar;
                 }
-                return mpcns::state::QuantityKind::Workspace;
+                return mpcns::state::QuantityKind::Scalar;
+            }();
+            const auto expected_role = [&]()
+            {
+                switch (legacy.storage_role)
+                {
+                case FieldStorageRole::State: break;
+                case FieldStorageRole::Derived: return mpcns::state::StorageRole::Derived;
+                case FieldStorageRole::Workspace: return mpcns::state::StorageRole::Workspace;
+                case FieldStorageRole::CouplingBuffer: return mpcns::state::StorageRole::CouplingBuffer;
+                }
+                if (legacy.value_kind == FieldValueKind::Temporary)
+                    return mpcns::state::StorageRole::Workspace;
+                if (legacy.value_kind == FieldValueKind::CouplingBufferOnly)
+                    return mpcns::state::StorageRole::CouplingBuffer;
+                if (legacy.value_kind == FieldValueKind::GeometryMetric)
+                    return mpcns::state::StorageRole::Derived;
+                return mpcns::state::StorageRole::State;
             }();
             const auto expected_owner = [&]()
             {
@@ -1677,6 +1694,7 @@ namespace
             if (quantity.canonical_name != legacy.name ||
                 quantity.external_name != legacy.name ||
                 quantity.kind != expected_kind ||
+                quantity.storage_role != expected_role ||
                 quantity.location != legacy.location ||
                 quantity.component_count != legacy.ncomp ||
                 quantity.ghost_layers != legacy.nghost ||
@@ -1832,8 +1850,11 @@ namespace
         constexpr const char *workspace_name = "state_view_test_workspace";
         if (!field.has_field(workspace_name))
         {
-            FieldDescriptor workspace{workspace_name, StaggerLocation::Cell, 2, 1};
-            workspace.value_kind = FieldValueKind::Temporary;
+            // Jstar-shaped scratch: it remains a primal face 2-form while
+            // the independent role marks its storage lifetime.
+            FieldDescriptor workspace{workspace_name, StaggerLocation::FaceXi, 1, 1};
+            workspace.value_kind = FieldValueKind::FaceContravariant2Form;
+            workspace.storage_role = FieldStorageRole::Workspace;
             field.register_field(workspace);
         }
 
@@ -1841,39 +1862,84 @@ namespace
         const auto quantity = binding.layout.find(workspace_name);
         if (!quantity.is_valid())
             return std::numeric_limits<double>::infinity();
+        if (binding.layout.descriptor(quantity).kind != mpcns::state::QuantityKind::PrimalFaceForm ||
+            binding.layout.descriptor(quantity).storage_role != mpcns::state::StorageRole::Workspace ||
+            field.num_blocks() < 2)
+            return std::numeric_limits<double>::infinity();
 
         mpcns::state::SimulationState state{binding.layout};
+        static_assert(!std::is_copy_constructible<mpcns::state::SimulationState>::value &&
+                          !std::is_move_constructible<mpcns::state::SimulationState>::value,
+                      "SimulationState identity must not be copied or moved");
         const auto handle = state.handle(quantity);
         mpcns::compat::LegacyStateViewAdapter adapter{field, binding};
         mpcns::state::Workspace workspace{state};
         double max_difference = 0.0;
+        std::array<double, 2> original_values{{0.0, 0.0}};
 
-        for (int ib = 0; ib < field.num_blocks(); ++ib)
+        for (int ib = 0; ib < 2; ++ib)
         {
             FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
             if (!legacy.is_allocated())
                 return std::numeric_limits<double>::infinity();
             const auto borrowed = adapter.view(quantity, ib);
-            workspace.bind(handle, borrowed);
+            workspace.bind(handle, ib, borrowed);
             const Int3 lo = legacy.get_lo();
-            const double original = legacy(lo.i, lo.j, lo.k, 1);
-            workspace.view(handle)(lo.i, lo.j, lo.k, 1) = original + 0.625;
+            const double original = legacy(lo.i, lo.j, lo.k, 0);
+            original_values[static_cast<std::size_t>(ib)] = original;
+            workspace.view(handle, ib)(lo.i, lo.j, lo.k, 0) = original + 0.625 + ib;
             max_difference = std::max(max_difference,
-                std::abs(legacy(lo.i, lo.j, lo.k, 1) - (original + 0.625)));
-            legacy(lo.i, lo.j, lo.k, 1) = original;
-            workspace.release(handle);
-            if (workspace.is_bound(handle))
-                return std::numeric_limits<double>::infinity();
+                std::abs(legacy(lo.i, lo.j, lo.k, 0) - (original + 0.625 + ib)));
+        }
+
+        // Rebinding block zero replaces only its view and leaves block one.
+        workspace.bind(handle, 0, adapter.view(quantity, 0));
+        if (!workspace.is_bound(handle, 0) || !workspace.is_bound(handle, 1))
+            return std::numeric_limits<double>::infinity();
+        for (int ib = 0; ib < 2; ++ib)
+        {
+            FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
+            const Int3 lo = legacy.get_lo();
+            max_difference = std::max(max_difference,
+                std::abs(legacy(lo.i, lo.j, lo.k, 0) -
+                         (original_values[static_cast<std::size_t>(ib)] + 0.625 + ib)));
         }
 
         bool non_workspace_rejected = false;
-        try { workspace.bind(state.handle(binding.layout.find("U")), adapter.view(binding.layout.find("U"), 0)); }
+        try { workspace.bind(state.handle(binding.layout.find("B_xi")), 0,
+                             adapter.view(binding.layout.find("B_xi"), 0)); }
         catch (const std::invalid_argument &) { non_workspace_rejected = true; }
+        bool component_mismatch_rejected = false;
+        const auto valid_view = adapter.view(quantity, 0);
+        try
+        {
+            double one_value = 0.0;
+            mpcns::state::StateView wrong_components{
+                &one_value, valid_view.extent(), valid_view.inner_extent(), 2,
+                1, 1, 1, 1, valid_view.location(), quantity};
+            workspace.bind(handle, 0, wrong_components);
+        }
+        catch (const std::invalid_argument &) { component_mismatch_rejected = true; }
+        bool foreign_handle_rejected = false;
+        mpcns::state::SimulationState foreign_state{binding.layout};
+        try { workspace.bind(foreign_state.handle(quantity), 0, valid_view); }
+        catch (const std::out_of_range &) { foreign_handle_rejected = true; }
+
+        workspace.release(handle, 0);
+        if (workspace.is_bound(handle, 0) || !workspace.is_bound(handle, 1))
+            return std::numeric_limits<double>::infinity();
         workspace.clear();
         bool unbound_rejected = false;
-        try { (void)workspace.view(handle); }
+        try { (void)workspace.view(handle, 1); }
         catch (const std::logic_error &) { unbound_rejected = true; }
-        return non_workspace_rejected && unbound_rejected
+        for (int ib = 0; ib < 2; ++ib)
+        {
+            FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
+            const Int3 lo = legacy.get_lo();
+            legacy(lo.i, lo.j, lo.k, 0) = original_values[static_cast<std::size_t>(ib)];
+        }
+        return non_workspace_rejected && component_mismatch_rejected && foreign_handle_rejected &&
+                       unbound_rejected && !workspace.is_bound(handle, 0) && !workspace.is_bound(handle, 1)
                    ? max_difference
                    : std::numeric_limits<double>::infinity();
     }

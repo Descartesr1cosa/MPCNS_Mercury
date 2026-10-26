@@ -38,6 +38,10 @@ class SimulationState
 {
 public:
     explicit SimulationState(const StateLayout &layout);
+    SimulationState(const SimulationState &) = delete;
+    SimulationState &operator=(const SimulationState &) = delete;
+    SimulationState(SimulationState &&) = delete;
+    SimulationState &operator=(SimulationState &&) = delete;
 
     const StateLayout &layout() const;
     StateHandle handle(QuantityId quantity) const;
@@ -53,17 +57,25 @@ class Workspace
 {
 public:
     explicit Workspace(const SimulationState &state);
+    Workspace(const Workspace &) = delete;
+    Workspace &operator=(const Workspace &) = delete;
+    Workspace(Workspace &&) = delete;
+    Workspace &operator=(Workspace &&) = delete;
 
-    void bind(StateHandle handle, StateView view);
-    bool is_bound(StateHandle handle) const;
-    StateView view(StateHandle handle) const;
-    void release(StateHandle handle);
+    // Binding the same (handle, block) replaces only that borrowed View after
+    // validation. These setup-time operations may grow bindings_; numerical
+    // kernels only retrieve an already-bound view.
+    void bind(StateHandle handle, int local_block_id, StateView view);
+    bool is_bound(StateHandle handle, int local_block_id) const;
+    StateView view(StateHandle handle, int local_block_id) const;
+    void release(StateHandle handle, int local_block_id);
     void clear();
 
 private:
     struct Binding
     {
         QuantityId quantity;
+        int local_block_id = -1;
         StateView view;
     };
 
@@ -71,6 +83,7 @@ private:
     std::vector<Binding> bindings_;
 
     void validate_workspace_handle(StateHandle handle) const;
+    void validate_view(StateHandle handle, int local_block_id, const StateView &view) const;
 };
 
 } // namespace mpcns::state

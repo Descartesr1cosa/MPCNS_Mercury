@@ -22,6 +22,7 @@ struct FieldSpec
     const char *physics;
     FieldSyncContract sync;
     FieldValueKind value_kind = FieldValueKind::Scalar;
+    FieldStorageRole storage_role = FieldStorageRole::State;
 
     FieldDescriptor descriptor(int runtime_nghost) const
     {
@@ -33,6 +34,7 @@ struct FieldSpec
         desc.physics = physics ? physics : "";
         desc.sync = sync;
         desc.value_kind = value_kind;
+        desc.storage_role = storage_role;
         return desc;
     }
 };
@@ -138,11 +140,14 @@ inline std::vector<FieldSpec> FieldSpecs()
          FieldValueKind::EdgeCovariant1Form},
         // Internal star_2(B) workspace. It has no output or halo contract.
         {"Jstar_xi", StaggerLocation::FaceXi, 1, UseRuntimeGhost, "",
-         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form,
+         FieldStorageRole::Workspace},
         {"Jstar_eta", StaggerLocation::FaceEt, 1, UseRuntimeGhost, "",
-         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form,
+         FieldStorageRole::Workspace},
         {"Jstar_zeta", StaggerLocation::FaceZe, 1, UseRuntimeGhost, "",
-         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form},
+         FieldSyncContract{}, FieldValueKind::FaceContravariant2Form,
+         FieldStorageRole::Workspace},
         {"J_cell", StaggerLocation::Cell, 3, UseRuntimeGhost, "",
          SyncContract("J_cell", true, true, true),
          FieldValueKind::CartesianVector},

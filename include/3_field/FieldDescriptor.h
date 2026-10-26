@@ -11,6 +11,17 @@ enum class OwnerSyncPolicy
     FaceOwner
 };
 
+// Storage purpose is independent from FieldValueKind, which describes the
+// mathematical representation.  This is metadata only: it does not alter
+// allocation, catalog ordering, or synchronization behavior.
+enum class FieldStorageRole
+{
+    State,
+    Derived,
+    Workspace,
+    CouplingBuffer
+};
+
 inline const char *owner_sync_policy_name(OwnerSyncPolicy p)
 {
     switch (p)
@@ -75,4 +86,5 @@ struct FieldDescriptor
     FieldSyncContract sync;
 
     FieldValueKind value_kind = FieldValueKind::Scalar;
+    FieldStorageRole storage_role = FieldStorageRole::State;
 };

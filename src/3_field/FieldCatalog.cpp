@@ -11,6 +11,7 @@ namespace
                old.nghost == desc.nghost &&
                old.physics == desc.physics &&
                old.value_kind == desc.value_kind &&
+               old.storage_role == desc.storage_role &&
                old.sync.group == desc.sync.group &&
                old.sync.do_coupling == desc.sync.do_coupling &&
                old.sync.do_physical == desc.sync.do_physical &&

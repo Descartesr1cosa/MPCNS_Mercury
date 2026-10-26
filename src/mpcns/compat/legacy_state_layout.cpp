@@ -20,10 +20,32 @@ state::QuantityKind quantity_kind(FieldValueKind kind)
     case FieldValueKind::EdgeCovariant1Form: return state::QuantityKind::PrimalEdgeForm;
     case FieldValueKind::FaceContravariant2Form: return state::QuantityKind::PrimalFaceForm;
     case FieldValueKind::GeometryMetric: return state::QuantityKind::GeometryMetric;
+    // These legacy tags did not encode a mathematical representation.  Keep
+    // their historical scalar fallback while their storage purpose is mapped
+    // independently below.
     case FieldValueKind::CouplingBufferOnly:
-    case FieldValueKind::Temporary: return state::QuantityKind::Workspace;
+    case FieldValueKind::Temporary: return state::QuantityKind::Scalar;
     }
     throw std::logic_error("unrecognised legacy field value kind");
+}
+
+state::StorageRole storage_role(const FieldDescriptor &legacy)
+{
+    switch (legacy.storage_role)
+    {
+    case FieldStorageRole::State: break;
+    case FieldStorageRole::Derived: return state::StorageRole::Derived;
+    case FieldStorageRole::Workspace: return state::StorageRole::Workspace;
+    case FieldStorageRole::CouplingBuffer: return state::StorageRole::CouplingBuffer;
+    }
+    // Preserve meaningful roles for unannotated historical descriptors.
+    if (legacy.value_kind == FieldValueKind::Temporary)
+        return state::StorageRole::Workspace;
+    if (legacy.value_kind == FieldValueKind::CouplingBufferOnly)
+        return state::StorageRole::CouplingBuffer;
+    if (legacy.value_kind == FieldValueKind::GeometryMetric)
+        return state::StorageRole::Derived;
+    return state::StorageRole::State;
 }
 
 state::OwnerPolicy owner_policy(OwnerSyncPolicy policy)
@@ -41,7 +63,7 @@ state::OwnerPolicy owner_policy(OwnerSyncPolicy policy)
 state::QuantityDescriptor quantity_descriptor(const FieldDescriptor &legacy)
 {
     return state::QuantityDescriptor{
-        legacy.name, legacy.name, quantity_kind(legacy.value_kind), legacy.location,
+        legacy.name, legacy.name, quantity_kind(legacy.value_kind), storage_role(legacy), legacy.location,
         legacy.ncomp, legacy.nghost, legacy.physics,
         state::SynchronizationContract{legacy.sync.group, legacy.sync.do_coupling,
                                        legacy.sync.do_physical, legacy.sync.do_halo,

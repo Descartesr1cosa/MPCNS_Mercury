@@ -19,8 +19,16 @@ enum class QuantityKind
     PrimalZeroForm,
     PrimalEdgeForm,
     PrimalFaceForm,
-    GeometryMetric,
-    Workspace
+    GeometryMetric
+};
+
+// Storage purpose does not change the mathematical identity of a quantity.
+enum class StorageRole
+{
+    State,
+    Derived,
+    Workspace,
+    CouplingBuffer
 };
 
 enum class OwnerPolicy
@@ -49,6 +57,7 @@ struct QuantityDescriptor
     std::string canonical_name;
     std::string external_name;
     QuantityKind kind = QuantityKind::Scalar;
+    StorageRole storage_role = StorageRole::State;
     StaggerLocation location = StaggerLocation::Cell;
     int component_count = 1;
     int ghost_layers = 0;
