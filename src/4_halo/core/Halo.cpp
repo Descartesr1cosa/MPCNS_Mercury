@@ -105,6 +105,39 @@ Halo::debug_component_copy_patterns(StaggerLocation location, int nghost) const
     return result;
 }
 
+std::vector<LegacyOrientedTripletSnapshot>
+Halo::debug_oriented_form_triplets() const
+{
+    std::vector<LegacyOrientedTripletSnapshot> result;
+    const auto append = [&](const auto &groups, LegacyOrientedFormKind kind)
+    {
+        for (const auto &entry : groups)
+        {
+            const HaloTripletRequest &triplet = entry.second;
+            LegacyOrientedTripletSnapshot snapshot;
+            snapshot.group_name = triplet.group_name;
+            snapshot.form_kind = kind;
+            snapshot.field_names = {triplet.xi, triplet.eta, triplet.zeta};
+            snapshot.level = triplet.level;
+            snapshot.orientation_aware = triplet.orientation_aware;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                const FieldDescriptor &descriptor =
+                    fld_->descriptor(snapshot.field_names[axis]);
+                snapshot.locations[axis] = descriptor.location;
+                snapshot.value_kinds[axis] = descriptor.value_kind;
+                snapshot.ncomp[axis] = descriptor.ncomp;
+                snapshot.nghost[axis] = descriptor.nghost;
+            }
+            result.push_back(std::move(snapshot));
+        }
+    };
+
+    append(edge_1form_triplets_, LegacyOrientedFormKind::Edge1Form);
+    append(face_2form_triplets_, LegacyOrientedFormKind::Face2Form);
+    return result;
+}
+
 void Halo::data_trans_1DCorner(std::string &field_name)
 {
     exchange_inner(field_name);

@@ -883,3 +883,97 @@ Parallel Unit 2A is frozen. A later Unit 2B may define read-only descriptions
 and parity gates for one currently unsupported family at a time, beginning only
 after its extra grouping, direction, and orientation inputs are explicit. It
 must not make ExchangePlan execute production communication implicitly.
+
+
+## 34. Parallel Unit 2B-1: Face-level oriented-form transfer-plan acceptance
+
+`mpcns::parallel::OrientedFormTransferPlan` is the immutable, MPI-free
+description of one orientation-aware three-member form group at the Face
+stage. A plan names the sync group and its Xi/Eta/Zeta quantities, form kind,
+location, axis, component count, and ghost depth. Each ordered transfer records
+Inner or Parallel kind, actual source and destination `BlockAddress`, source
+and destination axes and quantities, source and destination legacy region
+indices, send and receive boxes, the stored transform, orientation sign, and
+role-valid tags. Packing order is explicitly transformed destination
+i/j/k/component order. The record does not reinterpret the triplet as a
+Cartesian vector.
+
+The legacy mathematical convention is frozen rather than reformulated. For
+destination axis `d`, source axis `s` is the unique axis satisfying
+`transform.permutation[s] == d`. Edge 1-form sign is
+`transform.sign[s]`. Face 2-form sign is
+`sign[0] * sign[1] * sign[2] * sign[s]`, exactly matching
+`HALO_TOOLS::face_2form_orientation_sign`; every stored and computed sign is
+validated as plus or minus one. Inner records describe the directed local copy
+from the source pattern's `this_block` to the destination pattern's
+`neighbor_block`. Parallel records describe the local outbound source and
+peer destination; their receive box is the matching local inbound box in the
+same bidirectional Face pattern. Topological this/neighbor identity therefore
+is never used as a generic send/receive inference.
+
+`LegacyOrientedFormPlanAdapter` is the only conversion boundary. It observes
+the already registered triplet group and already built Face `HaloPattern`
+snapshots through const diagnostics. It copies field order, region order,
+boxes, transforms, and assigned tags; it performs no pattern construction, tag
+allocation, MPI call, synchronization, numeric field read, or runtime-buffer
+allocation. Plan construction is initialization/test-only. The request-based
+entry point accepts only `do_halo && orientation_aware` EdgeCovariant1Form or
+FaceContravariant2Form requests. A non-orientation-aware request is rejected
+from this plan and remains eligible for the Unit 2A component-copy adapter.
+The group-only conversion is private, so callers cannot bypass that request
+classification. An additional three-rank `Z0_FORM_ORIENTATION=0` probe exited
+zero with 18 Unit 2A component-copy plans and zero Unit 2B-1 plans.
+Missing members, mixed kinds, inconsistent component/ghost metadata, invalid
+axes/permutations/signs, rank-role errors, absent tags, and inconsistent
+source/destination pattern identity fail explicitly.
+
+Z0 independently reads the registered group and the actual legacy Face
+patterns rather than comparing two adapter products. It checks group and
+member identity, location, both axes and quantities, both block addresses,
+all box bounds, all permutation/sign/offset entries, both tags, shape,
+per-region indices, and the exact legacy traversal order: all Inner axes and
+regions, then all Parallel axes and regions. Distinct rank/block/axis/component
+markers are synchronized by the unchanged production Halo. A shadow oracle
+replays directed same-rank writes in legacy order and then applies peer
+receives, so overlapping regions are judged by their real final writer.
+Separate pure mapping cases guarantee non-identity permutation and both
+one-form and two-form negative-sign detection even when a mesh contains only
+identity transforms.
+
+Acceptance used three MPI ranks and build parallelism four or less:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes passed serially |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+Across the ten standard modes, 42 rank-local plans and 2,856 transfers produced
+4,515,552 exact checks with zero failures. They include 1,008 Inner and 1,848
+Parallel transfer records, 4,620 non-identity permutation-axis observations,
+1,596 negative orientation signs, and 4,393,536 final numeric value checks:
+1,957,900 same-rank and 2,435,636 cross-rank. The periodic cube added 18 plans,
+540 transfers, and 52,191 exact checks with zero failures, including 7,716
+same-rank and 21,156 cross-rank final-value checks. Its 180 Inner and 360
+Parallel records have identity transforms and positive signs, so nontrivial
+orientation coverage comes from the standard topology and 18 synthetic
+mapping/sign assertions. Every mode also retained passing ExchangePlan,
+MeshPartition, topology, owner/alias, physical I/O, DEC, Faraday, Hodge, and
+StateView results and the MPI-global normal-completion conclusion.
+
+No production pattern, tag, pack/unpack, send/receive, wait, buffer, stage
+order, or numerical operator was changed. Legacy Halo remains the only
+executor. Edge- and Vertex-stage form paths remain deliberately unfrozen:
+their parallel functions construct `TripletCornerMeta` during synchronization,
+exchange it with `MPI_Alltoallv`, and create temporary data buffers and MPI
+requests before pack/send/receive/unpack. Moving those paths requires a later
+initialization-time protocol that preserves directed metadata pairing,
+send/receive transforms and boxes, peer ordering, assigned tags, buffer
+lifetimes, and rebuild invalidation. Directed coupling and owner/alias
+reduce/broadcast are also outside this unit.
+
+Parallel Unit 2B-1 is complete and frozen. The next smallest unit should
+describe and compare one Edge- or Vertex-stage triplet metadata family at a
+time; it must not introduce an ExchangeExecutor or replace production Halo.

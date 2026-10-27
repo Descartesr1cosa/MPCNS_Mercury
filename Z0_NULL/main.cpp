@@ -50,7 +50,8 @@ int main(int argc, char **argv)
             {"Topology", Z0_TEST::RunTopologyTests(topology, myid) && Z0_TEST::RunMeshPartitionTests(grid, topology, myid)},
             {"Physical IO", Z0_TEST::RunPhysicalIoTests(field, param)},
             {"Halo Communication", Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param) &&
-                                   Z0_TEST::RunExchangePlanTests(grid, topology, field, halo, myid)},
+                                   Z0_TEST::RunExchangePlanTests(grid, topology, field, halo, myid) &&
+                                   Z0_TEST::RunOrientedFormPlanTests(grid, topology, field, halo, myid)},
             {"DEC / State", Z0_TEST::RunDecChainTests(field, halo, boundary, param)},
         }};
 

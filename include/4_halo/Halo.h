@@ -45,6 +45,9 @@ public:
     std::vector<LegacyHaloPatternSnapshot>
     debug_component_copy_patterns(StaggerLocation location, int nghost) const;
 
+    std::vector<LegacyOrientedTripletSnapshot>
+    debug_oriented_form_triplets() const;
+
     std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
                                                      int nghost,
                                                      HaloLevel stage) const;

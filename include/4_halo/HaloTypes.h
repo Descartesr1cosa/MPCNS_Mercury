@@ -2,6 +2,9 @@
 #include "0_basic/TYPES.h"
 #include "0_basic/StaggerLocation.h"
 #include "2_topology/TopologyTypes.h"
+#include "3_field/FieldValueKind.h"
+#include <array>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -43,6 +46,25 @@ struct LegacyHaloPatternSnapshot
     StaggerLocation location;
     int nghost;
     std::vector<HaloRegion> regions;
+};
+
+enum class LegacyOrientedFormKind
+{
+    Edge1Form,
+    Face2Form
+};
+
+struct LegacyOrientedTripletSnapshot
+{
+    std::string group_name;
+    LegacyOrientedFormKind form_kind;
+    std::array<std::string, 3> field_names;
+    std::array<StaggerLocation, 3> locations;
+    std::array<FieldValueKind, 3> value_kinds;
+    std::array<int, 3> ncomp;
+    std::array<int, 3> nghost;
+    HaloLevel level;
+    bool orientation_aware;
 };
 
 struct HaloPattern
