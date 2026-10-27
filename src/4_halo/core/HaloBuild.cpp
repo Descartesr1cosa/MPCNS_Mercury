@@ -379,6 +379,7 @@ void Halo::register_halo_field(const FieldHaloRequest &request)
     ++registry_generation_;
     registered_patterns_built_ = false;
     invalidate_prepared_edge_1form_corner_metadata_();
+    invalidate_prepared_vertex_edge_1form_metadata_();
     rebuild_sync_registry_();
 }
 
@@ -390,6 +391,7 @@ void Halo::register_halo_fields(const std::vector<FieldHaloRequest> &requests)
     ++registry_generation_;
     registered_patterns_built_ = false;
     invalidate_prepared_edge_1form_corner_metadata_();
+    invalidate_prepared_vertex_edge_1form_metadata_();
     rebuild_sync_registry_();
 }
 
@@ -416,6 +418,7 @@ void Halo::build_registered_patterns()
 {
     registered_patterns_built_ = false;
     invalidate_prepared_edge_1form_corner_metadata_();
+    invalidate_prepared_vertex_edge_1form_metadata_();
     edge_1form_corner_plan_snapshots_.clear();
     vertex_edge_1form_plan_snapshots_.clear();
     edge_face_2form_plan_snapshots_.clear();

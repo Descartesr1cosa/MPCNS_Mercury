@@ -1525,3 +1525,92 @@ rank-global schedule agreement, immutable data lifetime, and invalidation
 contract; it must not conflate that work with runtime executor migration.
 
 Parallel Unit 2B-4A is complete and frozen.
+
+
+## 40. Parallel Unit 2B-4B: initialization-time prepared Vertex Edge1Form metadata acceptance
+
+This unit adds `Halo::prepare_vertex_edge_1form_metadata()` and a separate
+value-owned cache for the non-coupling Parallel Vertex-stage Edge1Form
+protocol.  It is an explicit initialization/test operation only: no
+MercuryZ4 initialization or time-step path calls it, and legacy
+HaloTriplet.cpp remains the sole runtime executor. debug_prepared_vertex_edge_1form_plan() and its generation/counter accessors expose copies only while the cache agrees with the current registration and pattern generations.
+`LegacyOrientedVertexPlanAdapter::build_prepared()` is the only public
+conversion boundary; it reads that immutable snapshot and constructs the
+already-frozen `mpcns::parallel::OrientedVertexTransferPlan`.  It never
+prepares, runs MPI, reads field values, or rebuilds a Halo pattern.
+
+Eligibility is restricted to complete orientation-aware EdgeCovariant1Form
+triplets registered at Corner3D and to non-coupling Parallel `VertexPatch`
+records.  As with the legacy implementation, a receiver axis maps directly to
+`transform.perm[recv_axis]` and uses `transform.sign[recv_axis]`.  The three
+mapped directions retain the legacy normal-first correction, while receive
+and source boxes retain the 3D ghost/inner-ghost rules.  Receiver patch order,
+per-peer tag numbering, rank-grouped sender discovery, source/destination
+block identities, message lengths, and local/per-peer orders are unchanged.
+The schedule is rank-global and deterministic: each rank agrees on the sorted
+triplet descriptors through `MPI_Allgather`/`MPI_Allgatherv`, then participates
+in each agreed group’s unchanged `MPI_Alltoall`/`MPI_Alltoallv` metadata
+exchange, including ranks with no local Parallel Vertex patch.
+
+Vertex and Edge prepared caches are deliberately independent maps, readiness
+states, counters, and snapshots.  They share only the registration/pattern
+generations and the required invalidation boundary: every
+`register_halo_field`, `register_halo_fields`, and
+`build_registered_patterns` call invalidates both caches.  A prepare for one
+stage does not evict the other.  Pattern rebuild or re-registration makes a
+prepare fail until patterns are rebuilt.  This preserves the final-topology
+and final-registration barrier without introducing a shared mutable plan or a
+runtime buffer.
+
+`Z0_PreparedOrientedVertexPlanTest.cpp` derives expected receive records from
+raw legacy `TOPO::VertexPatch` data and derives sender order with a test-only
+rank-grouped all-gather; it does not use the prepared adapter as an oracle.
+It compares every group member, rank/block, direct axis map, sign, all three
+mapped directions, box bound, transform component, tag, message length, and
+local/peer order exactly.  Its numeric oracle invokes the untouched legacy
+Vertex sync after the real Face/Edge prestages using distinct source values;
+it proves the prepared snapshot and runtime capture have identical component
+mapping and sign behavior.  Failures report rank, group, stage, role, peer,
+block, axis, tag, region, and the exact field/expected/actual pair.
+
+The test additionally verifies absent-plan adapter rejection, first prepare,
+repeated cache reuse without another metadata exchange, Edge/Vertex cache
+independence, rebuild invalidation and generation removal, complete-triplet
+re-registration invalidation of both caches, rejection before rebuild, and
+successful regeneration.  An `all_edge` regression showed why test activation
+must follow the actual Halo registration rather than only a mode-limited Field
+request: an earlier lifecycle test can legally register a Corner3D triplet
+while normal sync coverage remains Edge-limited.  The acceptance test now
+uses the registration-backed prepared snapshot as that decision point; no
+production registration or stage behavior changed.
+
+Acceptance used exactly three MPI ranks, build parallelism at most four, and
+serial harness execution:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| focused `Z0_TEST_DRIVEN_SYNC=1 Z0_HALO_MODE=edgeforms Z0_HALO_LEVEL=vertex mpirun -np 3 ./z0_null` | 0; 3 prepared plans, 24 receive records, 24 send records, and 192 numeric checks |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; marker `validation_logs/unit2b4b_halo.exit` is `0`; all ten serial modes retain the MPI-global pass summary |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; marker `preprocess_cube_validation_logs/unit2b4b_cube.exit` is `0`; all_vertex, all_owner_vertex, and owner_only pass |
+
+The focused orientation-disabled component-copy regression (`Z0_FORM_ORIENTATION=0`, `edgeforms`, `vertex`, three ranks) also exited 0: no prepared Vertex plan or metadata exchange was created.
+
+Each active standard or periodic invocation reports three rank-local prepared
+plans, 24 receive records, 24 send records, and 24 matched pairs with zero
+metadata or numeric failures.  The standard topology exercises non-identity
+permutations, negative Edge1Form signs, normal-first direction reordering,
+and out-of-bounds source positions; the periodic cube supplies the
+identity/positive periodic cases and retains MPI-global success.  Real Vertex
+messages in these meshes have no zero-length packet; the existing pure
+contract checks cover legal empty records.  Coupling vertices, Face2Form
+preparation, ownership/alias paths, an ExchangeExecutor, and moving any
+runtime pack/send/receive/wait/unpack or metadata exchange out of legacy Halo
+remain deliberately out of scope.
+
+Parallel Unit 2B-4B is complete and frozen.  A later unit may consider a
+separate prepared Face2Form family only with its own exact legacy snapshot,
+rank-global schedule, independent cache lifetime, and regression evidence;
+it must not begin executor migration or merge Edge/Vertex metadata lifetimes.
