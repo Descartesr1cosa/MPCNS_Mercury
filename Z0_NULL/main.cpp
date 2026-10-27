@@ -47,7 +47,7 @@ int main(int argc, char **argv)
         solver.Advance();
 
         const std::array<Z0_TEST::ModuleResult, 4> module_results = {{
-            {"Topology", Z0_TEST::RunTopologyTests(topology, myid)},
+            {"Topology", Z0_TEST::RunTopologyTests(topology, myid) && Z0_TEST::RunMeshPartitionTests(grid, topology, myid)},
             {"Physical IO", Z0_TEST::RunPhysicalIoTests(field, param)},
             {"Halo Communication", Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param)},
             {"DEC / State", Z0_TEST::RunDecChainTests(field, halo, boundary, param)},

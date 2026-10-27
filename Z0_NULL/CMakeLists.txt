@@ -33,6 +33,7 @@ aux_source_directory(../src/4_halo/owner DIRSRCS4_OWNER)
 aux_source_directory(../src/6_io DIRSRCS6)
 aux_source_directory(../src/7_metric DIRSRCS7)
 aux_source_directory(../src/8_dec DIRSRCS8)
+set(MPCNS_MESH_SRCS ../src/mpcns/mesh/mesh_partition.cpp ../src/mpcns/compat/legacy_mesh_partition_adapter.cpp)
 
 if(NOT TARGET mpcns_state)
     add_library(mpcns_state STATIC
@@ -116,6 +117,7 @@ add_executable(z0_null
     ${DIRSRCS4_COUPLING}
     ${DIRSRCS4_OWNER}
     ${DIRSRCS6}
+    ${MPCNS_MESH_SRCS}
     ${DIRSRCS7}
     ${DIRSRCS8}
     ${Z0_NULL_SRCS}

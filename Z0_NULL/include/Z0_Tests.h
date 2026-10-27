@@ -1,6 +1,7 @@
 #pragma once
 
 class Field;
+class Grid;
 class Halo;
 class Param;
 class Z0_Boundary;
@@ -12,6 +13,7 @@ namespace TOPO
 namespace Z0_TEST
 {
     bool RunTopologyTests(const TOPO::Topology &topology, int myid);
+    bool RunMeshPartitionTests(const Grid &grid, const TOPO::Topology &topology, int myid);
     bool RunHaloCommunicationTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
     bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
     bool RunPhysicalIoTests(Field &field, Param &param);
