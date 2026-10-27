@@ -54,6 +54,11 @@ public:
     std::optional<LegacyOrientedCornerPlanSnapshot>
     debug_edge_1form_corner_plan(const std::string &group_name) const;
 
+    // Optional capture for the independent Vertex-stage Edge1Form protocol.
+    void enable_vertex_edge_1form_plan_capture(bool enabled);
+    std::optional<LegacyOrientedVertexPlanSnapshot>
+    debug_vertex_edge_1form_plan(const std::string &group_name) const;
+
     std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
                                                      int nghost,
                                                      HaloLevel stage) const;
@@ -162,6 +167,10 @@ private:
     bool capture_edge_1form_corner_plans_ = false;
     std::unordered_map<std::string, LegacyOrientedCornerPlanSnapshot>
         edge_1form_corner_plan_snapshots_;
+
+    bool capture_vertex_edge_1form_plans_ = false;
+    std::unordered_map<std::string, LegacyOrientedVertexPlanSnapshot>
+        vertex_edge_1form_plan_snapshots_;
 
     std::vector<HaloOwnerRequest> owner_sync_requests_;
 

@@ -110,6 +110,42 @@ struct LegacyOrientedCornerPlanSnapshot
     std::vector<LegacyOrientedCornerTransferSnapshot> send_plan;
 };
 
+struct LegacyOrientedVertexTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    int dir3_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyOrientedVertexPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyOrientedVertexTransferSnapshot> recv_plan;
+    std::vector<LegacyOrientedVertexTransferSnapshot> send_plan;
+};
+
 struct HaloPattern
 {
     StaggerLocation location; // Cell / FaceXi / ...

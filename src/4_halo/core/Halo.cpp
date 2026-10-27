@@ -156,6 +156,24 @@ Halo::debug_edge_1form_corner_plan(
     return it->second;
 }
 
+void Halo::enable_vertex_edge_1form_plan_capture(bool enabled)
+{
+    if (enabled)
+        vertex_edge_1form_plan_snapshots_.clear();
+    capture_vertex_edge_1form_plans_ = enabled;
+}
+
+std::optional<LegacyOrientedVertexPlanSnapshot>
+Halo::debug_vertex_edge_1form_plan(
+    const std::string &group_name) const
+{
+    const auto it =
+        vertex_edge_1form_plan_snapshots_.find(group_name);
+    if (it == vertex_edge_1form_plan_snapshots_.end())
+        return std::nullopt;
+    return it->second;
+}
+
 void Halo::data_trans_1DCorner(std::string &field_name)
 {
     exchange_inner(field_name);

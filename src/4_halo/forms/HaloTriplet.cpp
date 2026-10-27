@@ -1450,6 +1450,60 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
     const int nsend = static_cast<int>(send_plan.size());
     const int nrecv = static_cast<int>(recv_plan.size());
 
+    std::optional<LegacyOrientedVertexPlanSnapshot> captured_plan;
+    if (capture_vertex_edge_1form_plans_)
+    {
+        captured_plan.emplace();
+        const auto group_it = field_to_group_.find(fields[0]);
+        captured_plan->group_name =
+            group_it == field_to_group_.end()
+                ? fields[0]
+                : group_it->second;
+        captured_plan->field_names = {
+            fields[0], fields[1], fields[2]};
+        captured_plan->ncomp = ncomp;
+        captured_plan->nghost = nghost;
+        captured_plan->recv_plan.reserve(nrecv);
+        captured_plan->send_plan.reserve(nsend);
+    }
+
+    const auto capture_transfer =
+        [&](const TripletCornerMeta &m,
+            LegacyOrientedCornerRole role,
+            const std::optional<Box3> &send_box,
+            int message_length,
+            std::size_t local_order)
+    {
+        LegacyOrientedVertexTransferSnapshot snapshot;
+        snapshot.role = role;
+        snapshot.recv_rank = m.recv_rank;
+        snapshot.send_rank = m.send_rank;
+        snapshot.recv_block = m.recv_block;
+        snapshot.send_block = m.send_block;
+        snapshot.recv_axis = m.recv_axis;
+        snapshot.send_axis = m.send_axis;
+        snapshot.sign = m.sign;
+        snapshot.recv_box = m.recv_box;
+        snapshot.send_box = send_box;
+        snapshot.node_box_on_send = m.node_box_on_send;
+        snapshot.dir1_send = m.dir1_send;
+        snapshot.dir2_send = m.dir2_send;
+        snapshot.dir3_send = m.dir3_send;
+        snapshot.trans_recv_to_send = m.trans_recv_to_send;
+        snapshot.peer_rank =
+            role == LegacyOrientedCornerRole::Receive
+                ? m.send_rank
+                : m.recv_rank;
+        snapshot.tag = m.tag;
+        snapshot.ncomp = ncomp;
+        snapshot.nghost = nghost;
+        snapshot.message_length = message_length;
+        snapshot.local_plan_order = local_order;
+        snapshot.peer_message_order =
+            static_cast<std::size_t>(m.tag);
+        return snapshot;
+    };
+
     std::vector<std::vector<double>> sbuf(nsend);
     std::vector<std::vector<double>> rbuf(nrecv);
     std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
@@ -1474,12 +1528,24 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
         slen[i] = box_volume(m.recv_box) * ncomp;
         sbuf[i].resize(slen[i]);
         pack_triplet_corner_send(fld_, fid, m, send_box, ncomp, sbuf[i]);
+        if (captured_plan)
+            captured_plan->send_plan.push_back(
+                capture_transfer(
+                    m, LegacyOrientedCornerRole::Send,
+                    std::optional<Box3>{send_box}, slen[i],
+                    static_cast<std::size_t>(i)));
     }
 
     for (int i = 0; i < nrecv; ++i)
     {
         rlen[i] = box_volume(recv_plan[i].recv_box) * ncomp;
         rbuf[i].resize(rlen[i]);
+        if (captured_plan)
+            captured_plan->recv_plan.push_back(
+                capture_transfer(
+                    recv_plan[i], LegacyOrientedCornerRole::Receive,
+                    std::nullopt, rlen[i],
+                    static_cast<std::size_t>(i)));
     }
 
     for (int i = 0; i < nrecv; ++i)
@@ -1498,4 +1564,9 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
         // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
+
+    if (captured_plan)
+        vertex_edge_1form_plan_snapshots_[
+            captured_plan->group_name] =
+                std::move(*captured_plan);
 }
