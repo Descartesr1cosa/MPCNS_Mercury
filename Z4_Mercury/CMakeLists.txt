@@ -53,7 +53,8 @@ if(NOT TARGET mpcns_parallel)
         ../src/mpcns/parallel/oriented_form_plan.cpp
         ../src/mpcns/parallel/oriented_corner_plan.cpp
         ../src/mpcns/parallel/oriented_vertex_plan.cpp
-        ../src/mpcns/parallel/face_2form_edge_plan.cpp)
+        ../src/mpcns/parallel/face_2form_edge_plan.cpp
+        ../src/mpcns/parallel/face_2form_vertex_plan.cpp)
     target_include_directories(mpcns_parallel PUBLIC ../include)
     target_link_libraries(mpcns_parallel PUBLIC mpcns_mesh)
 endif()
@@ -65,7 +66,8 @@ if(NOT TARGET mpcns_legacy_mesh)
         ../src/mpcns/compat/legacy_oriented_form_plan_adapter.cpp
         ../src/mpcns/compat/legacy_oriented_corner_plan_adapter.cpp
         ../src/mpcns/compat/legacy_oriented_vertex_plan_adapter.cpp
-        ../src/mpcns/compat/legacy_face_2form_edge_plan_adapter.cpp)
+        ../src/mpcns/compat/legacy_face_2form_edge_plan_adapter.cpp
+        ../src/mpcns/compat/legacy_face_2form_vertex_plan_adapter.cpp)
     target_include_directories(mpcns_legacy_mesh PUBLIC ../include)
     target_link_libraries(mpcns_legacy_mesh PUBLIC mpcns_mesh mpcns_parallel)
 endif()

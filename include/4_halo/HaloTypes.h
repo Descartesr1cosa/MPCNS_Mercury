@@ -181,6 +181,42 @@ struct LegacyFace2FormEdgePlanSnapshot
     std::vector<LegacyFace2FormEdgeTransferSnapshot> send_plan;
 };
 
+struct LegacyFace2FormVertexTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    int dir3_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyFace2FormVertexPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyFace2FormVertexTransferSnapshot> recv_plan;
+    std::vector<LegacyFace2FormVertexTransferSnapshot> send_plan;
+};
+
 struct HaloPattern
 {
     StaggerLocation location; // Cell / FaceXi / ...

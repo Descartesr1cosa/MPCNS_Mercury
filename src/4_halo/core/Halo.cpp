@@ -192,6 +192,24 @@ Halo::debug_edge_face_2form_plan(
     return it->second;
 }
 
+void Halo::enable_vertex_face_2form_plan_capture(bool enabled)
+{
+    if (enabled)
+        vertex_face_2form_plan_snapshots_.clear();
+    capture_vertex_face_2form_plans_ = enabled;
+}
+
+std::optional<LegacyFace2FormVertexPlanSnapshot>
+Halo::debug_vertex_face_2form_plan(
+    const std::string &group_name) const
+{
+    const auto it =
+        vertex_face_2form_plan_snapshots_.find(group_name);
+    if (it == vertex_face_2form_plan_snapshots_.end())
+        return std::nullopt;
+    return it->second;
+}
+
 void Halo::data_trans_1DCorner(std::string &field_name)
 {
     exchange_inner(field_name);
