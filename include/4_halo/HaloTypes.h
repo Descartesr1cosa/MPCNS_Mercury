@@ -4,6 +4,8 @@
 #include "2_topology/TopologyTypes.h"
 #include "3_field/FieldValueKind.h"
 #include <array>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -65,6 +67,47 @@ struct LegacyOrientedTripletSnapshot
     std::array<int, 3> nghost;
     HaloLevel level;
     bool orientation_aware;
+};
+
+enum class LegacyOrientedCornerRole
+{
+    Receive,
+    Send
+};
+
+struct LegacyOrientedCornerTransferSnapshot
+{
+    LegacyOrientedCornerRole role;
+    int recv_rank;
+    int send_rank;
+    int recv_block;
+    int send_block;
+    int recv_axis;
+    int send_axis;
+    int sign;
+    Box3 recv_box;
+    std::optional<Box3> send_box;
+    Box3 node_box_on_send;
+    int dir1_send;
+    int dir2_send;
+    TOPO::IndexTransform trans_recv_to_send;
+    int peer_rank;
+    int tag;
+    int ncomp;
+    int nghost;
+    int message_length;
+    std::size_t local_plan_order;
+    std::size_t peer_message_order;
+};
+
+struct LegacyOrientedCornerPlanSnapshot
+{
+    std::string group_name;
+    std::array<std::string, 3> field_names;
+    int ncomp;
+    int nghost;
+    std::vector<LegacyOrientedCornerTransferSnapshot> recv_plan;
+    std::vector<LegacyOrientedCornerTransferSnapshot> send_plan;
 };
 
 struct HaloPattern

@@ -977,3 +977,90 @@ reduce/broadcast are also outside this unit.
 Parallel Unit 2B-1 is complete and frozen. The next smallest unit should
 describe and compare one Edge- or Vertex-stage triplet metadata family at a
 time; it must not introduce an ExchangeExecutor or replace production Halo.
+
+
+## 35. Parallel Unit 2B-2A: Edge-stage Edge 1-form metadata snapshot acceptance
+
+`mpcns::parallel::OrientedCornerTransferPlan` is the immutable, MPI-free
+description of the cross-rank Edge-stage portion of one orientation-aware
+edge 1-form triplet. Each receive or send record owns its source and
+destination `BlockAddress`, source and destination axes and quantity names,
+destination receive box, source node box, two source-side directions, stored
+receive-to-send transform, orientation sign, peer rank, message tag, shape,
+message length, local plan order, per-peer order, and the frozen packing order
+`DestinationRecvIJKComponent`. Send records additionally retain the actual
+source send box computed by legacy Halo; receive records expose no synthetic
+send box. Valid empty half-open receive/send boxes and zero-length messages
+are retained because they are present in the legacy protocol.
+
+The Edge-stage convention is intentionally distinct from the frozen Face
+plan. For destination/receive axis `d`, the source/send axis is directly
+`transform.permutation[d]`, and the edge 1-form sign is directly
+`transform.sign[d]`. Packing traverses the destination receive box in
+i/j/k/component order, maps each destination index through the stored
+receive-to-send transform, and applies that sign. The computed source send box
+is diagnostic metadata; the unchanged legacy packer is driven by the mapped
+destination traversal. Pure contract cases include a non-self-inverse
+permutation, so accidentally applying the Face-stage inverse-axis rule is
+detected independently of mesh coverage.
+
+The compatibility snapshot is opt-in and disabled by default. When enabled,
+`Halo::exchange_parallel_edge_edge_1form_triplet_` copies the actual receive
+metadata built from parallel edge patches and the actual send metadata
+delivered by the existing `MPI_Alltoallv`, after the existing source box and
+message length have been computed. It retains values only: no field pointer,
+buffer, request, or mutable pattern reference escapes. Capturing adds no MPI
+call, tag negotiation, buffer, or communication-stage change. Snapshots are
+cleared whenever registered patterns are rebuilt, and disabling capture does
+not affect synchronization. `LegacyOrientedCornerPlanAdapter` only validates
+and converts this captured evidence; it never reconstructs the cross-rank
+pairing or reads numerical field storage.
+
+Z0 derives receive expectations independently from raw parallel
+`TOPO::EdgePatch` traversal. A test-only all-gather of those expected records
+constructs the remote sender view in the same rank-grouped, stable order as
+the legacy all-to-all metadata exchange. It then compares every identity,
+axis, quantity, box bound, direction, transform entry, sign, peer, tag,
+length, and both ordering indices. Distinct rank/block/axis/index/component
+markers are packed by an independent oracle and compared with the unchanged
+production synchronization. The oracle first replays the legacy same-rank
+Inner Edge writes so that cross-rank sends observe the same pre-send field
+state, and resolves overlapping receives by actual receive-plan final-writer
+order. Capture-default-off and rebuild-invalidation behavior are also tested.
+
+Acceptance used three MPI ranks and build parallelism four or less:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes passed serially |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+Across the ten standard modes, 18 rank-local captured plans contained 792
+receive and 792 send records. All 792 global sender/receiver pairs matched,
+195,846 exact metadata/contract checks and 55,776 final numeric value checks
+had zero failures. Coverage included 1,440 non-identity axis mappings, 504
+negative signs, 48 retained zero-length messages, all 18 active rank/mode
+instances with multiple local blocks, and 30 synthetic direction cases. The
+periodic cube added nine plans, 180 receive and 180 send records, 180 matched
+pairs, 36,201 exact checks, and 4,224 final-value checks with zero failures.
+Its transforms were identity and positive; the standard topology and pure
+mapping cases supply the required nontrivial orientation coverage. Every log
+retained the existing MPI-global pass and normal-completion conclusion, and
+the ExchangePlan, MeshPartition, DEC, Faraday, Hodge, StateView, and
+owner/alias gates remained passing.
+
+No production topology builder, pattern builder, tag, pack/unpack formula,
+send/receive/wait order, buffer ownership, stage order, numerical operator,
+coupling path, or owner/alias path was changed. Legacy Halo remains the only
+executor and still creates this metadata during synchronization. Vertex-stage
+edge 1-form metadata, Edge/Vertex face 2-form metadata, coupling,
+owner/alias, and an ExchangeExecutor remain out of scope. A later Unit 2B-2B
+may freeze the Vertex-stage family, but first must preserve its three-direction
+metadata construction, all-to-all pairing, mapped destination traversal,
+zero-length behavior, tag/order contract, and rebuild invalidation without
+moving production communication.
+
+Parallel Unit 2B-2A is complete and frozen.

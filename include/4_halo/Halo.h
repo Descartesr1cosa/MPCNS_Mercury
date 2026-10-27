@@ -48,6 +48,12 @@ public:
     std::vector<LegacyOrientedTripletSnapshot>
     debug_oriented_form_triplets() const;
 
+    // Optional test/diagnostic capture of the actual temporary Edge-stage
+    // Edge1Form metadata. Disabled by default and never performs extra MPI.
+    void enable_edge_1form_corner_plan_capture(bool enabled);
+    std::optional<LegacyOrientedCornerPlanSnapshot>
+    debug_edge_1form_corner_plan(const std::string &group_name) const;
+
     std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
                                                      int nghost,
                                                      HaloLevel stage) const;
@@ -152,6 +158,10 @@ private:
 
     std::unordered_map<std::string, HaloTripletRequest> edge_1form_triplets_;
     std::unordered_map<std::string, HaloTripletRequest> face_2form_triplets_;
+
+    bool capture_edge_1form_corner_plans_ = false;
+    std::unordered_map<std::string, LegacyOrientedCornerPlanSnapshot>
+        edge_1form_corner_plan_snapshots_;
 
     std::vector<HaloOwnerRequest> owner_sync_requests_;
 

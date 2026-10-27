@@ -19,6 +19,8 @@ namespace Z0_TEST
                               Field &field, Halo &halo, int myid);
     bool RunOrientedFormPlanTests(const Grid &grid, const TOPO::Topology &topology,
                                   Field &field, Halo &halo, int myid);
+    bool RunOrientedCornerPlanTests(const Grid &grid, const TOPO::Topology &topology,
+                                    Field &field, Halo &halo, int myid);
     bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
     bool RunPhysicalIoTests(Field &field, Param &param);
 }
