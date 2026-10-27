@@ -410,6 +410,7 @@ void Halo::build_registered_patterns()
 {
     edge_1form_corner_plan_snapshots_.clear();
     vertex_edge_1form_plan_snapshots_.clear();
+    edge_face_2form_plan_snapshots_.clear();
     rebuild_sync_registry_();
 
     // 清理旧 pattern（可重复 build）

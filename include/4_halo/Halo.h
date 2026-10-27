@@ -59,6 +59,11 @@ public:
     std::optional<LegacyOrientedVertexPlanSnapshot>
     debug_vertex_edge_1form_plan(const std::string &group_name) const;
 
+    // Optional capture of orientation-aware Face2Form Edge-stage metadata.
+    void enable_edge_face_2form_plan_capture(bool enabled);
+    std::optional<LegacyFace2FormEdgePlanSnapshot>
+    debug_edge_face_2form_plan(const std::string &group_name) const;
+
     std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
                                                      int nghost,
                                                      HaloLevel stage) const;
@@ -171,6 +176,10 @@ private:
     bool capture_vertex_edge_1form_plans_ = false;
     std::unordered_map<std::string, LegacyOrientedVertexPlanSnapshot>
         vertex_edge_1form_plan_snapshots_;
+
+    bool capture_edge_face_2form_plans_ = false;
+    std::unordered_map<std::string, LegacyFace2FormEdgePlanSnapshot>
+        edge_face_2form_plan_snapshots_;
 
     std::vector<HaloOwnerRequest> owner_sync_requests_;
 

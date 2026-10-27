@@ -1176,3 +1176,114 @@ remains the sole executor.
 Face 2-form Edge/Vertex metadata, coupling, owner/alias communication, and an
 ExchangeExecutor remain out of scope. Parallel Unit 2B-2B is complete and
 frozen; no production metadata negotiation migration was started.
+
+
+## 37. Parallel Unit 2B-3A: Edge-stage Face 2-form metadata snapshot acceptance
+
+`mpcns::parallel::Face2FormEdgeTransferPlan` is the immutable, MPI-free
+description of the cross-rank Edge-stage portion of one orientation-aware face
+2-form triplet. It reuses the frozen receive/send role and destination
+i/j/k/component packing-order identities, together with BlockAddress,
+LogicalBox, IndexTransform, HaloStage, and FormQuantityIdentity. Each record
+owns the actual source and destination blocks, axes and FaceXi/FaceEta/FaceZeta
+quantity identities, orientation sign, destination receive box, source node
+box, two source directions, receive-to-send transform, peer, tag, shape,
+message length, and stable local and per-peer order. Only Send records expose
+the actual source send box. The public types retain no MPI, Field, Halo,
+Topology, buffer, request, or legacy metadata pointer.
+
+The axis rule is deliberately different from the frozen Edge1Form plans. For
+destination axis `d`, Face2Form uses the unique source axis `s` satisfying
+`transform.permutation[s] == d`; it never uses
+`transform.permutation[d]`. The orientation sign is the unchanged legacy
+rule `sign[0] * sign[1] * sign[2] * sign[s]`, normalized to plus or minus
+one. A non-self-inverse synthetic permutation makes the direct and inverse
+answers differ and verifies a negative 2-form sign. The orientation-unaware
+legacy axis-triplet path retains sign one and is excluded from this plan.
+
+Receiver metadata is built from filtered non-coupling parallel Edge patches in
+legacy order, with recv axes 0, 1, 2 appended for each patch. Tags begin at
+zero and increase independently per peer. Existing `MPI_Alltoall` and
+`MPI_Alltoallv` operations group records by peer rank and deliver sender
+records in origin-rank order while preserving within-rank order. The optional
+snapshot copies the actual receive plan and the actually delivered send plan
+after the 2D source send box and message length are known. It performs no
+second metadata exchange and does not alter tag assignment, communicator,
+buffer ownership, or point-to-point ordering.
+
+Packing remains driven by the destination receive box in
+i/j/k/component order. Each destination coordinate is mapped through the
+stored receive-to-send transform. Out-of-bounds source coordinates contribute
+zero, as do non-finite in-bounds source values; otherwise the exact 2-form sign
+is applied. The source send box is diagnostic metadata and does not replace
+the mapped destination traversal. Receive records are unpacked in their actual
+vector order, retaining the real final writer for overlapping destinations.
+
+Capture is independent, opt-in, and disabled by default. It engages only when
+both its flag and the target function's `oriented` argument are true.
+Enabling it clears only prior Face2Form Edge snapshots; disabling it leaves a
+captured value snapshot readable. Registered-pattern rebuild invalidates it
+along with the previously frozen stage snapshots. A direct execution of the
+legacy `oriented=false` axis-triplet path on all three ranks produced no
+snapshot. `LegacyFace2FormEdgePlanAdapter` only validates and converts
+captured evidence and never reconstructs MPI pairing from MeshPartition or
+reads field values.
+
+Z0 independently traverses raw `TOPO::EdgePatch` data, computes inverse axes
+and legacy 2-form signs, and uses a test-only all-gather to construct expected
+sender records in the actual rank-grouped order. It compares every rank,
+block, axis, quantity, direction, box bound, transform entry, sign, peer, tag,
+length, and ordering index. The numeric oracle seeds
+rank/block/axis/index/component-distinct values, executes the real Face stage,
+snapshots that state, independently replays same-rank Inner Edge writes, and
+predicts every cross-rank payload and final writer. A separate all-NaN probe
+verifies non-finite-to-zero behavior. Pure contract tests cover inverse versus
+direct permutation, negative and incorrect 2-form signs, invalid
+permutation/rank/direction/role, missing Send box, and legal empty half-open
+boxes with zero length.
+
+Acceptance used three MPI ranks and build parallelism four or less:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes passed serially |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+Across the ten standard modes, 18 rank-local plans contained 792 receive and
+792 send records; all 792 global pairs matched. The suite made 250,488 exact
+metadata/contract checks, 55,104 finite mapped ghost checks, and 55,104
+non-finite-source zero checks with no failures. Actual topology coverage
+included 1,440 non-identity permutation-axis entries, 384 negative 2-form
+signs, 96 zero-length messages, 5,544 out-of-bounds source components, and all
+18 active rank/mode instances with multiple local blocks. The unchanged
+orientation-unaware path was executed and rejected from capture on all 18
+active rank/mode instances.
+
+The periodic cube added nine plans, 180 receive and 180 send records, 180
+matched pairs, 40,026 exact checks, 3,984 finite mapped ghost checks, and 3,984
+non-finite-source zero checks, all without failure. Its transforms were
+identity and positive and produced no out-of-bounds or zero-length message;
+the standard topology and 11 pure contract cases provide those nontrivial
+conditions. Every log retained MPI-global pass and normal completion, and the
+frozen MeshPartition, ExchangePlan, Face-stage oriented form, Edge1Form
+Edge/Vertex metadata, DEC, Faraday, Hodge, StateView, and owner/alias
+regressions remained passing.
+
+No production MPI timing or metadata negotiation was moved. A later
+Vertex-stage Face2Form unit may reuse the value-snapshot lifecycle,
+rank-grouped pairing validation, inverse-axis/sign checks, and numeric oracle,
+but must add the third direction and its existing reorder rule plus 3D corner
+boxes; it must observe the separate
+`exchange_parallel_vertex_face_2form_triplet_` path rather than extending
+this two-direction contract. Initialization-time prebuilding still requires
+finalized topology and triplet registration, stable communicator/rank
+assignment, preserved peer grouping and per-peer tags, durable boxes and
+transforms, planned buffer lifetimes, and invalidation on every relevant
+topology or registration rebuild.
+
+Coupling, owner/alias communication, an ExchangeExecutor, and production
+metadata migration remain out of scope. Parallel Unit 2B-3A is complete and
+frozen.
