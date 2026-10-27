@@ -665,3 +665,67 @@ exercise a fixed Mercury case for ordinary B-to-J and implicit delta-B-to-delta-
 compare B/J/divB and fluid monitors against the 4C-2 baseline, and inventory
 the remaining FieldBlock consumers. It must not start Parallel or Physics
 extraction by itself.
+
+## 30. State Unit 5: acceptance audit and phase freeze
+
+Acceptance was performed at git revision `45a9bec967cd9f616f646ea708397963388713fb`
+with the Unix Makefiles generator, `/usr/bin/cc` and `/usr/bin/c++`, and no
+configured build type. The exact successful build commands were
+`cmake --build build --parallel 4`, `cmake -S Z0_NULL -B build/Z0_NULL`, and
+`cmake --build build/Z0_NULL --target z0_null --parallel 4` (all exit 0).
+The ten bundled Z0 modes were run independently and serially with three MPI
+ranks: cell/node/edgeforms/faceforms/forms at vertex level; all at face, edge,
+and vertex level; all with owner synchronization; and owner-only. Every command
+exited 0. All report `D1*D0 == 0`, `D2*D1 == 0`, owner/alias consistency, the
+Faraday RHS reference, StateView star-2, StateView d1 transpose, StateView
+inverse-star-1, and full current continuation at exact maximum error 0.
+
+The requested periodic-cube command,
+`NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh`, was also
+executed. Preprocess built only in `/tmp` and its source checkout was not
+modified. The first all-vertex case printed every Z0/DEC assertion as PASS,
+including the State checks, but one non-root MPI process returned exit 1 after
+the root reported normal completion. The harness therefore stopped before its
+owner modes. This is **not a passed periodic-cube validation**; it remains an
+integration-harness limitation to reproduce and diagnose before treating cube
+coverage as a Parallel-phase gate.
+
+No runnable Mercury benchmark is stored in this checkout: `Z4_Mercury` has
+reference controls but no `CASE/geometry`. Consequently no physical B, J,
+divB, fluid-monitor, Pole, singular-edge, or implicit-resistive dB-to-dJ
+baseline comparison was fabricated. Code inspection confirms both ordinary
+and delta current calls use `ComputeRegularEdgeCurrent_`; the latter is called
+from the implicit resistive path with `fid_dB` and `fid_dJ`. A supplied fixed
+case must compare that shared path to `d86cc1d643e34b5bf39938838df9506444b09627`
+at equal rank count, time, and controls.
+
+The frozen public State seam is: immutable `StateLayout`/`QuantityDescriptor`,
+non-owning typed `StateView`/`ConstStateView`, typed cochain views,
+non-copyable `SimulationState` handles, and non-owning multi-block `Workspace`
+bindings. `FieldStorage` remains the sole production allocation backend.
+`LegacyStateLayoutBinding` is the one catalog mapping and
+`LegacyStateViewAdapter` is the zero-copy borrowing boundary; State does not
+duplicate the catalog or an array. Views retain the borrowed quantity, location,
+and local block identity. Workspace validates all three and requires its
+borrowed storage to outlive it; Mercury's setup binds/caches Jstar once before
+the current hot loop.
+
+There is one mathematical implementation each for StateView/legacy d1,
+d1-transpose, snapshot star-2, and snapshot inverse-star-1. The StateView
+inverse-star-1 virtual bridge fails explicitly for a non-supporting Hodge
+implementation; only `SnapshotLumpedHodge` is used by the migrated current
+path. No string lookup, Workspace bind, StateLayout construction, temporary
+cochain allocation, MPI action, or physical-boundary action was added to that
+path. Jstar remains a dual-edge 1-form despite primal-face storage; Jedge's
+dual-face intermediate and primal-edge final interpretations remain explicit.
+
+Remaining compatible technical debt is intentionally isolated: legacy
+cochain adapter entries, allocation checks, reconstruction, singular-edge and
+Pole handling, owner/alias reconciliation, physical boundaries, and the
+unmigrated physics operators still use FieldBlock. The periodic-cube non-root
+exit belongs to integration/Parallel follow-up, not a State arithmetic defect.
+
+**State phase decision: A — State is frozen and may proceed to Parallel.**
+This decision rests on exact local numerical regression and all ten standard
+MPI modes. A real Mercury case and a passing generated-cube harness remain
+mandatory acceptance evidence for future end-to-end or Parallel changes.
