@@ -42,6 +42,9 @@ public:
     std::vector<HaloRegion> debug_halo_regions(StaggerLocation location,
                                                 int nghost,
                                                 HaloLevel stage) const;
+    std::vector<LegacyHaloPatternSnapshot>
+    debug_component_copy_patterns(StaggerLocation location, int nghost) const;
+
     std::vector<HaloRegion> debug_halo_send_regions(StaggerLocation location,
                                                      int nghost,
                                                      HaloLevel stage) const;

@@ -803,3 +803,83 @@ numerical operators remain authoritative in legacy Topology/Halo. Parallel
 Unit 1 is frozen. Unit 2A may consume MeshPartition, field sync contracts, and
 legacy Halo pattern observations for a read-only ExchangePlan description, but
 must not yet replace execution.
+
+## 33. Parallel Unit 2A: read-only ExchangePlan acceptance and freeze
+
+`mpcns::parallel::ExchangePlan` is an immutable, MPI-free description of one
+component-copy pattern key. The plan key is `FieldLocation` plus ghost depth;
+each ordered `ExchangeRegion` records stage, one of the six explicit
+inner/parallel roles, local and peer `BlockAddress`, role-valid logical boxes,
+the required permutation/sign/offset transform, role-valid optional MPI tags,
+and its index in the source legacy pattern. The public header depends only on
+core logical indices and MeshPartition. It contains no Grid, Topology, Halo,
+Field storage, MPI request/status, communicator, or Mercury parameter type.
+
+MeshPartition remains the authority for block identity and topological
+adjacency. ExchangePlan describes only communication work that the legacy Halo
+builders actually retained. `LegacyHaloPlanAdapter` is the compatibility
+boundary: it reads a copy returned by the const
+`Halo::debug_component_copy_patterns` diagnostic and never derives boxes,
+transforms, tags, or filtered regions from MeshPartition. The diagnostic copies
+already-built containers in production traversal order, performs no MPI,
+does not rebuild a pattern, and exposes no mutable internal reference.
+
+The exact legacy mapping is:
+
+| Legacy container | Exchange kind | Valid boxes | Valid tags |
+| --- | --- | --- | --- |
+| inner face/edge/vertex | InnerCopy at its source stage | send and recv | none |
+| parallel face | ParallelFace | send and recv | send and recv |
+| parallel edge send / recv | ParallelEdgeSend / ParallelEdgeRecv | send / recv respectively | send / recv respectively |
+| parallel vertex send / recv | ParallelVertexSend / ParallelVertexRecv | send / recv respectively | send / recv respectively |
+
+This distinction preserves the historical face pattern's bidirectional local
+view and the independently negotiated edge/vertex send and receive views.
+Edge/vertex transforms are copied from their respective actual containers, so
+the inverse sender view is not reconstructed from the receiver. Empty
+role-inapplicable boxes and uninitialized inner tags are never read. Pattern
+keys, special-interface filtering, vector order, and assigned tags remain
+legacy-authoritative.
+
+Z0 constructs the plan only after `build_registered_patterns` has completed.
+Its expected side reads each `LegacyHaloPatternSnapshot` directly and checks
+location, ghost depth, stage, kind/role, both addresses, every valid box bound,
+all transform permutation/sign/offset entries, every valid tag, per-pattern
+region index, total size, and flattening order. It also verifies explicit
+rejection of an absent key, invalid block address, missing transform, and an
+orientation-aware request. Failures join the existing Halo Communication
+module and existing four-module MPI global summary; no new collective summary
+or runtime buffer was introduced.
+
+Acceptance used three MPI ranks and build parallelism four or less:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes passed serially |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, owner_only passed serially |
+
+Across the ten standard modes, 72 rank-local plans and 6,032 actual regions
+produced 198,488 exact checks with zero differences. The generated periodic
+cube added 36 plans, 1,704 regions, and 55,821 checks with zero differences.
+Every cube log reports the MPI-global pass conclusion and normal completion.
+Existing DEC, StateView, Hodge, Faraday, owner/alias, and MeshPartition gates
+also remained passing.
+
+This unit supports only scalar and component-wise Cartesian/conserved copying.
+Orientation-aware edge 1-form and face 2-form triplets reuse some geometric
+patterns but still require component grouping and sign/permutation application.
+Directed coupling needs source/destination channel identity and its separate
+pattern family. Node/edge/face owner-alias synchronization needs equivalence
+owner/alias identities, reduce/broadcast role, and orientation sign. None is
+represented as supported ExchangePlan work here. Legacy Halo remains solely
+responsible for registration, pattern construction, buffers, tags, MPI calls,
+pack/unpack, waits, face-to-edge-to-vertex ordering, forms, coupling, and
+owner/alias execution.
+
+Parallel Unit 2A is frozen. A later Unit 2B may define read-only descriptions
+and parity gates for one currently unsupported family at a time, beginning only
+after its extra grouping, direction, and orientation inputs are explicit. It
+must not make ExchangePlan execute production communication implicitly.

@@ -82,6 +82,29 @@ std::vector<HaloRegion> Halo::debug_halo_send_regions(StaggerLocation location,
     return regions;
 }
 
+std::vector<LegacyHaloPatternSnapshot>
+Halo::debug_component_copy_patterns(StaggerLocation location, int nghost) const
+{
+    const PatternKey key{location, nghost};
+    std::vector<LegacyHaloPatternSnapshot> result;
+    const auto append = [&](const auto &patterns, LegacyHaloPatternKind kind, HaloLevel stage)
+    {
+        const auto it = patterns.find(key);
+        if (it != patterns.end())
+            result.push_back({kind, stage, it->second.location, it->second.nghost,
+                              it->second.regions});
+    };
+    append(inner_patterns_, LegacyHaloPatternKind::InnerCopy, HaloLevel::Corner1D);
+    append(parallel_patterns_, LegacyHaloPatternKind::ParallelFace, HaloLevel::Corner1D);
+    append(inner_edge_patterns_, LegacyHaloPatternKind::InnerCopy, HaloLevel::Corner2D);
+    append(parallel_edge_patterns_send, LegacyHaloPatternKind::ParallelEdgeSend, HaloLevel::Corner2D);
+    append(parallel_edge_patterns_recv, LegacyHaloPatternKind::ParallelEdgeRecv, HaloLevel::Corner2D);
+    append(inner_vertex_patterns_, LegacyHaloPatternKind::InnerCopy, HaloLevel::Corner3D);
+    append(parallel_vertex_patterns_send, LegacyHaloPatternKind::ParallelVertexSend, HaloLevel::Corner3D);
+    append(parallel_vertex_patterns_recv, LegacyHaloPatternKind::ParallelVertexRecv, HaloLevel::Corner3D);
+    return result;
+}
+
 void Halo::data_trans_1DCorner(std::string &field_name)
 {
     exchange_inner(field_name);

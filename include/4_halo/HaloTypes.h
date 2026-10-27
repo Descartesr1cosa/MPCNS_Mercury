@@ -26,6 +26,25 @@ struct HaloRegion
     int send_flag, recv_flag;
 };
 
+enum class LegacyHaloPatternKind
+{
+    InnerCopy,
+    ParallelFace,
+    ParallelEdgeSend,
+    ParallelEdgeRecv,
+    ParallelVertexSend,
+    ParallelVertexRecv
+};
+
+struct LegacyHaloPatternSnapshot
+{
+    LegacyHaloPatternKind kind;
+    HaloLevel stage;
+    StaggerLocation location;
+    int nghost;
+    std::vector<HaloRegion> regions;
+};
+
 struct HaloPattern
 {
     StaggerLocation location; // Cell / FaceXi / ...
