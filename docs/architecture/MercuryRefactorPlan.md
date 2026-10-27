@@ -1708,3 +1708,94 @@ coupling, or owner/alias path changed. Parallel Unit 2B-4C is complete and
 frozen. The next smallest scoped unit is Vertex-stage Face2Form preparation,
 which may reuse the schedule/cache architecture but must retain its distinct
 three-direction metadata and must not migrate the runtime executor.
+
+## 42. Parallel Unit 2B-4D: initialization-time prepared Vertex Face2Form metadata acceptance
+
+Parallel Unit 2B-4D adds the fourth independent prepared-metadata cache:
+`Halo::prepare_vertex_face_2form_metadata()`. It is explicit and
+initialization/test-only. `debug_prepared_vertex_face_2form_plan()` returns a
+value copy only while the registration and pattern generations still match;
+the matching generation and metadata-exchange counter accessors expose no
+stale state. `LegacyFace2FormVertexPlanAdapter::build_prepared()` is the
+single read-only conversion boundary to the frozen
+`mpcns::parallel::Face2FormVertexTransferPlan`. It neither initiates
+preparation, calls MPI, accesses FieldBlock values, rebuilds patterns, nor
+reconstructs topology.
+
+Eligibility uses the final Field descriptors and requires a complete,
+orientation-aware FaceXi/FaceEta/FaceZeta `FaceContravariant2Form` triplet
+whose registered level includes Corner3D, plus a non-coupling Parallel
+`VertexPatch`. This intentionally follows the actual Halo registry rather
+than an initial mode-limited request. With `Z0_FORM_ORIENTATION=0`, Bface
+remains on the existing component-copy path: no prepared Vertex Face2Form
+plan or metadata collective is created.
+
+The preparation is a literal read-only snapshot of the legacy Vertex Face2
+protocol. For each receive axis it finds the inverse-permutation source axis
+and uses `HALO_TOOLS::face_2form_orientation_sign(transform, send_axis)`.
+It retains the three legacy directions with normal-first correction, 3D
+face ghost and source inner-ghost boxes, patch traversal order, receiver and
+sender local order, rank-grouped sender discovery, per-peer tags, block
+addresses, transform, signs, message lengths, and component identities.
+The rank-global sorted schedule is checked before the unchanged Alltoall/
+Alltoallv metadata discovery; ranks with no local Parallel Vertex patch still
+participate. This is preparation metadata only, not a new field-data path.
+
+The Vertex Face2 cache has its own map, ready state, saved generations, and
+counter. It is independent from prepared Edge1Form Edge, Edge1Form Vertex,
+and Face2Form Edge caches. Every `register_halo_field`,
+`register_halo_fields`, and `build_registered_patterns` invalidates all four
+prepared families. The Z0 lifecycle test checks absence and generation
+removal for all four after rebuild, rejects an adapter request for the stale
+Vertex Face2 plan, and proves re-preparation does not evict the other three.
+
+`Z0_PreparedFace2FormVertexPlanTest.cpp` derives raw receiver records from
+`TOPO::VertexPatch` and sender order through a test-only rank-grouped
+exchange. It compares raw, prepared, public-adapter, and two captured legacy
+runtime snapshots in original order, field by field. The check includes the
+three quantities and locations, rank/block identities, all transform
+components, source/target axes, sign, three directions, 3D boxes, tag,
+message length, and local/peer sequence. Distinct numeric component markers
+then exercise the untouched legacy Face/Edge/Vertex runtime sequence,
+including sign and component remapping. Diagnostics identify rank, group,
+stage, role, peer, block, axis, tag, order, field, expected, and actual.
+
+`HaloTriplet.cpp` is unchanged (SHA-256
+`e03291c68741662289cd7fb9a04c105224e3f41522530c65e68662a8508feb30`), and no
+production tag, send/receive/pack/unpack, wait order, buffer, owner/alias,
+or numerical path changed.
+
+Acceptance used at most four build jobs and exactly three MPI ranks; the two
+harnesses were run serially:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| focused `Z0_TEST_DRIVEN_SYNC=1 Z0_HALO_MODE=faceforms Z0_HALO_LEVEL=vertex mpirun -np 3 ./z0_null` from `build/Z0_NULL` | 0; 3 plans, 24 receive + 24 send records, 24 matched pairs, 13,485 exact/lifecycle checks, and 192 finite plus 192 non-finite mapped-value checks, all zero failures |
+| focused orientation-disabled equivalent with `Z0_FORM_ORIENTATION=0` | 0; 0 plans, 0 metadata exchanges, 51 contract checks, zero failures |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten serial modes passed; every log reports the MPI-global normal conclusion |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+The five active standard modes (faceforms_vertex, forms_vertex, all_vertex,
+all_owner_vertex, owner_only) produced 15 rank-local plans, 120 receive and
+120 send records, 120 matched pairs, 67,425 exact/lifecycle checks, 960
+finite mapped-value checks, and 960 non-finite-source-zero checks: all
+zero failures. Each active invocation recorded three cache reuses, six
+rebuilds, three registry invalidations, and nine prepared metadata exchange
+groups. The standard case provides 42 non-identity axis mappings, eight
+negative signs, 18 normal-first direction reorders, three multi-local-block
+ranks, and 36 out-of-bounds source positions per active run.
+
+The three periodic-cube modes produced nine plans, 72 receive and 72 send
+records, 72 matched pairs, 40,455 exact/lifecycle checks, and 576 each of
+finite and non-finite-source-zero mapped-value checks, all zero failures.
+Those generated periodic cases are identity/positive as expected and still
+exercise the MPI-global conclusion and cache lifecycle.
+
+Parallel Unit 2B-4D is complete and frozen. Coupling Vertex Face2Form
+semantics, any new ExchangeExecutor, and every production Halo execution
+migration remain out of scope. A later executor unit must consume these
+frozen snapshots without changing legacy runtime ordering or metadata
+collective semantics.

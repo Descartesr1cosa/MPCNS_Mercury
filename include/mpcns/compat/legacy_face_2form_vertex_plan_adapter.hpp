@@ -14,5 +14,10 @@ public:
         const mesh::MeshPartition &partition,
         const Halo &halo,
         const FieldHaloRequest &request);
+    static parallel::Face2FormVertexTransferPlan build_prepared(
+        const mesh::MeshPartition &partition,
+        const Halo &halo,
+        const FieldHaloRequest &request);
+
 };
 } // namespace mpcns::compat

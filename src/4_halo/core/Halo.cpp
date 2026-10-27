@@ -411,3 +411,49 @@ void Halo::coupling_trans_3DCorner(std::string &src,
     coupling_inner_vertex(src, dst, field_cids);
     coupling_parallel_vertex(src, dst, field_cids);
 }
+void Halo::invalidate_prepared_vertex_face_2form_metadata_()
+{
+    prepared_vertex_face_2form_plans_.clear();
+    prepared_vertex_face_2form_metadata_ready_ = false;
+    prepared_vertex_face_2form_registry_generation_ = 0;
+    prepared_vertex_face_2form_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_vertex_face_2form_metadata_valid_() const noexcept
+{
+    return prepared_vertex_face_2form_metadata_ready_ &&
+           registered_patterns_built_ &&
+           prepared_vertex_face_2form_registry_generation_ ==
+               registry_generation_ &&
+           prepared_vertex_face_2form_pattern_generation_ ==
+               pattern_generation_;
+}
+
+std::optional<LegacyFace2FormVertexPlanSnapshot>
+Halo::debug_prepared_vertex_face_2form_plan(
+    const std::string &group_name) const
+{
+    if (!prepared_vertex_face_2form_metadata_valid_())
+        return std::nullopt;
+
+    const auto it = prepared_vertex_face_2form_plans_.find(group_name);
+    if (it == prepared_vertex_face_2form_plans_.end() ||
+        it->second.registry_generation != registry_generation_ ||
+        it->second.pattern_generation != pattern_generation_)
+        return std::nullopt;
+    return it->second.snapshot;
+}
+
+std::optional<std::uint64_t>
+Halo::debug_prepared_vertex_face_2form_plan_generation() const
+{
+    if (!prepared_vertex_face_2form_metadata_valid_())
+        return std::nullopt;
+    return prepared_vertex_face_2form_pattern_generation_;
+}
+
+std::uint64_t
+Halo::debug_prepared_vertex_face_2form_metadata_exchange_count() const noexcept
+{
+    return prepared_vertex_face_2form_metadata_exchange_count_;
+}

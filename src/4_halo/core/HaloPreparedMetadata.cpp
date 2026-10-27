@@ -1092,3 +1092,280 @@ bool Halo::prepare_edge_face_2form_metadata()
         static_cast<std::uint64_t>(groups.size());
     return true;
 }
+namespace
+{
+LegacyFace2FormVertexTransferSnapshot
+make_face2_vertex_snapshot(
+    const PreparedTripletCornerMeta &metadata,
+    LegacyOrientedCornerRole role,
+    const std::optional<Box3> &send_box,
+    int ncomp,
+    int nghost,
+    std::size_t local_order)
+{
+    LegacyFace2FormVertexTransferSnapshot snapshot;
+    snapshot.role = role;
+    snapshot.recv_rank = metadata.recv_rank;
+    snapshot.send_rank = metadata.send_rank;
+    snapshot.recv_block = metadata.recv_block;
+    snapshot.send_block = metadata.send_block;
+    snapshot.recv_axis = metadata.recv_axis;
+    snapshot.send_axis = metadata.send_axis;
+    snapshot.sign = metadata.sign;
+    snapshot.recv_box = metadata.recv_box;
+    snapshot.send_box = send_box;
+    snapshot.node_box_on_send = metadata.node_box_on_send;
+    snapshot.dir1_send = metadata.dir1_send;
+    snapshot.dir2_send = metadata.dir2_send;
+    snapshot.dir3_send = metadata.dir3_send;
+    snapshot.trans_recv_to_send = metadata.trans_recv_to_send;
+    snapshot.peer_rank =
+        role == LegacyOrientedCornerRole::Receive
+            ? metadata.send_rank
+            : metadata.recv_rank;
+    snapshot.tag = metadata.tag;
+    snapshot.ncomp = ncomp;
+    snapshot.nghost = nghost;
+    snapshot.message_length =
+        box_volume(metadata.recv_box) * ncomp;
+    snapshot.local_plan_order = local_order;
+    snapshot.peer_message_order =
+        static_cast<std::size_t>(metadata.tag);
+    return snapshot;
+}
+} // namespace
+
+bool Halo::prepare_vertex_face_2form_metadata()
+{
+    int rank = 0;
+    int size = 1;
+    PARALLEL::mpi_rank(&rank);
+    PARALLEL::mpi_size(&size);
+
+    std::vector<PreparedGroupSpec> groups;
+    groups.reserve(face_2form_triplets_.size());
+    for (const auto &entry : face_2form_triplets_)
+    {
+        const HaloTripletRequest &triplet = entry.second;
+        if (static_cast<int>(triplet.level) <
+            static_cast<int>(HaloLevel::Corner3D))
+            continue;
+
+        PreparedGroupSpec group;
+        group.group_name = triplet.group_name;
+        group.fields = {triplet.xi, triplet.eta, triplet.zeta};
+        group.level = triplet.level;
+        group.nghost = triplet.nghost;
+        group.orientation_aware = triplet.orientation_aware;
+        bool descriptors_are_orientation_aware =
+            triplet.orientation_aware;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &descriptor =
+                fld_->descriptor(group.fields[axis]);
+            group.ncomp[axis] = descriptor.ncomp;
+            group.locations[axis] = descriptor.location;
+            group.value_kinds[axis] = descriptor.value_kind;
+            descriptors_are_orientation_aware =
+                descriptors_are_orientation_aware &&
+                descriptor.sync.do_halo &&
+                descriptor.sync.orientation_aware;
+        }
+        if (!descriptors_are_orientation_aware)
+            continue;
+        groups.push_back(std::move(group));
+    }
+    std::sort(
+        groups.begin(), groups.end(),
+        [](const PreparedGroupSpec &left,
+           const PreparedGroupSpec &right)
+        {
+            return left.group_name < right.group_name;
+        });
+
+    const bool cache_valid =
+        prepared_vertex_face_2form_metadata_valid_();
+    verify_global_schedule(
+        schedule_descriptor(
+            "prepared-face2-vertex-v1",
+            registered_patterns_built_, registry_generation_,
+            pattern_generation_, cache_valid, groups),
+        rank, size);
+
+    if (!registered_patterns_built_)
+        return false;
+    if (cache_valid)
+        return true;
+
+    for (const PreparedGroupSpec &group : groups)
+    {
+        if (valid_face2_group(group))
+            continue;
+
+        std::ostringstream message;
+        message << "[Halo][rank " << rank
+                << "][group " << group.group_name
+                << "][stage Vertex] cannot prepare an invalid "
+                   "Face2Form triplet";
+        ERROR::Abort(message.str());
+    }
+
+    std::unordered_map<std::string, PreparedVertexFace2FormPlanEntry>
+        prepared;
+    const auto &parallel_vertices =
+        TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
+    for (const PreparedGroupSpec &group : groups)
+    {
+        std::map<int, std::vector<PreparedTripletCornerMeta>>
+            metadata_to_send;
+        std::map<int, int> next_tag;
+        std::vector<PreparedTripletCornerMeta> receive_plan;
+
+        for (const TOPO::VertexPatch &patch : parallel_vertices)
+        {
+            if (patch.is_coupling)
+                continue;
+
+            const Direction this_direction_1 =
+                HALO_TOOLS::int_to_direction(patch.dir1);
+            const Direction this_direction_2 =
+                HALO_TOOLS::int_to_direction(patch.dir2);
+            const Direction this_direction_3 =
+                HALO_TOOLS::int_to_direction(patch.dir3);
+            int send_direction_1 =
+                HALO_TOOLS::map_dir_to_neighbor(
+                    patch.dir1, patch.trans, true);
+            int send_direction_2 =
+                HALO_TOOLS::map_dir_to_neighbor(
+                    patch.dir2, patch.trans, false);
+            int send_direction_3 =
+                HALO_TOOLS::map_dir_to_neighbor(
+                    patch.dir3, patch.trans, false);
+            const int expected_normal_axis =
+                patch.trans.perm[std::abs(patch.dir1) - 1] + 1;
+            if (expected_normal_axis !=
+                std::abs(send_direction_1))
+            {
+                if (expected_normal_axis ==
+                    std::abs(send_direction_2))
+                {
+                    std::swap(send_direction_1, send_direction_2);
+                }
+                else if (expected_normal_axis ==
+                         std::abs(send_direction_3))
+                {
+                    std::swap(send_direction_1, send_direction_3);
+                }
+                else
+                {
+                    std::ostringstream message;
+                    message << "[Halo][rank " << rank
+                            << "][group " << group.group_name
+                            << "][stage Vertex] legacy direction "
+                               "mapping is invalid";
+                    ERROR::Abort(message.str());
+                }
+            }
+
+            for (int recv_axis = 0; recv_axis < 3; ++recv_axis)
+            {
+                PreparedTripletCornerMeta metadata{};
+                metadata.recv_rank = patch.this_rank;
+                metadata.send_rank = patch.nb_rank;
+                metadata.recv_block = patch.this_block;
+                metadata.send_block = patch.nb_block;
+                metadata.recv_axis = recv_axis;
+                metadata.send_axis = inverse_perm_axis_for_prepared(
+                    patch.trans, recv_axis);
+                metadata.sign = HALO_TOOLS::face_2form_orientation_sign(
+                    patch.trans, metadata.send_axis);
+                metadata.recv_box =
+                    HALO_BOX::make_3DCorner_ghost_box(
+                        face_location(recv_axis), patch.this_box_node,
+                        this_direction_1, this_direction_2,
+                        this_direction_3, group.nghost);
+                metadata.node_box_on_send = patch.nb_box_node;
+                metadata.dir1_send = send_direction_1;
+                metadata.dir2_send = send_direction_2;
+                metadata.dir3_send = send_direction_3;
+                metadata.trans_recv_to_send = patch.trans;
+                metadata.tag = next_tag[patch.nb_rank]++;
+
+                receive_plan.push_back(metadata);
+                metadata_to_send[patch.nb_rank].push_back(metadata);
+            }
+        }
+
+        std::vector<PreparedTripletCornerMeta> send_plan;
+        // All ranks retain the legacy rank-grouped sender discovery order.
+        exchange_prepared_triplet_corner_metadata(
+            metadata_to_send, send_plan);
+
+        LegacyFace2FormVertexPlanSnapshot snapshot;
+        snapshot.group_name = group.group_name;
+        snapshot.field_names = group.fields;
+        snapshot.ncomp = group.ncomp[0];
+        snapshot.nghost = group.nghost;
+        snapshot.recv_plan.reserve(receive_plan.size());
+        snapshot.send_plan.reserve(send_plan.size());
+
+        for (std::size_t order = 0;
+             order < send_plan.size(); ++order)
+        {
+            const PreparedTripletCornerMeta &metadata =
+                send_plan[order];
+            if (metadata.send_rank != rank)
+            {
+                std::ostringstream message;
+                message << "[Halo][rank " << rank
+                        << "][group " << group.group_name
+                        << "][stage Vertex][role send] metadata "
+                           "was delivered to the wrong rank";
+                ERROR::Abort(message.str());
+            }
+
+            const Direction direction_1 =
+                HALO_TOOLS::int_to_direction(metadata.dir1_send);
+            const Direction direction_2 =
+                HALO_TOOLS::int_to_direction(metadata.dir2_send);
+            const Direction direction_3 =
+                HALO_TOOLS::int_to_direction(metadata.dir3_send);
+            const Box3 send_box =
+                HALO_BOX::make_3DCorner_innerghost_box(
+                    face_location(metadata.send_axis),
+                    metadata.node_box_on_send,
+                    direction_1, direction_2, direction_3,
+                    group.nghost);
+            snapshot.send_plan.push_back(make_face2_vertex_snapshot(
+                metadata, LegacyOrientedCornerRole::Send,
+                std::optional<Box3>{send_box}, group.ncomp[0],
+                group.nghost, order));
+        }
+
+        for (std::size_t order = 0;
+             order < receive_plan.size(); ++order)
+        {
+            snapshot.recv_plan.push_back(make_face2_vertex_snapshot(
+                receive_plan[order],
+                LegacyOrientedCornerRole::Receive,
+                std::nullopt, group.ncomp[0], group.nghost,
+                order));
+        }
+
+        PreparedVertexFace2FormPlanEntry entry;
+        entry.snapshot = std::move(snapshot);
+        entry.registry_generation = registry_generation_;
+        entry.pattern_generation = pattern_generation_;
+        prepared.emplace(group.group_name, std::move(entry));
+    }
+
+    prepared_vertex_face_2form_plans_ = std::move(prepared);
+    prepared_vertex_face_2form_metadata_ready_ = true;
+    prepared_vertex_face_2form_registry_generation_ =
+        registry_generation_;
+    prepared_vertex_face_2form_pattern_generation_ =
+        pattern_generation_;
+    prepared_vertex_face_2form_metadata_exchange_count_ +=
+        static_cast<std::uint64_t>(groups.size());
+    return true;
+}
