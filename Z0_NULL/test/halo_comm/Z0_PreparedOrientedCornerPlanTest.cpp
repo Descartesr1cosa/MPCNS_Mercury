@@ -1546,4 +1546,417 @@ bool RunPreparedOrientedCornerPlanTests(
         "Prepared Edge-stage Edge1Form metadata parity",
         summary.failed == 0, detail.str());
 }
+
+bool RunPreparedEdge1FormEdgeExecutionTests(
+    const Grid &grid,
+    const TOPO::Topology &topology,
+    Field &field,
+    Halo &halo,
+    int rank)
+{
+    int size = 0;
+    PARALLEL::mpi_size(&size);
+    Summary summary;
+    const Context context{rank};
+    const std::array<std::string, 3> fields = {
+        "E_xi", "E_eta", "E_zeta"};
+
+    const auto requests = field.halo_requests();
+    const auto request = std::find_if(
+        requests.begin(), requests.end(),
+        [](const FieldHaloRequest &candidate)
+        {
+            const std::string group =
+                candidate.sync_group.empty()
+                    ? candidate.field_name
+                    : candidate.sync_group;
+            return candidate.do_halo &&
+                   candidate.orientation_aware &&
+                   candidate.value_kind ==
+                       FieldValueKind::EdgeCovariant1Form &&
+                   static_cast<int>(candidate.level) >=
+                       static_cast<int>(HaloLevel::Corner2D) &&
+                   group == "Eedge";
+        });
+
+    check_equal(
+        summary, context, "explicit_legacy_deactivation", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "legacy_mode_after_deactivation",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Legacy),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "legacy_mode_is_not_active", false,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+
+    const std::uint64_t prepare_before =
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count();
+    check_equal(
+        summary, context, "prepare_before_activation", true,
+        halo.prepare_edge_1form_corner_metadata());
+
+    if (request == requests.end())
+    {
+        check_equal(
+            summary, context, "inactive_orientation_has_no_snapshot",
+            false,
+            halo.debug_prepared_edge_1form_corner_plan(
+                "Eedge").has_value());
+        check_equal(
+            summary, context, "inactive_orientation_activation_rejected",
+            false,
+            halo.activate_prepared_edge_1form_edge_execution());
+        check_equal(
+            summary, context, "inactive_orientation_stays_legacy",
+            static_cast<int>(Edge1FormEdgeExecutionMode::Legacy),
+            static_cast<int>(
+                halo.debug_edge_1form_edge_execution_mode()));
+
+        const long long global_checked = global_sum(summary.checked);
+        const long long global_failed = global_sum(summary.failed);
+        std::ostringstream detail;
+        detail << "orientation_aware=0 checks=" << global_checked
+               << " failed=" << global_failed
+               << " prepare_metadata_exchange_groups="
+               << (halo.debug_prepared_edge_1form_corner_metadata_exchange_count() -
+                   prepare_before);
+        return print_result(
+            "Prepared Edge-stage Edge1Form execution",
+            summary.failed == 0, detail.str());
+    }
+
+    const auto prepared =
+        halo.debug_prepared_edge_1form_corner_plan("Eedge");
+    check_equal(summary, context, "prepared_snapshot_present", true,
+                prepared.has_value());
+    if (!prepared)
+    {
+        const long long global_checked = global_sum(summary.checked);
+        const long long global_failed = global_sum(summary.failed);
+        std::ostringstream detail;
+        detail << "prepared_snapshot_missing checks=" << global_checked
+               << " failed=" << global_failed;
+        return print_result(
+            "Prepared Edge-stage Edge1Form execution", false,
+            detail.str());
+    }
+
+    const auto expected_receive = expected_receive_plan(
+        topology, request->ncomp, request->nghost);
+    const auto expected_send = expected_send_plan(
+        expected_receive, rank, size);
+    const auto inner_state = simulate_inner_edge(
+        halo, field, fields, rank,
+        request->ncomp, request->nghost);
+    const PacketMap packets = gather_expected_packets(
+        expected_send, inner_state, fields, field, rank, size);
+
+    const auto capture_receive_values =
+        [&]()
+        {
+            std::map<ValueKey, double> values;
+            for (const auto &record : expected_receive)
+                for (int i = record.recv_box.lo.i;
+                     i < record.recv_box.hi.i; ++i)
+                    for (int j = record.recv_box.lo.j;
+                         j < record.recv_box.hi.j; ++j)
+                        for (int k = record.recv_box.lo.k;
+                             k < record.recv_box.hi.k; ++k)
+                            for (int component = 0;
+                                 component < record.ncomp; ++component)
+                            {
+                                const ValueKey key{
+                                    record.recv_axis,
+                                    record.recv_block,
+                                    i, j, k, component};
+                                values[key] =
+                                    field.field(
+                                        field.field_id(
+                                            fields[record.recv_axis]),
+                                        record.recv_block)(
+                                        i, j, k, component);
+                            }
+            return values;
+        };
+
+    const auto compare_values =
+        [&](const std::string &role,
+            const std::map<ValueKey, double> &expected,
+            const std::map<ValueKey, double> &actual)
+        {
+            Context value_context = context;
+            value_context.role = role.c_str();
+            check_equal(
+                summary, value_context, "value_count",
+                expected.size(), actual.size());
+            for (const auto &entry : expected)
+            {
+                const auto found = actual.find(entry.first);
+                check_equal(
+                    summary, value_context, "value_present",
+                    true, found != actual.end());
+                if (found != actual.end())
+                    check_equal(
+                        summary, value_context, "ghost_value",
+                        entry.second, found->second);
+            }
+        };
+
+    const auto run_edge_sync = [&]()
+    {
+        halo.sync_group("Eedge", HaloLevel::Corner2D);
+    };
+
+    seed_fields(field, fields, rank, request->ncomp);
+    const Edge1FormEdgeExecutionCounters legacy_before =
+        halo.debug_edge_1form_edge_execution_counters();
+    run_edge_sync();
+    const Edge1FormEdgeExecutionCounters legacy_after =
+        halo.debug_edge_1form_edge_execution_counters();
+    const auto legacy_values = capture_receive_values();
+    const long long legacy_value_checks = check_final_values(
+        summary, rank, expected_receive, packets, fields, field);
+    check_equal(
+        summary, context, "legacy_metadata_alltoall_once",
+        legacy_before.legacy_metadata_alltoall + 1,
+        legacy_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "legacy_metadata_alltoallv_once",
+        legacy_before.legacy_metadata_alltoallv + 1,
+        legacy_after.legacy_metadata_alltoallv);
+    check_equal(
+        summary, context, "legacy_execution_once",
+        legacy_before.legacy_executions + 1,
+        legacy_after.legacy_executions);
+
+    if (size > 1)
+    {
+        const Edge1FormEdgeExecutionMode mismatched_mode =
+            rank == 0
+                ? Edge1FormEdgeExecutionMode::Prepared
+                : Edge1FormEdgeExecutionMode::Legacy;
+        check_equal(
+            summary, context, "mixed_rank_activation_rejected", false,
+            halo.set_edge_1form_edge_execution_mode(mismatched_mode));
+        check_equal(
+            summary, context, "mixed_rank_activation_returns_legacy",
+            static_cast<int>(Edge1FormEdgeExecutionMode::Legacy),
+            static_cast<int>(
+                halo.debug_edge_1form_edge_execution_mode()));
+    }
+
+    check_equal(
+        summary, context, "collective_prepared_activation", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "prepared_mode_after_activation",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "prepared_execution_is_active", true,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+
+    const std::uint64_t prepared_metadata_before =
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count();
+    const Edge1FormEdgeExecutionCounters prepared_before =
+        halo.debug_edge_1form_edge_execution_counters();
+    seed_fields(field, fields, rank, request->ncomp);
+    run_edge_sync();
+    const auto prepared_first_values = capture_receive_values();
+    const long long prepared_first_value_checks = check_final_values(
+        summary, rank, expected_receive, packets, fields, field);
+    seed_fields(field, fields, rank, request->ncomp);
+    run_edge_sync();
+    const auto prepared_second_values = capture_receive_values();
+    const long long prepared_second_value_checks = check_final_values(
+        summary, rank, expected_receive, packets, fields, field);
+    const Edge1FormEdgeExecutionCounters prepared_after =
+        halo.debug_edge_1form_edge_execution_counters();
+
+    compare_values(
+        "prepared-first", legacy_values, prepared_first_values);
+    compare_values(
+        "prepared-second", legacy_values, prepared_second_values);
+    check_equal(
+        summary, context, "prepared_execution_count_twice",
+        prepared_before.prepared_executions + 2,
+        prepared_after.prepared_executions);
+    check_equal(
+        summary, context, "prepared_runtime_metadata_alltoall_zero",
+        prepared_before.legacy_metadata_alltoall,
+        prepared_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "prepared_runtime_metadata_alltoallv_zero",
+        prepared_before.legacy_metadata_alltoallv,
+        prepared_after.legacy_metadata_alltoallv);
+    check_equal(
+        summary, context, "prepared_reuses_prepare_snapshot",
+        prepared_metadata_before,
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count());
+    check_equal(
+        summary, context, "prepared_reuses_active_view", true,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+    check_equal(
+        summary, context, "prepared_send_message_order_count",
+        2 * (legacy_after.send_messages -
+             legacy_before.send_messages),
+        prepared_after.send_messages -
+            prepared_before.send_messages);
+    check_equal(
+        summary, context, "prepared_recv_message_order_count",
+        2 * (legacy_after.recv_messages -
+             legacy_before.recv_messages),
+        prepared_after.recv_messages -
+            prepared_before.recv_messages);
+    check_equal(
+        summary, context, "prepared_sent_payload_count",
+        2 * (legacy_after.sent_doubles -
+             legacy_before.sent_doubles),
+        prepared_after.sent_doubles -
+            prepared_before.sent_doubles);
+    check_equal(
+        summary, context, "prepared_recv_payload_count",
+        2 * (legacy_after.received_doubles -
+             legacy_before.received_doubles),
+        prepared_after.received_doubles -
+            prepared_before.received_doubles);
+
+    const auto fill_nan_fields = [&]()
+    {
+        const double nan = std::nan("");
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const int field_id = field.field_id(fields[axis]);
+            for (int block = 0; block < field.num_blocks(); ++block)
+            {
+                FieldBlock &values = field.field(field_id, block);
+                const Int3 lo = values.get_lo();
+                const Int3 hi = values.get_hi();
+                for (int i = lo.i; i < hi.i; ++i)
+                    for (int j = lo.j; j < hi.j; ++j)
+                        for (int k = lo.k; k < hi.k; ++k)
+                            for (int component = 0;
+                                 component < request->ncomp;
+                                 ++component)
+                                values(i, j, k, component) = nan;
+            }
+        }
+    };
+    const auto check_zero_values =
+        [&](const std::string &role,
+            const std::map<ValueKey, double> &values)
+        {
+            Context value_context = context;
+            value_context.role = role.c_str();
+            for (const auto &entry : values)
+                check_equal(
+                    summary, value_context, "nonfinite_packed_as_zero",
+                    0.0, entry.second);
+        };
+
+    check_equal(
+        summary, context, "deactivate_before_nonfinite_legacy", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    fill_nan_fields();
+    run_edge_sync();
+    const auto legacy_nan_values = capture_receive_values();
+    check_zero_values("legacy-nonfinite", legacy_nan_values);
+    check_equal(
+        summary, context, "prepare_before_nonfinite_prepared", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "activate_before_nonfinite_prepared", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    fill_nan_fields();
+    run_edge_sync();
+    const auto prepared_nan_values = capture_receive_values();
+    check_zero_values("prepared-nonfinite", prepared_nan_values);
+    compare_values(
+        "nonfinite-legacy-prepared",
+        legacy_nan_values, prepared_nan_values);
+
+    halo.build_registered_patterns();
+    check_equal(
+        summary, context, "rebuild_keeps_prepared_mode_stale",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "rebuild_invalidates_active_view", false,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+    check_equal(
+        summary, context, "explicit_deactivate_after_rebuild", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "prepare_after_rebuild", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "activate_after_rebuild", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+
+    std::vector<FieldHaloRequest> triplet;
+    for (const FieldHaloRequest &candidate : requests)
+    {
+        const std::string group =
+            candidate.sync_group.empty()
+                ? candidate.field_name
+                : candidate.sync_group;
+        if (candidate.do_halo &&
+            candidate.orientation_aware &&
+            candidate.value_kind ==
+                FieldValueKind::EdgeCovariant1Form &&
+            group == "Eedge")
+            triplet.push_back(candidate);
+    }
+    check_equal(summary, context, "reregister_triplet_size",
+                std::size_t(3), triplet.size());
+    halo.register_halo_fields(triplet);
+    check_equal(
+        summary, context, "reregister_keeps_prepared_mode_stale",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "reregister_invalidates_active_view", false,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+    check_equal(
+        summary, context, "explicit_deactivate_after_reregister", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    halo.build_registered_patterns();
+    check_equal(
+        summary, context, "prepare_after_reregister", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "activate_after_reregister", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "final_deactivate", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+
+    const long long global_checked = global_sum(summary.checked);
+    const long long global_failed = global_sum(summary.failed);
+    const long long global_legacy_value_checks =
+        global_sum(legacy_value_checks);
+    const long long global_prepared_value_checks =
+        global_sum(
+            prepared_first_value_checks +
+            prepared_second_value_checks);
+    const long long global_recv_records =
+        global_sum(static_cast<long long>(expected_receive.size()));
+    const long long global_send_records =
+        global_sum(static_cast<long long>(expected_send.size()));
+    std::ostringstream detail;
+    detail << "checks=" << global_checked
+           << " failed=" << global_failed
+           << " recv_records=" << global_recv_records
+           << " send_records=" << global_send_records
+           << " legacy_value_checks=" << global_legacy_value_checks
+           << " prepared_value_checks="
+           << global_prepared_value_checks
+           << " prepared_runtime_metadata_collectives=0"
+           << " repeated_prepared_syncs=2";
+    return print_result(
+        "Prepared Edge-stage Edge1Form execution",
+        summary.failed == 0, detail.str());
+}
+
 } // namespace Z0_TEST

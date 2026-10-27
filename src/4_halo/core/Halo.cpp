@@ -1,5 +1,125 @@
 #include "4_halo/Halo.h"
 
+#include <algorithm>
+#include <array>
+#include <sstream>
+
+namespace
+{
+int edge1_box_volume(const Box3 &box)
+{
+    return (box.hi.i - box.lo.i) *
+           (box.hi.j - box.lo.j) *
+           (box.hi.k - box.lo.k);
+}
+
+bool edge1_valid_box(const Box3 &box)
+{
+    return box.hi.i >= box.lo.i &&
+           box.hi.j >= box.lo.j &&
+           box.hi.k >= box.lo.k;
+}
+
+bool edge1_valid_transform(const TOPO::IndexTransform &transform)
+{
+    std::array<bool, 3> seen = {{false, false, false}};
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const int target = transform.perm[axis];
+        if (target < 0 || target >= 3 || seen[target] ||
+            (transform.sign[axis] != -1 &&
+             transform.sign[axis] != 1))
+            return false;
+        seen[target] = true;
+    }
+    return true;
+}
+
+bool edge1_valid_transfer(
+    const LegacyOrientedCornerTransferSnapshot &transfer,
+    LegacyOrientedCornerRole expected_role,
+    int rank, int size, int ncomp, int nghost)
+{
+    if (transfer.role != expected_role ||
+        transfer.recv_rank < 0 || transfer.recv_rank >= size ||
+        transfer.send_rank < 0 || transfer.send_rank >= size ||
+        transfer.recv_block < 0 || transfer.send_block < 0 ||
+        transfer.recv_axis < 0 || transfer.recv_axis >= 3 ||
+        transfer.send_axis < 0 || transfer.send_axis >= 3 ||
+        (transfer.sign != -1 && transfer.sign != 1) ||
+        transfer.tag < 0 ||
+        transfer.ncomp != ncomp ||
+        transfer.nghost != nghost ||
+        !edge1_valid_box(transfer.recv_box) ||
+        !edge1_valid_box(transfer.node_box_on_send) ||
+        !edge1_valid_transform(transfer.trans_recv_to_send) ||
+        transfer.message_length !=
+            edge1_box_volume(transfer.recv_box) * ncomp)
+        return false;
+
+    if (expected_role == LegacyOrientedCornerRole::Receive)
+    {
+        if (transfer.recv_rank != rank ||
+            transfer.peer_rank != transfer.send_rank ||
+            transfer.send_box.has_value())
+            return false;
+    }
+    else
+    {
+        if (transfer.send_rank != rank ||
+            transfer.peer_rank != transfer.recv_rank ||
+            !transfer.send_box ||
+            !edge1_valid_box(*transfer.send_box))
+            return false;
+    }
+    return true;
+}
+
+bool edge1_all_ranks_same_string(
+    const std::string &local, int size)
+{
+    const int local_size = static_cast<int>(local.size());
+    std::vector<int> sizes(size, 0);
+    MPI_Allgather(
+        &local_size, 1, MPI_INT, sizes.data(), 1, MPI_INT,
+        MPI_COMM_WORLD);
+
+    std::vector<int> displacements(size, 0);
+    int total = 0;
+    for (int rank = 0; rank < size; ++rank)
+    {
+        displacements[rank] = total;
+        total += sizes[rank];
+    }
+
+    std::vector<char> gathered(total);
+    MPI_Allgatherv(
+        local.empty() ? nullptr : local.data(), local_size, MPI_CHAR,
+        gathered.empty() ? nullptr : gathered.data(), sizes.data(),
+        displacements.data(), MPI_CHAR, MPI_COMM_WORLD);
+
+    for (int rank = 0; rank < size; ++rank)
+    {
+        const std::string remote(
+            gathered.data() + displacements[rank],
+            static_cast<std::size_t>(sizes[rank]));
+        if (remote != local)
+            return false;
+    }
+    return true;
+}
+
+bool edge1_all_ranks_true(bool local_valid)
+{
+    const int local = local_valid ? 1 : 0;
+    int global = 0;
+    MPI_Allreduce(
+        &local, &global, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    return global == 1;
+}
+} // namespace
+
+
 Halo::Halo(Field *field, TOPO::Topology *topo)
     : fld_(field), topo_(topo)
 {
@@ -158,6 +278,7 @@ Halo::debug_edge_1form_corner_plan(
 
 void Halo::invalidate_prepared_edge_1form_corner_metadata_()
 {
+    invalidate_prepared_edge_1form_edge_execution_();
     prepared_edge_1form_corner_plans_.clear();
     prepared_edge_1form_corner_metadata_ready_ = false;
     prepared_edge_1form_corner_registry_generation_ = 0;
@@ -173,6 +294,26 @@ bool Halo::prepared_edge_1form_corner_metadata_valid_() const noexcept
            prepared_edge_1form_corner_pattern_generation_ ==
                pattern_generation_;
 }
+void Halo::invalidate_prepared_edge_1form_edge_execution_()
+{
+    prepared_edge_1form_edge_execution_plans_.clear();
+    edge_1form_edge_execution_registry_generation_ = 0;
+    edge_1form_edge_execution_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_edge_1form_edge_execution_valid_() const noexcept
+{
+    return edge_1form_edge_execution_mode_ ==
+               Edge1FormEdgeExecutionMode::Prepared &&
+           prepared_edge_1form_corner_metadata_valid_() &&
+           edge_1form_edge_execution_registry_generation_ ==
+               registry_generation_ &&
+           edge_1form_edge_execution_pattern_generation_ ==
+               pattern_generation_ &&
+           !prepared_edge_1form_edge_execution_plans_.empty();
+}
+
+
 
 std::optional<LegacyOrientedCornerPlanSnapshot>
 Halo::debug_prepared_edge_1form_corner_plan(
@@ -203,6 +344,195 @@ Halo::debug_prepared_edge_1form_corner_metadata_exchange_count() const noexcept
 {
     return prepared_edge_1form_corner_metadata_exchange_count_;
 }
+
+bool Halo::set_edge_1form_edge_execution_mode(
+    Edge1FormEdgeExecutionMode mode)
+{
+    int rank = 0;
+    int size = 1;
+    PARALLEL::mpi_rank(&rank);
+    PARALLEL::mpi_size(&size);
+
+    const int requested_mode = static_cast<int>(mode);
+    std::vector<int> requested_modes(size, 0);
+    MPI_Allgather(
+        &requested_mode, 1, MPI_INT,
+        requested_modes.data(), 1, MPI_INT, MPI_COMM_WORLD);
+    const bool same_mode = std::all_of(
+        requested_modes.begin(), requested_modes.end(),
+        [&](int remote)
+        {
+            return remote == requested_mode;
+        });
+    if (!same_mode)
+    {
+        invalidate_prepared_edge_1form_edge_execution_();
+        edge_1form_edge_execution_mode_ =
+            Edge1FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    std::vector<std::string> groups;
+    groups.reserve(edge_1form_triplets_.size());
+    for (const auto &entry : edge_1form_triplets_)
+    {
+        if (static_cast<int>(entry.second.level) >=
+            static_cast<int>(HaloLevel::Corner2D))
+            groups.push_back(entry.first);
+    }
+    std::sort(groups.begin(), groups.end());
+
+    std::ostringstream descriptor;
+    descriptor << "edge1-edge-execution-v1";
+    for (const std::string &group_name : groups)
+    {
+        const HaloTripletRequest &triplet =
+            edge_1form_triplets_.at(group_name);
+        descriptor << "|group=" << group_name
+                   << "|stage=" <<
+            static_cast<int>(HaloLevel::Corner2D)
+                   << "|nghost=" << triplet.nghost;
+        const std::string fields[3] = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field =
+                fld_->descriptor(fields[axis]);
+            descriptor << "|field=" << fields[axis]
+                       << "|location=" <<
+                static_cast<int>(field.location)
+                       << "|kind=" <<
+                static_cast<int>(field.value_kind)
+                       << "|ncomp=" << field.ncomp
+                       << "|field_nghost=" << field.nghost
+                       << "|halo=" << field.sync.do_halo
+                       << "|oriented=" <<
+                field.sync.orientation_aware;
+        }
+    }
+
+    const bool same_descriptor =
+        edge1_all_ranks_same_string(descriptor.str(), size);
+    if (!same_descriptor)
+    {
+        invalidate_prepared_edge_1form_edge_execution_();
+        edge_1form_edge_execution_mode_ =
+            Edge1FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    if (mode == Edge1FormEdgeExecutionMode::Legacy)
+    {
+        invalidate_prepared_edge_1form_edge_execution_();
+        edge_1form_edge_execution_mode_ =
+            Edge1FormEdgeExecutionMode::Legacy;
+        return true;
+    }
+
+    bool local_valid =
+        prepared_edge_1form_corner_metadata_valid_() &&
+        !groups.empty();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_edge_1form_corner_plans_.find(group_name);
+        if (entry == prepared_edge_1form_corner_plans_.end() ||
+            entry->second.registry_generation !=
+                registry_generation_ ||
+            entry->second.pattern_generation !=
+                pattern_generation_)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        const LegacyOrientedCornerPlanSnapshot &snapshot =
+            entry->second.snapshot;
+        const HaloTripletRequest &triplet =
+            edge_1form_triplets_.at(group_name);
+        const std::array<std::string, 3> fields = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        if (snapshot.group_name != group_name ||
+            snapshot.field_names != fields ||
+            snapshot.ncomp <= 0 ||
+            snapshot.nghost != triplet.nghost)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        for (const auto &transfer : snapshot.recv_plan)
+        {
+            if (!edge1_valid_transfer(
+                    transfer, LegacyOrientedCornerRole::Receive,
+                    rank, size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+        for (const auto &transfer : snapshot.send_plan)
+        {
+            if (!edge1_valid_transfer(
+                    transfer, LegacyOrientedCornerRole::Send,
+                    rank, size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+    }
+
+    if (!edge1_all_ranks_true(local_valid))
+    {
+        invalidate_prepared_edge_1form_edge_execution_();
+        edge_1form_edge_execution_mode_ =
+            Edge1FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    invalidate_prepared_edge_1form_edge_execution_();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_edge_1form_corner_plans_.find(group_name);
+        prepared_edge_1form_edge_execution_plans_.emplace(
+            group_name,
+            make_prepared_edge_1form_edge_execution_view_(
+                entry->second.snapshot));
+    }
+    edge_1form_edge_execution_registry_generation_ =
+        registry_generation_;
+    edge_1form_edge_execution_pattern_generation_ =
+        pattern_generation_;
+    edge_1form_edge_execution_mode_ =
+        Edge1FormEdgeExecutionMode::Prepared;
+    return true;
+}
+
+bool Halo::activate_prepared_edge_1form_edge_execution()
+{
+    return set_edge_1form_edge_execution_mode(
+        Edge1FormEdgeExecutionMode::Prepared);
+}
+
+bool Halo::deactivate_prepared_edge_1form_edge_execution()
+{
+    return set_edge_1form_edge_execution_mode(
+        Edge1FormEdgeExecutionMode::Legacy);
+}
+
+Edge1FormEdgeExecutionMode
+Halo::debug_edge_1form_edge_execution_mode() const noexcept
+{
+    return edge_1form_edge_execution_mode_;
+}
+
+bool Halo::debug_prepared_edge_1form_edge_execution_active() const noexcept
+{
+    return prepared_edge_1form_edge_execution_valid_();
+}
+
+Edge1FormEdgeExecutionCounters
+Halo::debug_edge_1form_edge_execution_counters() const noexcept
+{
+    return edge_1form_edge_execution_counters_;
+}
+
 
 void Halo::invalidate_prepared_vertex_edge_1form_metadata_()
 {

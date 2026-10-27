@@ -1799,3 +1799,84 @@ semantics, any new ExchangeExecutor, and every production Halo execution
 migration remain out of scope. A later executor unit must consume these
 frozen snapshots without changing legacy runtime ordering or metadata
 collective semantics.
+
+## 43. Parallel Unit 2B-5A: Prepared Edge1Form Edge-stage runtime reuse
+
+Unit 2B-5A changes exactly one production executor:
+`Halo::exchange_parallel_edge_edge_1form_triplet_()`. The default remains
+`Edge1FormEdgeExecutionMode::Legacy`; no existing Mercury run selects
+Prepared mode implicitly.
+
+The explicit, collective activation contract is
+`prepare_edge_1form_corner_metadata()` on every rank followed by
+`activate_prepared_edge_1form_edge_execution()` on every rank. Activation
+first Allgathers the requested mode, Allgathers/Allgathervs a stable registry
+and descriptor schedule, and Allreduces local cache/transfer validation. Any
+disagreement, absent cache, malformed transfer, incomplete triplet, or
+non-oriented request returns every participating rank to Legacy and reports
+failure. Valid activation performs the one-time conversion from the verified
+`LegacyOrientedCornerPlanSnapshot` into a Halo-owned private
+`PreparedEdge1FormEdgeExecutionView`. The view preserves the old
+`TripletCornerMeta` layout, receive/send order, send boxes, exact message
+lengths, transforms, signs, and tags. It does not inspect EdgePatch, create a
+runtime buffer, invoke field transfer, or call MPI during the conversion.
+
+The target Prepared branch consumes this stable view directly. It makes no
+metadata `MPI_Alltoall` or `MPI_Alltoallv` call, and it retains the legacy
+data tail verbatim in behavior: `pack_triplet_corner_send()`, posted
+Irecv order, posted Isend order, tags, waits, and
+`unpack_triplet_corner_recv()` all use the same metadata semantics and
+numeric formula. The four other oriented Corner paths, coupling, owner/alias,
+tags, persistent buffers, and all numerical operators remain unchanged.
+Per-target counters expose Legacy metadata collectives, Legacy/Prepared
+executions, message count, and payload count for test-only verification.
+
+Registration changes and `build_registered_patterns()` clear the private
+view and saved generations before clearing the prepared snapshot. The
+selected Prepared mode is then stale rather than silently falling back; an
+attempt to enter the target executor aborts the MPI communicator before any
+data transfer. Recovery must be an explicit collective deactivation,
+rebuild, preparation, and activation. This prevents one rank from rebuilding
+or selecting Legacy while peers use Prepared.
+
+The existing Z0 global Halo Communication module now includes
+`RunPreparedEdge1FormEdgeExecutionTests()`. It uses the existing MPI
+summary, exact legacy-derived receive/send plan, component-distinct markers,
+and actual field storage. It checks default/explicit Legacy, rank-mismatched
+activation rejection, one Legacy versus two consecutive Prepared syncs,
+bit-exact ghost values, signs and axis mapping, identical data-message and
+payload counts, zero Prepared runtime metadata collectives, non-finite
+source zeroing, stale-after-rebuild, stale-after-re-registration, and
+explicit reactivation. No second MPI summary is introduced.
+
+Acceptance used at most four build jobs and exactly three MPI ranks; the two
+harnesses were run serially. Logs are retained under
+`build/unit2b5a-logs/`, `build/Z0_NULL/validation_logs/`, and
+`build/Z0_NULL/preprocess_cube_validation_logs/`.
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten serial modes passed |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+The ten-mode run has six orientation-aware Prepared invocations. Each
+reported 102,376 three-rank exact checks, 132 receive and 132 send records,
+9,296 Legacy and 18,592 Prepared mapped-value checks, zero failures, two
+repeated Prepared syncs, and zero Prepared runtime metadata collectives.
+The other four modes ran with `Z0_FORM_ORIENTATION=0`: each reported 21
+three-rank contract checks, no snapshot, no activation, and zero preparation
+metadata exchanges. The periodic cube has three active Prepared invocations;
+each reported 15,608 three-rank exact checks, 60 receive and 60 send records,
+1,408 Legacy and 2,816 Prepared mapped-value checks, zero failures, and zero
+Prepared runtime metadata collectives. Thus repeated Prepared execution
+reused the same activation view rather than relocating legacy metadata
+discovery.
+
+Parallel Unit 2B-5A is complete and frozen. The next executor migration, if
+approved separately, must remain a distinct unit (for example the
+Vertex-stage Edge1Form path) and must preserve its separate prepared metadata
+and communication ordering. No ExchangeExecutor or broader Halo migration is
+started here.

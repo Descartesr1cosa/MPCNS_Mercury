@@ -8,11 +8,32 @@
 #include <cstdint>
 #include <iosfwd>
 #include <optional>
+#include <memory>
 #include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+
+enum class Edge1FormEdgeExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Edge1FormEdgeExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedEdge1FormEdgeExecutionView;
 
 class Halo
 {
@@ -68,6 +89,19 @@ public:
     debug_prepared_edge_1form_corner_plan_generation() const;
     std::uint64_t
     debug_prepared_edge_1form_corner_metadata_exchange_count() const noexcept;
+
+    // Default is Legacy. These are collective lifecycle transitions and
+    // Prepared requires already-built patterns and prepared metadata.
+    bool set_edge_1form_edge_execution_mode(
+        Edge1FormEdgeExecutionMode mode);
+    bool activate_prepared_edge_1form_edge_execution();
+    bool deactivate_prepared_edge_1form_edge_execution();
+    Edge1FormEdgeExecutionMode
+    debug_edge_1form_edge_execution_mode() const noexcept;
+    bool debug_prepared_edge_1form_edge_execution_active() const noexcept;
+    Edge1FormEdgeExecutionCounters
+    debug_edge_1form_edge_execution_counters() const noexcept;
+
 
     // Explicit initialization-time metadata preparation for the existing
     // Parallel Vertex-stage Edge1Form protocol. It never executes a field
@@ -209,6 +243,13 @@ private:
     void invalidate_prepared_edge_1form_corner_metadata_();
     bool prepared_edge_1form_corner_metadata_valid_() const noexcept;
     void invalidate_prepared_vertex_edge_1form_metadata_();
+    void invalidate_prepared_edge_1form_edge_execution_();
+    bool prepared_edge_1form_edge_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedEdge1FormEdgeExecutionView>
+    make_prepared_edge_1form_edge_execution_view_(
+        const LegacyOrientedCornerPlanSnapshot &snapshot) const;
+
+
     bool prepared_vertex_edge_1form_metadata_valid_() const noexcept;
     void invalidate_prepared_edge_face_2form_metadata_();
     bool prepared_edge_face_2form_metadata_valid_() const noexcept;
@@ -256,6 +297,17 @@ private:
     std::uint64_t prepared_edge_1form_corner_registry_generation_ = 0;
     std::uint64_t prepared_edge_1form_corner_pattern_generation_ = 0;
     std::uint64_t prepared_edge_1form_corner_metadata_exchange_count_ = 0;
+
+    // Activation owns this one-time conversion to legacy-executor metadata.
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedEdge1FormEdgeExecutionView>>
+        prepared_edge_1form_edge_execution_plans_;
+    Edge1FormEdgeExecutionMode edge_1form_edge_execution_mode_ =
+        Edge1FormEdgeExecutionMode::Legacy;
+    std::uint64_t edge_1form_edge_execution_registry_generation_ = 0;
+    std::uint64_t edge_1form_edge_execution_pattern_generation_ = 0;
+    Edge1FormEdgeExecutionCounters edge_1form_edge_execution_counters_;
+
 
     struct PreparedVertexEdge1FormPlanEntry
     {
