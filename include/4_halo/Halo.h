@@ -82,6 +82,19 @@ public:
     std::uint64_t
     debug_prepared_vertex_edge_1form_metadata_exchange_count() const noexcept;
 
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Edge-stage Face2Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_edge_face_2form_metadata();
+    std::optional<LegacyFace2FormEdgePlanSnapshot>
+    debug_prepared_edge_face_2form_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_edge_face_2form_plan_generation() const;
+    std::uint64_t
+    debug_prepared_edge_face_2form_metadata_exchange_count() const noexcept;
+
     // Optional capture for the independent Vertex-stage Edge1Form protocol.
     void enable_vertex_edge_1form_plan_capture(bool enabled);
     std::optional<LegacyOrientedVertexPlanSnapshot>
@@ -184,6 +197,8 @@ private:
     bool prepared_edge_1form_corner_metadata_valid_() const noexcept;
     void invalidate_prepared_vertex_edge_1form_metadata_();
     bool prepared_vertex_edge_1form_metadata_valid_() const noexcept;
+    void invalidate_prepared_edge_face_2form_metadata_();
+    bool prepared_edge_face_2form_metadata_valid_() const noexcept;
 
 private:
     Field *fld_;
@@ -241,6 +256,21 @@ private:
     std::uint64_t prepared_vertex_edge_1form_registry_generation_ = 0;
     std::uint64_t prepared_vertex_edge_1form_pattern_generation_ = 0;
     std::uint64_t prepared_vertex_edge_1form_metadata_exchange_count_ = 0;
+
+    struct PreparedEdgeFace2FormPlanEntry
+    {
+        LegacyFace2FormEdgePlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Independent from prepared Edge1Form caches and runtime capture.
+    std::unordered_map<std::string, PreparedEdgeFace2FormPlanEntry>
+        prepared_edge_face_2form_plans_;
+    bool prepared_edge_face_2form_metadata_ready_ = false;
+    std::uint64_t prepared_edge_face_2form_registry_generation_ = 0;
+    std::uint64_t prepared_edge_face_2form_pattern_generation_ = 0;
+    std::uint64_t prepared_edge_face_2form_metadata_exchange_count_ = 0;
 
     bool registered_patterns_built_ = false;
     std::uint64_t registry_generation_ = 0;

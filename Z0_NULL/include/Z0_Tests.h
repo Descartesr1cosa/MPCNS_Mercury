@@ -31,6 +31,9 @@ namespace Z0_TEST
                                     Field &field, Halo &halo, int myid);
     bool RunFace2FormEdgePlanTests(const Grid &grid, const TOPO::Topology &topology,
                                    Field &field, Halo &halo, int myid);
+    bool RunPreparedFace2FormEdgePlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
     bool RunFace2FormVertexPlanTests(const Grid &grid, const TOPO::Topology &topology,
                                      Field &field, Halo &halo, int myid);
     bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);

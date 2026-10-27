@@ -1614,3 +1614,97 @@ Parallel Unit 2B-4B is complete and frozen.  A later unit may consider a
 separate prepared Face2Form family only with its own exact legacy snapshot,
 rank-global schedule, independent cache lifetime, and regression evidence;
 it must not begin executor migration or merge Edge/Vertex metadata lifetimes.
+
+## 41. Parallel Unit 2B-4C: initialization-time prepared Edge Face2Form metadata acceptance
+
+This unit adds the explicit, initialization-only
+`Halo::prepare_edge_face_2form_metadata()` path and a third, independent
+value-owned prepared cache for the existing non-coupling Parallel Edge-stage
+Face2Form protocol. The cache stores copied receive/send metadata only while
+the current registration and pattern generations match. Its debug accessors
+return no stale snapshot; `LegacyFace2FormEdgePlanAdapter::build_prepared()`
+is the sole conversion boundary to the frozen
+`mpcns::parallel::Face2FormEdgeTransferPlan`. The adapter neither starts
+preparation nor performs MPI, accesses field values, rebuilds patterns, or
+reconstructs topology pairing.
+
+Eligibility requires a complete FaceXi/FaceEta/FaceZeta
+`FaceContravariant2Form` triplet with `do_halo` and
+`orientation_aware` true on all three final Field descriptors, a level of at
+least Corner2D, and a non-coupling Parallel EdgePatch. The final catalog
+check preserves component-copy behavior when `Z0_FORM_ORIENTATION=0`, even
+though the legacy registry may normalize oriented form metadata internally.
+With orientation disabled, the prepared Bface plan is absent and no Face2Form
+prepared metadata exchange occurs.
+
+Face2Form deliberately differs from Edge1Form: for each receiver axis,
+`send_axis` is the inverse permutation satisfying
+`transform.perm[send_axis] == recv_axis`, and the frozen sign is
+`HALO_TOOLS::face_2form_orientation_sign(transform, send_axis)`
+(the product of all transform signs times the source-axis sign). The
+preparation preserves raw Parallel EdgePatch order, receiver axes 0/1/2,
+normal-first two-direction reorder, receive ghost box, source inner-ghost
+diagnostic box, transform, independently incremented per-peer tag,
+message length, local order, and peer order. It does not reinterpret source
+box ordering as a pack order.
+
+All ranks first agree on a deterministic group schedule sorted by group name,
+then each agreed group runs the legacy-shaped `MPI_Alltoall` count exchange
+and rank-grouped `MPI_Alltoallv` sender discovery, including ranks without a
+local Parallel EdgePatch. This explicit preparation has no production
+time-step caller. `HaloTriplet.cpp` remains byte-for-byte unchanged and is
+still the sole runtime executor, including its original per-sync metadata
+collective and pack/send/receive/wait/unpack buffers.
+
+The Face2Form cache is independent of prepared Edge1Form Edge and Vertex
+caches. Preparing any one family does not evict another. Every
+`register_halo_field`, `register_halo_fields`, and
+`build_registered_patterns` invalidates all three, and a post-registration
+prepare is rejected until patterns are rebuilt. External in-place topology
+mutation remains caller-owned and requires an explicit rebuild.
+
+`Z0_PreparedFace2FormEdgePlanTest.cpp` independently derives raw
+TOPO::EdgePatch receive records and sender order, compares Raw/Prepared/
+runtime snapshots field-for-field without sorting, and checks the public
+adapter conversion. It covers first preparation, repeated cache reuse, two
+legacy runtime sync captures, rebuild and registration invalidation, cache
+independence, zero local Parallel patches, multi-block and multi-peer cases,
+same-peer multiple messages, legal zero-length messages, negative signs,
+out-of-bounds sources, non-finite source zeroing, and a non-self-inverse
+permutation contract that rejects direct-axis mapping and the wrong 2-form
+sign. Failures carry rank, group, Edge stage, role, peer, block, axis, tag,
+order, field, expected, and actual values.
+
+Acceptance used three MPI ranks, build parallelism at most four, and serial
+harness execution:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| focused `Z0_TEST_DRIVEN_SYNC=1 Z0_HALO_MODE=faceforms Z0_HALO_LEVEL=edge mpirun -np 3 ./z0_null` from `build/Z0_NULL` | 0; three plans, 132 receive + 132 send records, 132 matched pairs, 87,296 exact/lifecycle checks, 9,184 finite mapped-value checks, 9,184 non-finite-source zero checks, 240 non-identity axes, 64 negative signs, and 16 zero-length messages |
+| focused `Z0_TEST_DRIVEN_SYNC=1 Z0_FORM_ORIENTATION=0 Z0_HALO_MODE=faceforms Z0_HALO_LEVEL=edge mpirun -np 3 ./z0_null` from `build/Z0_NULL` | 0; no Face2Form prepared plan and zero prepared metadata exchanges |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; ten serial modes passed and all logs report the MPI-global normal conclusion |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+Across the six active standard modes, the new test produced 18 rank-local
+plans, 792 receive and 792 send records, 792 matched pairs, 523,776 exact/
+lifecycle checks, 55,104 finite mapped-value checks, and 55,104
+non-finite-source zero checks, all with zero failures. Each active invocation
+reported three cache hits, six rebuilds, three registration invalidations, and
+nine preparation metadata exchanges across its three ranks. The periodic cube
+added nine rank-local plans, 180 receive and 180 send records, 180 matched
+pairs, 102,432 exact/lifecycle checks, 3,984 finite mapped-value checks, and
+3,984 non-finite-source zero checks, also with zero failures. Its transforms
+are identity and positive; the standard topology supplies non-identity,
+negative-sign, zero-length, multi-block, and out-of-bounds coverage.
+
+MeshPartition, component-copy ExchangePlan, both existing Edge1Form prepared
+caches, all earlier Face2Form snapshots, DEC, Faraday, Hodge, StateView, and
+owner/alias regression remain covered by the same global MPI conclusions.
+No production tag, communicator, communication order, numerical formula,
+coupling, or owner/alias path changed. Parallel Unit 2B-4C is complete and
+frozen. The next smallest scoped unit is Vertex-stage Face2Form preparation,
+which may reuse the schedule/cache architecture but must retain its distinct
+three-direction metadata and must not migrate the runtime executor.
