@@ -761,3 +761,45 @@ The retained failing fixture before repair was /tmp/mpcns-preprocess-cube.mujwpZ
 | Z0_Boundary and legacy Halo public API | Existing production call order and boundary/coupling orchestration | must remain compat during Unit 1 |
 
 The numerical compatibility constraints are: stage order is face (1D), edge (2D), vertex (3D); registered groups/channels are processed serially; form triplets preserve transform permutation and sign; sender/receiver tags agree per neighbor and stage; owner-alias synchronization occurs only after the relevant halo data is present. Same-rank multi-block paths and cross-rank patches both remain required coverage. Unit 1 should extract read-only mesh and planning representations first, without moving these production calls or altering tag/order semantics.
+
+
+## 32. Parallel Unit 1: read-only MeshPartition acceptance and freeze
+
+MeshPartition is the immutable, MPI-free description of one rank local blocks
+and face/edge/vertex adjacency. Its public data uses only LogicalIndex and
+LogicalBox. BlockAddress is always (rank, rank-local block index); no global
+block number is invented. Neighbor indices are validated in their own rank
+namespace and never against the current rank block count.
+
+A patch belongs to this_block; neighbor_block is a topological neighbor, not a
+communication direction. Inner remains same-rank, Parallel remains cross-rank,
+and Physical has an invalid neighbor and nullopt transform. Coupling retains
+the legacy direction neighbor to this_block. Patch order is exactly legacy
+Inner, Parallel, then Physical order within each codimension, without sorting
+or deduplication. The adapter copies boxes and stored permutation/sign/offset
+verbatim and never recomputes topology, owner, quotient IDs, or orientation.
+PhysicalPatch::raw, MPI tags, buffers, and requests do not enter MeshPartition.
+The scoped const_cast in the adapter is read-only compatibility for legacy
+Array1D, which has no const index operator.
+
+Z0 independently compares every local block and every face, edge, and vertex
+field: identities, names, six box bounds, transform permutation/sign/offset,
+directions, coupling, and physical metadata. Diagnostics include rank,
+codimension, kind, index, both blocks, field, expected, and actual. Constructor
+tests cover invalid rank/size, block ordering, local patch identity, incomplete
+neighbors, Physical contradictions, missing transforms, and Inner/Parallel
+rank relations. Legal single/multi-block, repeated periodic, same-rank,
+cross-rank, and physical inputs remain accepted.
+
+Acceptance evidence on three ranks:
+- cmake -S . -B build and cmake --build build --parallel 4: exit 0; MercuryZ4 links separate mpcns_mesh and mpcns_legacy_mesh targets.
+- Z0 configure and z0_null build with parallel 4: exit 0.
+- Ten standard modes each exited 0 in serial order; every log reports checked=9229 failed=0, global MPI pass, and normal completion.
+- NP=3 BUILD_JOBS=4 periodic-cube validation: exit 0 for all three modes; each reports checked=4079 failed=0.
+
+Topology equivalence, owner/alias maps and GIDs, collapsed/singular entities,
+Halo patterns, tags, pack/send/recv/unpack, synchronization order, and all
+numerical operators remain authoritative in legacy Topology/Halo. Parallel
+Unit 1 is frozen. Unit 2A may consume MeshPartition, field sync contracts, and
+legacy Halo pattern observations for a read-only ExchangePlan description, but
+must not yet replace execution.

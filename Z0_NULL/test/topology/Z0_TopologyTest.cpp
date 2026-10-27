@@ -3,9 +3,6 @@
 #include "2_topology/GlobalIncidence.h"
 #include "2_topology/LocalIncidence.h"
 #include "2_topology/Topology.h"
-#include "mpcns/compat/legacy_mesh_partition_adapter.hpp"
-#include "1_grid/1_MPCNS_Grid.h"
-#include "0_basic/MPI_WRAPPER.h"
 
 #include <cstdint>
 #include <iostream>
@@ -272,5 +269,3 @@ namespace Z0_TEST
         return passed;
     }
 }
-
-namespace Z0_TEST { bool RunMeshPartitionTests(const Grid &grid,const TOPO::Topology &topology,int myid) { int n=0;PARALLEL::mpi_size(&n); const auto part=mpcns::compat::LegacyMeshPartitionAdapter::build(grid,topology,myid,n); bool ok=part.rank()==myid&&part.size()==n&&static_cast<int>(part.local_blocks().size())==grid.nblock&&part.face_patches().size()==topology.inner_patches.size()+topology.parallel_patches.size()+topology.physical_patches.size()&&part.edge_patches().size()==topology.inner_edge_patches.size()+topology.parallel_edge_patches.size()+topology.physical_edge_patches.size()&&part.vertex_patches().size()==topology.inner_vertex_patches.size()+topology.parallel_vertex_patches.size()+topology.physical_vertex_patches.size(); for(int i=0;ok&&i<grid.nblock;++i){const auto &b=const_cast<Grid &>(grid).grids(i);const auto &q=part.local_blocks()[i];ok=q.address.rank==myid&&q.address.local_block==i&&q.name==b.block_name&&q.node_extent.hi.i==b.mx+1&&q.node_extent.hi.j==b.my+1&&q.node_extent.hi.k==b.mz+1;} if(myid==0)std::cout<<"  ["<<(ok?"PASS":"FAIL")<<"] MeshPartition legacy adapter identity and patch counts\n"; return ok; }}

@@ -42,6 +42,18 @@ aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
 aux_source_directory(../src/8_dec  DIRSRCS8)
 
+if(NOT TARGET mpcns_mesh)
+    add_library(mpcns_mesh STATIC ../src/mpcns/mesh/mesh_partition.cpp)
+    target_include_directories(mpcns_mesh PUBLIC ../include)
+endif()
+
+if(NOT TARGET mpcns_legacy_mesh)
+    add_library(mpcns_legacy_mesh STATIC
+        ../src/mpcns/compat/legacy_mesh_partition_adapter.cpp)
+    target_include_directories(mpcns_legacy_mesh PUBLIC ../include)
+    target_link_libraries(mpcns_legacy_mesh PUBLIC mpcns_mesh)
+endif()
+
 if(NOT TARGET mpcns_state)
     add_library(mpcns_state STATIC
         ../src/mpcns/state/state_layout.cpp
@@ -119,11 +131,12 @@ add_executable(MercuryZ4 main.cpp
 ${DIRSRCS0} ${DIRSRCS1} ${DIRSRCS2} ${DIRSRCS3}
  ${DIRSRCS4_CORE} ${DIRSRCS4_BUILD} ${DIRSRCS4_COMPONENT_COPY}
  ${DIRSRCS4_FORMS} ${DIRSRCS4_COUPLING} ${DIRSRCS4_OWNER}
- ${DIRSRCS5} ${DIRSRCS6} ${MPCNS_MESH_SRCS} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
+ ${DIRSRCS5} ${DIRSRCS6} ${DIRSRCS7} ${DIRSRCS8} ${SRC}
  ${SRC_OPERATOR} ${SRC_BOUND} ${SRC_PHY} ${SRC_TOOL} ${SRC_IMP})
 
 # Link MPI and PETSc.
 target_link_libraries(MercuryZ4 PRIVATE
+    mpcns_legacy_mesh
     mpcns_discrete
     mpcns_state_compat
     mpcns_operators
