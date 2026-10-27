@@ -1864,9 +1864,10 @@ namespace
             return std::numeric_limits<double>::infinity();
         if (binding.layout.descriptor(quantity).kind != mpcns::state::QuantityKind::PrimalFaceForm ||
             binding.layout.descriptor(quantity).storage_role != mpcns::state::StorageRole::Workspace ||
-            field.num_blocks() < 2)
+            field.num_blocks() < 1)
             return std::numeric_limits<double>::infinity();
 
+        const int tested_blocks = std::min(2, field.num_blocks());
         mpcns::state::SimulationState state{binding.layout};
         static_assert(!std::is_copy_constructible<mpcns::state::SimulationState>::value &&
                           !std::is_move_constructible<mpcns::state::SimulationState>::value,
@@ -1875,9 +1876,9 @@ namespace
         mpcns::compat::LegacyStateViewAdapter adapter{field, binding};
         mpcns::state::Workspace workspace{state};
         double max_difference = 0.0;
-        std::array<double, 2> original_values{{0.0, 0.0}};
+        std::vector<double> original_values(static_cast<std::size_t>(tested_blocks), 0.0);
 
-        for (int ib = 0; ib < 2; ++ib)
+        for (int ib = 0; ib < tested_blocks; ++ib)
         {
             FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
             if (!legacy.is_allocated())
@@ -1896,14 +1897,33 @@ namespace
                 std::abs(legacy(lo.i, lo.j, lo.k, 0) - (original + 0.625 + ib)));
         }
 
-        // Rebinding block zero replaces only its view and leaves block one.
+        // Rebinding block zero replaces only its view and leaves another local
+        // block intact when this rank has one. Single-block ranks still exercise
+        // the local-block identity guard with a deliberately mismatched view.
         workspace.bind(handle, 0, adapter.view(quantity, 0));
-        if (!workspace.is_bound(handle, 0) || !workspace.is_bound(handle, 1))
+        if (!workspace.is_bound(handle, 0) ||
+            (tested_blocks > 1 && !workspace.is_bound(handle, 1)))
             return std::numeric_limits<double>::infinity();
         bool swapped_block_rejected = false;
-        try { workspace.bind(handle, 0, adapter.view(quantity, 1)); }
+        try
+        {
+            if (tested_blocks > 1)
+            {
+                workspace.bind(handle, 0, adapter.view(quantity, 1));
+            }
+            else
+            {
+                const auto valid_view = adapter.view(quantity, 0);
+                const Int3 lo = field.field(binding.legacy_field_id(quantity), 0).get_lo();
+                mpcns::state::StateView wrong_block{
+                    &valid_view(lo.i, lo.j, lo.k, 0), valid_view.extent(),
+                    valid_view.inner_extent(), valid_view.component_count(),
+                    1, 1, 1, 1, valid_view.location(), quantity, 1};
+                workspace.bind(handle, 0, wrong_block);
+            }
+        }
         catch (const std::invalid_argument &) { swapped_block_rejected = true; }
-        for (int ib = 0; ib < 2; ++ib)
+        for (int ib = 0; ib < tested_blocks; ++ib)
         {
             FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
             const Int3 lo = legacy.get_lo();
@@ -1933,20 +1953,22 @@ namespace
         catch (const std::out_of_range &) { foreign_handle_rejected = true; }
 
         workspace.release(handle, 0);
-        if (workspace.is_bound(handle, 0) || !workspace.is_bound(handle, 1))
+        if (workspace.is_bound(handle, 0) ||
+            (tested_blocks > 1 && !workspace.is_bound(handle, 1)))
             return std::numeric_limits<double>::infinity();
         workspace.clear();
         bool unbound_rejected = false;
-        try { (void)workspace.view(handle, 1); }
+        try { (void)workspace.view(handle, tested_blocks - 1); }
         catch (const std::logic_error &) { unbound_rejected = true; }
-        for (int ib = 0; ib < 2; ++ib)
+        for (int ib = 0; ib < tested_blocks; ++ib)
         {
             FieldBlock &legacy = field.field(binding.legacy_field_id(quantity), ib);
             const Int3 lo = legacy.get_lo();
             legacy(lo.i, lo.j, lo.k, 0) = original_values[static_cast<std::size_t>(ib)];
         }
         return swapped_block_rejected && non_workspace_rejected && component_mismatch_rejected && foreign_handle_rejected &&
-                       unbound_rejected && !workspace.is_bound(handle, 0) && !workspace.is_bound(handle, 1)
+                       unbound_rejected && !workspace.is_bound(handle, 0) &&
+                       (tested_blocks == 1 || !workspace.is_bound(handle, 1))
                    ? max_difference
                    : std::numeric_limits<double>::infinity();
     }

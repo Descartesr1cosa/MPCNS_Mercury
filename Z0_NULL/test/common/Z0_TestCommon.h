@@ -6,6 +6,7 @@
 #include "3_field/Field.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -14,6 +15,12 @@
 
 namespace Z0_TEST
 {
+    struct ModuleResult
+    {
+        const char *name;
+        bool local_passed;
+    };
+
     inline int rank()
     {
         int myid = 0;
@@ -30,7 +37,83 @@ namespace Z0_TEST
                 std::cout << " " << detail;
             std::cout << "\n";
         }
+        else if (!passed)
+        {
+            // Root-only PASS output is intentionally retained for compact Z0 logs,
+            // but a local failure must never be silent on a non-root rank.
+            std::cerr << "  [Z0_TEST][rank " << rank() << "][FAIL] " << name;
+            if (!detail.empty())
+                std::cerr << " " << detail;
+            std::cerr << "\n" << std::flush;
+        }
         return passed;
+    }
+
+    template <std::size_t ModuleCount>
+    inline bool summarize_module_results(const std::array<ModuleResult, ModuleCount> &modules)
+    {
+        int myid = 0;
+        int nranks = 0;
+        PARALLEL::mpi_rank(&myid);
+        PARALLEL::mpi_size(&nranks);
+
+        std::array<int, ModuleCount> local_failed{};
+        double local_any_failed = 0.0;
+        for (std::size_t i = 0; i < ModuleCount; ++i)
+        {
+            local_failed[i] = modules[i].local_passed ? 0 : 1;
+            if (local_failed[i] != 0)
+                local_any_failed = 1.0;
+        }
+
+        // This all-reduce is the authoritative process-wide conclusion. Every
+        // rank reaches it after the same four module calls, so every normal
+        // participant returns the same value.
+        double global_any_failed = 0.0;
+        PARALLEL::mpi_max(&local_any_failed, &global_any_failed, 1);
+
+        // Gather module bits only for diagnostics. It deliberately follows the
+        // all-reduce on every rank, preserving a single collective order.
+        std::vector<int> failures_by_rank;
+        if (myid == 0)
+            failures_by_rank.resize(static_cast<std::size_t>(nranks) * ModuleCount);
+        PARALLEL::mpi_gather(local_failed.data(), static_cast<int>(ModuleCount),
+                             myid == 0 ? failures_by_rank.data() : nullptr,
+                             static_cast<int>(ModuleCount), 0);
+
+        const bool globally_passed = global_any_failed == 0.0;
+        if (myid == 0)
+        {
+            std::cout << "Z0 MPI test summary: "
+                      << (globally_passed ? "all ranks passed" : "failures detected")
+                      << ".\n";
+            if (!globally_passed)
+            {
+                for (int failed_rank = 0; failed_rank < nranks; ++failed_rank)
+                {
+                    bool printed_rank = false;
+                    for (std::size_t module = 0; module < ModuleCount; ++module)
+                    {
+                        if (failures_by_rank[static_cast<std::size_t>(failed_rank) * ModuleCount + module] == 0)
+                            continue;
+                        if (!printed_rank)
+                        {
+                            std::cout << "  [FAIL] rank " << failed_rank << ": ";
+                            printed_rank = true;
+                        }
+                        else
+                        {
+                            std::cout << ", ";
+                        }
+                        std::cout << modules[module].name;
+                    }
+                    if (printed_rank)
+                        std::cout << "\n";
+                }
+            }
+            std::cout << std::flush;
+        }
+        return globally_passed;
     }
 
     inline long long global_sum(long long local)

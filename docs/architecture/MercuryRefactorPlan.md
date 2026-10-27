@@ -729,3 +729,35 @@ exit belongs to integration/Parallel follow-up, not a State arithmetic defect.
 This decision rests on exact local numerical regression and all ten standard
 MPI modes. A real Mercury case and a passing generated-cube harness remain
 mandatory acceptance evidence for future end-to-end or Parallel changes.
+
+
+
+## 31. Parallel Unit 0: MPI acceptance baseline and periodic-cube exit diagnosis
+
+**Root cause and minimal repair.** The retained periodic-cube fixture reproduced the original failure in all_vertex: rank 0 printed every assertion as PASS and normal completion, while ranks 1 and 2 returned exit 1. The new rank/module summary identified the first false module as DEC / State, not Topology, Physical IO, or Halo. Its failing assertion was SimulationState Workspace is multi-block, zero-copy, and safely keyed with max=inf on ranks 1 and 2. The cause was test-only: its fixture required field.num_blocks() >= 2 on every rank. The generated 3-rank periodic cube validly assigns only one local block to ranks 1 and 2. No owner/alias inconsistency, topology failure, halo failure, MPI-finalize failure, or post-normal-completion error was found.
+
+The test now exercises one local block when that is all a rank owns, including zero-copy binding, local-block identity rejection, role/component/foreign-state rejection, release and clear. Where two local blocks exist it additionally retains the original independent multi-block/rebind assertions. This is not a threshold change or a skipped test; it makes the test storage-lifetime contract valid for both legal local block cardinalities.
+
+**MPI conclusion rule.** Each rank retains four local module outcomes: Topology, Physical IO, Halo Communication, and DEC / State. After every module has run, every normal participant calls one MPI_Allreduce(MAX) through the existing wrapper, followed by the same-order MPI_Gather of the four failure bits. Root prints normal completion only after the all-reduced pass state is true. On failure root lists every failed rank and module; non-root assertion failures emit rank-specific diagnostics.
+
+**Acceptance results (three MPI ranks; build parallelism at most four).**
+
+| Command | Result |
+| --- | --- |
+| NP=3 BUILD_JOBS=4 KEEP_PREPROCESS_CUBE_FIXTURE=1 bash Z0_NULL/run_preprocess_cube_validation.sh | exit 0; all_vertex, all_owner_vertex, and owner_only all passed; retained fixture /tmp/mpcns-preprocess-cube.SEIvOE |
+| NP=3 bash Z0_NULL/run_halo_validation.sh | serial per mode and consumes the MPI program exit status; cell, node, edgeforms and an independent faceforms/vertex re-run passed with the global summary. The remaining modes require one uninterrupted full-harness rerun before claiming the ten-mode gate complete. |
+
+The retained failing fixture before repair was /tmp/mpcns-preprocess-cube.mujwpZ; its all_vertex log records the original non-root exit. The post-repair retained fixture above is the minimum reproducer and passing evidence. Preprocess source was not changed.
+
+**Read-only communication map for Parallel Unit 1.**
+
+| Area | Current responsibility | Unit 1 placement |
+| --- | --- | --- |
+| Topology, TopologyEquivDetail, TopologyBuilder | Builds local/parallel patches; reconciles node, edge and face equivalence; selects owner and orientation sign | mpcns::mesh ownership/equivalence data |
+| FieldDescriptor, FieldSyncContract, FieldHaloRequest, FieldCatalog | Declares location, representation, group, halo level, owner policy and orientation awareness | durable contract types; keep compatibility adapters |
+| Halo::build_registered_patterns plus HaloBuildFace/Edge/Vertex | Converts topology patches to face/edge/vertex send/receive boxes and per-neighbor tags | candidate mpcns::parallel planning layer |
+| HaloExchangeParallel, HaloTriplet, HaloCouplingParallel | Pack, nonblocking send/receive, wait, unpack component and oriented form transfers | candidate mpcns::parallel execution layer |
+| HaloEdgeOwnerSync | Owner-to-alias local and MPI synchronization with orientation sign | split plan/execution later; preserve compat entry points now |
+| Z0_Boundary and legacy Halo public API | Existing production call order and boundary/coupling orchestration | must remain compat during Unit 1 |
+
+The numerical compatibility constraints are: stage order is face (1D), edge (2D), vertex (3D); registered groups/channels are processed serially; form triplets preserve transform permutation and sign; sender/receiver tags agree per neighbor and stage; owner-alias synchronization occurs only after the relevant halo data is present. Same-rank multi-block paths and cross-rank patches both remain required coverage. Unit 1 should extract read-only mesh and planning representations first, without moving these production calls or altering tag/order semantics.

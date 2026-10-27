@@ -3,6 +3,7 @@
 #include "Z0_FieldCatalog.h"
 #include "Z0_Solver.h"
 #include "Z0_Tests.h"
+#include "Z0_TestCommon.h"
 
 #include "0_basic/1_MPCNS_Parameter.h"
 #include "0_basic/MPI_WRAPPER.h"
@@ -45,11 +46,14 @@ int main(int argc, char **argv)
         Z0_Solver solver(&grid, &field, &halo, &topology, &topology, &boundary, &param);
         solver.Advance();
 
-        bool tests_passed = true;
-        tests_passed &= Z0_TEST::RunTopologyTests(topology, myid);
-        tests_passed &= Z0_TEST::RunPhysicalIoTests(field, param);
-        tests_passed &= Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param);
-        tests_passed &= Z0_TEST::RunDecChainTests(field, halo, boundary, param);
+        const std::array<Z0_TEST::ModuleResult, 4> module_results = {{
+            {"Topology", Z0_TEST::RunTopologyTests(topology, myid)},
+            {"Physical IO", Z0_TEST::RunPhysicalIoTests(field, param)},
+            {"Halo Communication", Z0_TEST::RunHaloCommunicationTests(field, halo, boundary, param)},
+            {"DEC / State", Z0_TEST::RunDecChainTests(field, halo, boundary, param)},
+        }};
+
+        const bool tests_passed = Z0_TEST::summarize_module_results(module_results);
 
         if (myid == 0)
             std::cout << "Z0_NULL finished " << (tests_passed ? "normally" : "with test failures") << ".\n" << std::flush;
