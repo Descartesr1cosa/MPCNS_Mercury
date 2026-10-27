@@ -55,7 +55,8 @@ int main(int argc, char **argv)
                                    Z0_TEST::RunOrientedCornerPlanTests(grid, topology, field, halo, myid) &&
                                    Z0_TEST::RunOrientedVertexPlanTests(grid, topology, field, halo, myid) &&
                                    Z0_TEST::RunFace2FormEdgePlanTests(grid, topology, field, halo, myid) &&
-                                   Z0_TEST::RunFace2FormVertexPlanTests(grid, topology, field, halo, myid)},
+                                   Z0_TEST::RunFace2FormVertexPlanTests(grid, topology, field, halo, myid) &&
+                                   Z0_TEST::RunPreparedOrientedCornerPlanTests(grid, topology, field, halo, myid)},
             {"DEC / State", Z0_TEST::RunDecChainTests(field, halo, boundary, param)},
         }};
 

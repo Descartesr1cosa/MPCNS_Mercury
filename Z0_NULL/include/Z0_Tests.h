@@ -21,6 +21,9 @@ namespace Z0_TEST
                                   Field &field, Halo &halo, int myid);
     bool RunOrientedCornerPlanTests(const Grid &grid, const TOPO::Topology &topology,
                                     Field &field, Halo &halo, int myid);
+    bool RunPreparedOrientedCornerPlanTests(
+        const Grid &grid, const TOPO::Topology &topology,
+        Field &field, Halo &halo, int myid);
     bool RunOrientedVertexPlanTests(const Grid &grid, const TOPO::Topology &topology,
                                     Field &field, Halo &halo, int myid);
     bool RunFace2FormEdgePlanTests(const Grid &grid, const TOPO::Topology &topology,

@@ -156,6 +156,54 @@ Halo::debug_edge_1form_corner_plan(
     return it->second;
 }
 
+void Halo::invalidate_prepared_edge_1form_corner_metadata_()
+{
+    prepared_edge_1form_corner_plans_.clear();
+    prepared_edge_1form_corner_metadata_ready_ = false;
+    prepared_edge_1form_corner_registry_generation_ = 0;
+    prepared_edge_1form_corner_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_edge_1form_corner_metadata_valid_() const noexcept
+{
+    return prepared_edge_1form_corner_metadata_ready_ &&
+           registered_patterns_built_ &&
+           prepared_edge_1form_corner_registry_generation_ ==
+               registry_generation_ &&
+           prepared_edge_1form_corner_pattern_generation_ ==
+               pattern_generation_;
+}
+
+std::optional<LegacyOrientedCornerPlanSnapshot>
+Halo::debug_prepared_edge_1form_corner_plan(
+    const std::string &group_name) const
+{
+    if (!prepared_edge_1form_corner_metadata_valid_())
+        return std::nullopt;
+
+    const auto it =
+        prepared_edge_1form_corner_plans_.find(group_name);
+    if (it == prepared_edge_1form_corner_plans_.end() ||
+        it->second.registry_generation != registry_generation_ ||
+        it->second.pattern_generation != pattern_generation_)
+        return std::nullopt;
+    return it->second.snapshot;
+}
+
+std::optional<std::uint64_t>
+Halo::debug_prepared_edge_1form_corner_plan_generation() const
+{
+    if (!prepared_edge_1form_corner_metadata_valid_())
+        return std::nullopt;
+    return prepared_edge_1form_corner_pattern_generation_;
+}
+
+std::uint64_t
+Halo::debug_prepared_edge_1form_corner_metadata_exchange_count() const noexcept
+{
+    return prepared_edge_1form_corner_metadata_exchange_count_;
+}
+
 void Halo::enable_vertex_edge_1form_plan_capture(bool enabled)
 {
     if (enabled)

@@ -1411,3 +1411,117 @@ invalidation for every relevant topology or registration change. Coupling,
 owner/alias reduce/broadcast, an ExchangeExecutor, and production metadata
 migration remain out of scope. Parallel Unit 2B-3B is complete and frozen;
 no production Halo executor migration was started.
+
+
+## 39. Parallel Unit 2B-4A: initialization-time prepared Edge1Form Edge metadata acceptance
+
+This unit adds an explicit, initialization-only preparation path for the
+existing non-coupling Parallel Edge-stage Edge1Form protocol.  The public
+entry point is `Halo::prepare_edge_1form_corner_metadata()`.  It is never
+called by MercuryZ4 initialization or by a production time step; Z0 invokes it
+explicitly as acceptance coverage.  It returns false when registered patterns
+are not built.  The diagnostic accessors return value snapshots only while the
+prepared cache is valid, including a generation and an accumulated metadata
+exchange counter.
+
+Preparation is eligible only for a complete, orientation-aware
+`EdgeCovariant1Form` triplet at Corner2D or Corner3D level.  The final
+eligibility decision also reads the active `FieldDescriptor` contract.  This
+prevents a stale legacy triplet view from producing an oriented plan after
+`Z0_FORM_ORIENTATION=0` has selected the ordinary component-copy path.  The
+private cache owns copied legacy-shaped receive/send metadata; the only public
+conversion is `LegacyOrientedCornerPlanAdapter::build_prepared`, which produces
+the already frozen MPI-free `mpcns::parallel::OrientedCornerTransferPlan`.
+It never calls prepare, performs MPI, reads field values, or reconstructs a
+pattern.  No new public transfer type was introduced.
+
+The prepared receiver sequence exactly follows filtered non-coupling legacy
+`TOPO::EdgePatch` order, appending destination axes 0, 1, and 2 for each patch.
+It preserves the direct Edge1Form source-axis rule
+`send_axis = transform.perm[recv_axis]`, the exact `transform.sign[recv_axis]`,
+the existing two-direction normal-first reorder rule, 2D receive and source
+inner-ghost boxes, tags starting at zero independently for each peer, message
+length, and local/per-peer order.  Its private metadata record has the same
+field layout and byte-level sender-discovery semantics as legacy
+`TripletCornerMeta`; it is not a production MPI buffer or a Field view.
+
+Before any per-group metadata collective, all ranks build a deterministic
+schedule sorted by group name and compare a descriptor containing the prepared
+stage, generation state, group/field identities, levels, ghost depth,
+orientation flag, locations, value kinds, and component counts.  The agreement
+check uses `MPI_Allgather` followed by `MPI_Allgatherv`; a disagreement is
+reported with rank and exits before the metadata collectives.  Every rank then
+participates for every agreed group, including ranks with no local Parallel
+Edge patch.  Per group the unchanged rank-grouped sender-discovery order is
+reproduced with `MPI_Alltoall` counts and `MPI_Alltoallv` metadata.  This is
+explicit initialization/test communication only: it neither changes the
+runtime communicator/tag allocation nor invokes field pack, send, receive,
+wait, unpack, or buffer allocation.
+
+The cache is value-owned and immutable to callers.  It is invalidated on every
+`register_halo_field`, `register_halo_fields`, and
+`build_registered_patterns` call.  Registration increments a registry
+generation and makes the pattern state unbuilt; successful pattern construction
+increments a pattern generation.  A prepared entry is usable only when both
+stored generations still match.  Direct external mutation of topology remains
+outside Halo's observability boundary and must be followed by
+`build_registered_patterns` before another explicit prepare.
+
+`Z0_PreparedOrientedCornerPlanTest.cpp` independently derives expected
+receiver data from raw `TOPO::EdgePatch` records, uses a test-only all-gather to
+form the expected sender order, and compares every identity, axis, sign, box
+bound, transform entry, peer, tag, size, local order, and peer order.  On a
+mismatch it reports rank, group, Edge stage, role, peer, block, axis, tag,
+local order, peer order, plan generation, field, expected, and actual values.
+The numeric oracle still invokes the untouched legacy Edge-stage runtime sync
+and checks distinct source values after component remapping and sign
+application.  It verifies: absent-before-prepare rejection; first prepare;
+byte-for-byte prepared/runtime snapshot parity; adapter conversion; repeated
+prepare cache reuse without a new metadata exchange; rebuild invalidation and
+regeneration; and atomic three-member triplet registration followed by the
+required rebuild.  Ten pure contract checks retain invalid axis/transform/rank,
+length/tag/role, and missing-send-box coverage.
+
+Acceptance used exactly three MPI ranks and build parallelism no greater than
+four; the two harnesses were run serially:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 compiled and linked `HaloPreparedMetadata.cpp` |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `Z0_TEST_DRIVEN_SYNC=1 Z0_FORM_ORIENTATION=0 Z0_HALO_MODE=edgeforms Z0_HALO_LEVEL=edge mpirun -np 3 ./z0_null` from `build/Z0_NULL` | 0; component-copy path retained, no prepared plan or metadata exchange |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; explicit marker `validation_logs/unit2b4a_halo.exit` is `0`; all ten modes passed serially |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; explicit marker `preprocess_cube_validation_logs/unit2b4a_cube.exit` is `0`; all_vertex, all_owner_vertex, and owner_only passed serially |
+
+The six active standard oriented Edge1Form mode instances produced 18
+rank-local prepared plans, 792 receive records, 792 send records, and 792
+matched pairs.  They made 770,034 exact metadata/lifecycle checks and 223,104
+numeric value checks with zero failures; the four inactive modes added 180
+negative-path checks.  Per active MPI invocation the lifecycle materialized
+three group preparations per rank (the logged aggregate counter is 9), reused
+the cache once per rank, rebuilt twice per rank, and invalidated once through
+atomic triplet registration.  Observed topology coverage includes a rank with
+zero local Parallel Edge patches, a rank with multiple peer ranks, and ranks
+with multiple messages to the same peer.
+
+The periodic cube's three modes produced nine rank-local plans, 180 receive
+records, 180 send records, 180 matched pairs, 141,753 exact checks, and 16,896
+numeric value checks, all with zero failures.  Cube transforms are identity
+and positive; the standard topology supplies the non-identity permutations and
+negative signs.  All logs retain the Z0 MPI-global pass summary and
+`Z0_NULL finished normally`; MeshPartition, component-copy ExchangePlan,
+Face-level oriented forms, all prior Edge/Vertex metadata snapshots, owner/
+alias, DEC, Faraday, Hodge, and StateView regressions remain passing.
+
+`Halo::exchange_parallel_edge_edge_1form_triplet_` remains the sole runtime
+executor.  It still independently builds sender metadata during each sync and
+continues to own all pack/send/recv/wait/unpack and buffers.  This unit adds no
+runtime cache consumption, no ExchangeExecutor, no Edge/Vertex Face2Form
+preparation, no coupling or owner/alias migration, and no production tag or
+stage-order change.  The next smallest unit may prepare one remaining oriented
+Corner family only after defining its own final-topology/registration barrier,
+rank-global schedule agreement, immutable data lifetime, and invalidation
+contract; it must not conflate that work with runtime executor migration.
+
+Parallel Unit 2B-4A is complete and frozen.

@@ -32,6 +32,10 @@ aux_source_directory(../src/1_grid  DIRSRCS1)
 aux_source_directory(../src/2_topology  DIRSRCS2)
 aux_source_directory(../src/3_field  DIRSRCS3)
 aux_source_directory(../src/4_halo/core DIRSRCS4_CORE)
+# Keep the initialization-only prepared metadata builder explicit: source
+# discovery alone does not make a newly added file trigger CMake regeneration.
+list(APPEND DIRSRCS4_CORE ../src/4_halo/core/HaloPreparedMetadata.cpp)
+list(REMOVE_DUPLICATES DIRSRCS4_CORE)
 aux_source_directory(../src/4_halo/build DIRSRCS4_BUILD)
 aux_source_directory(../src/4_halo/component_copy DIRSRCS4_COMPONENT_COPY)
 aux_source_directory(../src/4_halo/forms DIRSRCS4_FORMS)

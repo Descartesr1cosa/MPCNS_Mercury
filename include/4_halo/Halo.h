@@ -5,7 +5,9 @@
 #include "3_field/Field.h"
 #include "0_basic/MPI_WRAPPER.h"
 
+#include <cstdint>
 #include <iosfwd>
+#include <optional>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -53,6 +55,19 @@ public:
     void enable_edge_1form_corner_plan_capture(bool enabled);
     std::optional<LegacyOrientedCornerPlanSnapshot>
     debug_edge_1form_corner_plan(const std::string &group_name) const;
+
+    // Explicit initialization-time metadata preparation for the existing
+    // Parallel Edge-stage Edge1Form protocol. It never executes a field
+    // exchange and is disabled from ordinary production initialization.
+    // Returns false when registered patterns have not been built.
+    bool prepare_edge_1form_corner_metadata();
+    std::optional<LegacyOrientedCornerPlanSnapshot>
+    debug_prepared_edge_1form_corner_plan(
+        const std::string &group_name) const;
+    std::optional<std::uint64_t>
+    debug_prepared_edge_1form_corner_plan_generation() const;
+    std::uint64_t
+    debug_prepared_edge_1form_corner_metadata_exchange_count() const noexcept;
 
     // Optional capture for the independent Vertex-stage Edge1Form protocol.
     void enable_vertex_edge_1form_plan_capture(bool enabled);
@@ -152,6 +167,9 @@ private:
                                          FieldValueKind value_kind,
                                          int wanted_src_axis) const;
 
+    void invalidate_prepared_edge_1form_corner_metadata_();
+    bool prepared_edge_1form_corner_metadata_valid_() const noexcept;
+
 private:
     Field *fld_;
     TOPO::Topology *topo_;
@@ -177,6 +195,26 @@ private:
     bool capture_edge_1form_corner_plans_ = false;
     std::unordered_map<std::string, LegacyOrientedCornerPlanSnapshot>
         edge_1form_corner_plan_snapshots_;
+
+    struct PreparedEdge1FormCornerPlanEntry
+    {
+        LegacyOrientedCornerPlanSnapshot snapshot;
+        std::uint64_t registry_generation = 0;
+        std::uint64_t pattern_generation = 0;
+    };
+
+    // Prepared metadata is independent of runtime snapshot capture. Its
+    // values are invalidated on any registration or pattern rebuild.
+    std::unordered_map<std::string, PreparedEdge1FormCornerPlanEntry>
+        prepared_edge_1form_corner_plans_;
+    bool prepared_edge_1form_corner_metadata_ready_ = false;
+    std::uint64_t prepared_edge_1form_corner_registry_generation_ = 0;
+    std::uint64_t prepared_edge_1form_corner_pattern_generation_ = 0;
+    std::uint64_t prepared_edge_1form_corner_metadata_exchange_count_ = 0;
+
+    bool registered_patterns_built_ = false;
+    std::uint64_t registry_generation_ = 0;
+    std::uint64_t pattern_generation_ = 0;
 
     bool capture_vertex_edge_1form_plans_ = false;
     std::unordered_map<std::string, LegacyOrientedVertexPlanSnapshot>

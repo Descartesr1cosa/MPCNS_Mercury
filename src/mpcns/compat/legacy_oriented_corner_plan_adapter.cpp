@@ -105,12 +105,9 @@ void validate_local_identity(
 }
 } // namespace
 
-namespace mpcns::compat
+namespace
 {
-parallel::OrientedCornerTransferPlan
-LegacyOrientedCornerPlanAdapter::build(
-    const mesh::MeshPartition &partition,
-    const Halo &halo,
+std::string validate_request(
     const FieldHaloRequest &request)
 {
     if (!request.do_halo ||
@@ -124,26 +121,29 @@ LegacyOrientedCornerPlanAdapter::build(
         throw std::invalid_argument(
             "request does not include the Edge stage");
 
-    const std::string group =
-        request.sync_group.empty()
-            ? request.field_name
-            : request.sync_group;
-    const auto captured =
-        halo.debug_edge_1form_corner_plan(group);
-    if (!captured)
+    return request.sync_group.empty()
+               ? request.field_name
+               : request.sync_group;
+}
+
+parallel::OrientedCornerTransferPlan build_snapshot(
+    const mesh::MeshPartition &partition,
+    const LegacyOrientedCornerPlanSnapshot &snapshot,
+    const FieldHaloRequest &request,
+    const std::string &source_name)
+{
+    const std::string group = validate_request(request);
+    if (snapshot.group_name != group ||
+        snapshot.ncomp != request.ncomp ||
+        snapshot.nghost != request.nghost)
         throw std::invalid_argument(
-            "Edge-stage Edge1Form metadata has not been captured");
-    if (captured->group_name != group ||
-        captured->ncomp != request.ncomp ||
-        captured->nghost != request.nghost)
-        throw std::invalid_argument(
-            "captured corner metadata does not match the request");
+            source_name + " corner metadata does not match the request");
 
     if (std::find(
-            captured->field_names.begin(),
-            captured->field_names.end(),
+            snapshot.field_names.begin(),
+            snapshot.field_names.end(),
             request.field_name) ==
-        captured->field_names.end())
+        snapshot.field_names.end())
         throw std::invalid_argument(
             "request field is not a captured triplet member");
 
@@ -155,11 +155,12 @@ LegacyOrientedCornerPlanAdapter::build(
         quantities;
     for (int axis = 0; axis < 3; ++axis)
     {
-        if (captured->field_names[axis].empty())
+        if (snapshot.field_names[axis].empty())
             throw std::invalid_argument(
-                "captured Edge1Form triplet member is missing");
+                source_name +
+                " Edge1Form triplet member is missing");
         quantities[axis] = {
-            captured->field_names[axis],
+            snapshot.field_names[axis],
             parallel::OrientedFormKind::Edge1Form,
             locations[axis],
             axis};
@@ -167,41 +168,72 @@ LegacyOrientedCornerPlanAdapter::build(
 
     std::vector<parallel::OrientedCornerTransfer>
         receive_transfers;
-    receive_transfers.reserve(
-        captured->recv_plan.size());
-    for (const auto &legacy : captured->recv_plan)
+    receive_transfers.reserve(snapshot.recv_plan.size());
+    for (const auto &legacy : snapshot.recv_plan)
     {
         if (legacy.role !=
             LegacyOrientedCornerRole::Receive)
             throw std::invalid_argument(
-                "receive snapshot has wrong role");
+                source_name + " receive snapshot has wrong role");
         validate_local_identity(partition, legacy);
         receive_transfers.push_back(
-            convert_transfer(
-                legacy, captured->field_names));
+            convert_transfer(legacy, snapshot.field_names));
     }
 
     std::vector<parallel::OrientedCornerTransfer>
         send_transfers;
-    send_transfers.reserve(
-        captured->send_plan.size());
-    for (const auto &legacy : captured->send_plan)
+    send_transfers.reserve(snapshot.send_plan.size());
+    for (const auto &legacy : snapshot.send_plan)
     {
         if (legacy.role !=
             LegacyOrientedCornerRole::Send)
             throw std::invalid_argument(
-                "send snapshot has wrong role");
+                source_name + " send snapshot has wrong role");
         validate_local_identity(partition, legacy);
         send_transfers.push_back(
-            convert_transfer(
-                legacy, captured->field_names));
+            convert_transfer(legacy, snapshot.field_names));
     }
 
     return parallel::OrientedCornerTransferPlan(
         partition.rank(), partition.size(), group,
-        std::move(quantities), captured->ncomp,
-        captured->nghost,
+        std::move(quantities), snapshot.ncomp,
+        snapshot.nghost,
         std::move(receive_transfers),
         std::move(send_transfers));
+}
+} // namespace
+
+namespace mpcns::compat
+{
+parallel::OrientedCornerTransferPlan
+LegacyOrientedCornerPlanAdapter::build(
+    const mesh::MeshPartition &partition,
+    const Halo &halo,
+    const FieldHaloRequest &request)
+{
+    const std::string group = validate_request(request);
+    const auto captured =
+        halo.debug_edge_1form_corner_plan(group);
+    if (!captured)
+        throw std::invalid_argument(
+            "Edge-stage Edge1Form metadata has not been captured");
+    return build_snapshot(
+        partition, *captured, request, "captured");
+}
+
+parallel::OrientedCornerTransferPlan
+LegacyOrientedCornerPlanAdapter::build_prepared(
+    const mesh::MeshPartition &partition,
+    const Halo &halo,
+    const FieldHaloRequest &request)
+{
+    const std::string group = validate_request(request);
+    const auto prepared =
+        halo.debug_prepared_edge_1form_corner_plan(group);
+    if (!prepared)
+        throw std::invalid_argument(
+            "prepared Edge-stage Edge1Form metadata is invalid or absent");
+    return build_snapshot(
+        partition, *prepared, request, "prepared");
 }
 } // namespace mpcns::compat
