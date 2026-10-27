@@ -1,11 +1,115 @@
 #include "mpcns/compat/legacy_mesh_partition_adapter.hpp"
+
 #include "1_grid/1_MPCNS_Grid.h"
 #include "2_topology/Topology.h"
-namespace {
-using namespace mpcns::mesh;
-IndexTransform transform(const TOPO::IndexTransform&t){IndexTransform r;for(int i=0;i<3;++i){r.permutation[i]=t.perm[i];r.sign[i]=t.sign[i];}r.offset=t.offset;return r;}
-Patch face(const TOPO::InterfacePatch&p){Patch r;r.kind=p.kind==TOPO::PatchKind::Inner?PatchKind::Inner:PatchKind::Parallel;r.source={p.this_rank,p.this_block};r.neighbor={p.nb_rank,p.nb_block};r.source_name=p.this_block_name;r.neighbor_name=p.nb_block_name;r.source_node_box=p.this_box_node;r.neighbor_node_box=p.nb_box_node;r.transform=transform(p.trans);r.has_neighbor=true;r.coupling=p.is_coupling;r.direction=p.direction;r.neighbor_direction=p.nb_direction;return r;}
-Patch edge(const TOPO::EdgePatch&p,PatchKind k){Patch r;r.kind=k;r.source={p.this_rank,p.this_block};r.neighbor={p.nb_rank,p.nb_block};r.source_name=p.this_block_name;r.neighbor_name=p.nb_block_name;r.source_node_box=p.this_box_node;r.neighbor_node_box=p.nb_box_node;r.transform=transform(p.trans);r.has_neighbor=k!=PatchKind::Physical;r.coupling=p.is_coupling;r.directions[0]=p.dir1;r.directions[1]=p.dir2;return r;}
-Patch vertex(const TOPO::VertexPatch&p,PatchKind k){Patch r;r.kind=k;r.source={p.this_rank,p.this_block};r.neighbor={p.nb_rank,p.nb_block};r.source_name=p.this_block_name;r.neighbor_name=p.nb_block_name;r.source_node_box=p.this_box_node;r.neighbor_node_box=p.nb_box_node;r.transform=transform(p.trans);r.has_neighbor=k!=PatchKind::Physical;r.coupling=p.is_coupling;r.directions[0]=p.dir1;r.directions[1]=p.dir2;r.directions[2]=p.dir3;return r;}
+
+namespace
+{
+using mpcns::core::LogicalBox;
+using mpcns::core::LogicalIndex;
+using mpcns::mesh::BlockAddress;
+using mpcns::mesh::IndexTransform;
+using mpcns::mesh::Patch;
+using mpcns::mesh::PatchKind;
+
+LogicalBox logical_box(const Box3 &box)
+{
+    return {{box.lo.i, box.lo.j, box.lo.k}, {box.hi.i, box.hi.j, box.hi.k}};
 }
-namespace mpcns::compat { mesh::MeshPartition LegacyMeshPartitionAdapter::build(const Grid&g,const TOPO::Topology&t,int rank,int size){std::vector<mesh::LocalBlock>b;Grid& readable=const_cast<Grid&>(g);for(int i=0;i<g.nblock;++i){const Block&q=readable.grids(i);b.push_back({{rank,i},q.block_name,{{0,0,0},{q.mx+1,q.my+1,q.mz+1}}});}std::vector<mesh::Patch>F,E,V;for(const auto&p:t.inner_patches)F.push_back(face(p));for(const auto&p:t.parallel_patches)F.push_back(face(p));for(const auto&p:t.physical_patches){mesh::Patch q;q.kind=mesh::PatchKind::Physical;q.source={p.this_rank,p.this_block};q.source_name=p.this_block_name;q.source_node_box=p.this_box_node;q.direction=p.direction;q.boundary_id=p.bc_id;q.boundary_name=p.bc_name;F.push_back(q);}for(const auto&p:t.inner_edge_patches)E.push_back(edge(p,mesh::PatchKind::Inner));for(const auto&p:t.parallel_edge_patches)E.push_back(edge(p,mesh::PatchKind::Parallel));for(const auto&p:t.physical_edge_patches)E.push_back(edge(p,mesh::PatchKind::Physical));for(const auto&p:t.inner_vertex_patches)V.push_back(vertex(p,mesh::PatchKind::Inner));for(const auto&p:t.parallel_vertex_patches)V.push_back(vertex(p,mesh::PatchKind::Parallel));for(const auto&p:t.physical_vertex_patches)V.push_back(vertex(p,mesh::PatchKind::Physical));return mesh::MeshPartition(rank,size,std::move(b),std::move(F),std::move(E),std::move(V));} }
+IndexTransform transform(const TOPO::IndexTransform &legacy)
+{
+    IndexTransform value;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        value.permutation[axis] = legacy.perm[axis];
+        value.sign[axis] = legacy.sign[axis];
+    }
+    value.offset = {legacy.offset.i, legacy.offset.j, legacy.offset.k};
+    return value;
+}
+PatchKind kind(TOPO::PatchKind legacy)
+{
+    return legacy == TOPO::PatchKind::Inner ? PatchKind::Inner :
+           legacy == TOPO::PatchKind::Parallel ? PatchKind::Parallel : PatchKind::Physical;
+}
+Patch face(const TOPO::InterfacePatch &legacy)
+{
+    Patch value;
+    value.kind = kind(legacy.kind);
+    value.this_block = {legacy.this_rank, legacy.this_block};
+    value.neighbor_block = {legacy.nb_rank, legacy.nb_block};
+    value.this_block_name = legacy.this_block_name;
+    value.neighbor_block_name = legacy.nb_block_name;
+    value.this_node_box = logical_box(legacy.this_box_node);
+    value.neighbor_node_box = logical_box(legacy.nb_box_node);
+    value.transform = transform(legacy.trans);
+    value.has_neighbor = true;
+    value.is_coupling = legacy.is_coupling;
+    value.direction = legacy.direction;
+    value.neighbor_direction = legacy.nb_direction;
+    return value;
+}
+template <class LegacyPatch>
+Patch corner(const LegacyPatch &legacy, PatchKind patch_kind, int directions)
+{
+    Patch value;
+    value.kind = patch_kind;
+    value.this_block = {legacy.this_rank, legacy.this_block};
+    if (patch_kind != PatchKind::Physical)
+    {
+        value.neighbor_block = {legacy.nb_rank, legacy.nb_block};
+        value.neighbor_block_name = legacy.nb_block_name;
+        value.neighbor_node_box = logical_box(legacy.nb_box_node);
+        value.transform = transform(legacy.trans);
+        value.has_neighbor = true;
+    }
+    value.this_block_name = legacy.this_block_name;
+    value.this_node_box = logical_box(legacy.this_box_node);
+    value.is_coupling = legacy.is_coupling;
+    value.directions[0] = legacy.dir1;
+    value.directions[1] = legacy.dir2;
+    if constexpr (requires { legacy.dir3; }) { if (directions == 3) value.directions[2] = legacy.dir3; }
+    return value;
+}
+}
+namespace mpcns::compat
+{
+mesh::MeshPartition LegacyMeshPartitionAdapter::build(const Grid &grid, const TOPO::Topology &topology,
+                                                      int rank, int size)
+{
+    // Array1D predates const indexing.  This scoped cast is a read-only bridge;
+    // no Grid member is written and the Mesh API itself remains legacy-free.
+    Grid &legacy_grid = const_cast<Grid &>(grid);
+    std::vector<mesh::LocalBlock> blocks;
+    blocks.reserve(grid.nblock);
+    for (int ib = 0; ib < grid.nblock; ++ib)
+    {
+        const Block &block = legacy_grid.grids(ib);
+        blocks.push_back({{rank, ib}, block.block_name,
+                          {{0, 0, 0}, {block.mx + 1, block.my + 1, block.mz + 1}}});
+    }
+    std::vector<Patch> faces, edges, vertices;
+    for (const auto &p : topology.inner_patches) faces.push_back(face(p));
+    for (const auto &p : topology.parallel_patches) faces.push_back(face(p));
+    for (const auto &p : topology.physical_patches)
+    {
+        Patch value;
+        value.kind = PatchKind::Physical;
+        value.this_block = {p.this_rank, p.this_block};
+        value.this_block_name = p.this_block_name;
+        value.this_node_box = logical_box(p.this_box_node);
+        value.direction = p.direction;
+        value.boundary_id = p.bc_id;
+        value.boundary_name = p.bc_name;
+        faces.push_back(std::move(value));
+    }
+    for (const auto &p : topology.inner_edge_patches) edges.push_back(corner(p, PatchKind::Inner, 2));
+    for (const auto &p : topology.parallel_edge_patches) edges.push_back(corner(p, PatchKind::Parallel, 2));
+    for (const auto &p : topology.physical_edge_patches) edges.push_back(corner(p, PatchKind::Physical, 2));
+    for (const auto &p : topology.inner_vertex_patches) vertices.push_back(corner(p, PatchKind::Inner, 3));
+    for (const auto &p : topology.parallel_vertex_patches) vertices.push_back(corner(p, PatchKind::Parallel, 3));
+    for (const auto &p : topology.physical_vertex_patches) vertices.push_back(corner(p, PatchKind::Physical, 3));
+    return mesh::MeshPartition(rank, size, std::move(blocks), std::move(faces),
+                               std::move(edges), std::move(vertices));
+}
+} // namespace mpcns::compat
