@@ -75,6 +75,63 @@ bool edge1_valid_transfer(
     return true;
 }
 
+bool edge1_valid_vertex_direction(int direction)
+{
+    return direction >= -3 && direction <= 3 && direction != 0;
+}
+
+bool edge1_valid_vertex_transfer(
+    const LegacyOrientedVertexTransferSnapshot &transfer,
+    LegacyOrientedCornerRole expected_role,
+    int rank, int size, int ncomp, int nghost)
+{
+    bool seen_direction[3] = {false, false, false};
+    const int directions[3] = {
+        transfer.dir1_send, transfer.dir2_send,
+        transfer.dir3_send};
+    for (int direction : directions)
+    {
+        if (!edge1_valid_vertex_direction(direction))
+            return false;
+        const int axis = direction < 0 ? -direction - 1 : direction - 1;
+        if (seen_direction[axis])
+            return false;
+        seen_direction[axis] = true;
+    }
+
+    if (transfer.role != expected_role ||
+        transfer.recv_rank < 0 || transfer.recv_rank >= size ||
+        transfer.send_rank < 0 || transfer.send_rank >= size ||
+        transfer.recv_block < 0 || transfer.send_block < 0 ||
+        transfer.recv_axis < 0 || transfer.recv_axis >= 3 ||
+        transfer.send_axis < 0 || transfer.send_axis >= 3 ||
+        transfer.send_axis !=
+            transfer.trans_recv_to_send.perm[transfer.recv_axis] ||
+        transfer.sign !=
+            transfer.trans_recv_to_send.sign[transfer.recv_axis] ||
+        (transfer.sign != -1 && transfer.sign != 1) ||
+        transfer.tag < 0 ||
+        transfer.ncomp != ncomp ||
+        transfer.nghost != nghost ||
+        !edge1_valid_box(transfer.recv_box) ||
+        !edge1_valid_box(transfer.node_box_on_send) ||
+        !edge1_valid_transform(transfer.trans_recv_to_send) ||
+        transfer.message_length !=
+            edge1_box_volume(transfer.recv_box) * ncomp)
+        return false;
+
+    if (expected_role == LegacyOrientedCornerRole::Receive)
+    {
+        return transfer.recv_rank == rank &&
+               transfer.peer_rank == transfer.send_rank &&
+               !transfer.send_box;
+    }
+    return transfer.send_rank == rank &&
+           transfer.peer_rank == transfer.recv_rank &&
+           transfer.send_box &&
+           edge1_valid_box(*transfer.send_box);
+}
+
 bool edge1_all_ranks_same_string(
     const std::string &local, int size)
 {
@@ -536,6 +593,7 @@ Halo::debug_edge_1form_edge_execution_counters() const noexcept
 
 void Halo::invalidate_prepared_vertex_edge_1form_metadata_()
 {
+    invalidate_prepared_edge_1form_vertex_execution_();
     prepared_vertex_edge_1form_plans_.clear();
     prepared_vertex_edge_1form_metadata_ready_ = false;
     prepared_vertex_edge_1form_registry_generation_ = 0;
@@ -581,6 +639,236 @@ Halo::debug_prepared_vertex_edge_1form_metadata_exchange_count() const noexcept
 {
     return prepared_vertex_edge_1form_metadata_exchange_count_;
 }
+
+void Halo::invalidate_prepared_edge_1form_vertex_execution_()
+{
+    prepared_edge_1form_vertex_execution_plans_.clear();
+    edge_1form_vertex_execution_registry_generation_ = 0;
+    edge_1form_vertex_execution_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_edge_1form_vertex_execution_valid_() const noexcept
+{
+    return edge_1form_vertex_execution_mode_ ==
+               Edge1FormVertexExecutionMode::Prepared &&
+           prepared_vertex_edge_1form_metadata_valid_() &&
+           edge_1form_vertex_execution_registry_generation_ ==
+               registry_generation_ &&
+           edge_1form_vertex_execution_pattern_generation_ ==
+               pattern_generation_ &&
+           !prepared_edge_1form_vertex_execution_plans_.empty();
+}
+
+bool Halo::set_edge_1form_vertex_execution_mode(
+    Edge1FormVertexExecutionMode mode)
+{
+    int rank = 0;
+    int size = 1;
+    PARALLEL::mpi_rank(&rank);
+    PARALLEL::mpi_size(&size);
+
+    const int requested_mode = static_cast<int>(mode);
+    std::vector<int> requested_modes(size, 0);
+    MPI_Allgather(
+        &requested_mode, 1, MPI_INT,
+        requested_modes.data(), 1, MPI_INT, MPI_COMM_WORLD);
+    const bool same_mode = std::all_of(
+        requested_modes.begin(), requested_modes.end(),
+        [&](int remote)
+        {
+            return remote == requested_mode;
+        });
+    if (!same_mode)
+    {
+        invalidate_prepared_edge_1form_vertex_execution_();
+        edge_1form_vertex_execution_mode_ =
+            Edge1FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    std::vector<std::string> groups;
+    groups.reserve(edge_1form_triplets_.size());
+    for (const auto &entry : edge_1form_triplets_)
+    {
+        if (static_cast<int>(entry.second.level) >=
+            static_cast<int>(HaloLevel::Corner3D))
+            groups.push_back(entry.first);
+    }
+    std::sort(groups.begin(), groups.end());
+
+    std::ostringstream descriptor;
+    descriptor << "edge1-vertex-execution-v1";
+    for (const std::string &group_name : groups)
+    {
+        const HaloTripletRequest &triplet =
+            edge_1form_triplets_.at(group_name);
+        descriptor << "|group=" << group_name
+                   << "|level=" <<
+            static_cast<int>(triplet.level)
+                   << "|stage=" <<
+            static_cast<int>(HaloLevel::Corner3D)
+                   << "|nghost=" << triplet.nghost
+                   << "|triplet_oriented=" <<
+            triplet.orientation_aware;
+        const std::string fields[3] = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field =
+                fld_->descriptor(fields[axis]);
+            descriptor << "|field=" << fields[axis]
+                       << "|location=" <<
+                static_cast<int>(field.location)
+                       << "|kind=" <<
+                static_cast<int>(field.value_kind)
+                       << "|ncomp=" << field.ncomp
+                       << "|field_nghost=" << field.nghost
+                       << "|halo=" << field.sync.do_halo
+                       << "|oriented=" <<
+                field.sync.orientation_aware;
+        }
+    }
+
+    if (!edge1_all_ranks_same_string(descriptor.str(), size))
+    {
+        invalidate_prepared_edge_1form_vertex_execution_();
+        edge_1form_vertex_execution_mode_ =
+            Edge1FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    if (mode == Edge1FormVertexExecutionMode::Legacy)
+    {
+        invalidate_prepared_edge_1form_vertex_execution_();
+        edge_1form_vertex_execution_mode_ =
+            Edge1FormVertexExecutionMode::Legacy;
+        return true;
+    }
+
+    const StaggerLocation expected_locations[3] = {
+        StaggerLocation::EdgeXi,
+        StaggerLocation::EdgeEt,
+        StaggerLocation::EdgeZe};
+    bool local_valid =
+        prepared_vertex_edge_1form_metadata_valid_() &&
+        !groups.empty();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_vertex_edge_1form_plans_.find(group_name);
+        if (entry == prepared_vertex_edge_1form_plans_.end() ||
+            entry->second.registry_generation !=
+                registry_generation_ ||
+            entry->second.pattern_generation !=
+                pattern_generation_)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        const LegacyOrientedVertexPlanSnapshot &snapshot =
+            entry->second.snapshot;
+        const HaloTripletRequest &triplet =
+            edge_1form_triplets_.at(group_name);
+        const std::array<std::string, 3> fields = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        if (snapshot.group_name != group_name ||
+            snapshot.field_names != fields ||
+            snapshot.ncomp <= 0 ||
+            snapshot.nghost != triplet.nghost ||
+            static_cast<int>(triplet.level) <
+                static_cast<int>(HaloLevel::Corner3D) ||
+            !triplet.orientation_aware)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field =
+                fld_->descriptor(fields[axis]);
+            if (field.location != expected_locations[axis] ||
+                field.value_kind !=
+                    FieldValueKind::EdgeCovariant1Form ||
+                field.ncomp != snapshot.ncomp ||
+                field.nghost != snapshot.nghost ||
+                !field.sync.do_halo ||
+                !field.sync.orientation_aware)
+                local_valid = false;
+        }
+        for (const auto &transfer : snapshot.recv_plan)
+        {
+            if (!edge1_valid_vertex_transfer(
+                    transfer, LegacyOrientedCornerRole::Receive,
+                    rank, size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+        for (const auto &transfer : snapshot.send_plan)
+        {
+            if (!edge1_valid_vertex_transfer(
+                    transfer, LegacyOrientedCornerRole::Send,
+                    rank, size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+    }
+
+    if (!edge1_all_ranks_true(local_valid))
+    {
+        invalidate_prepared_edge_1form_vertex_execution_();
+        edge_1form_vertex_execution_mode_ =
+            Edge1FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    invalidate_prepared_edge_1form_vertex_execution_();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_vertex_edge_1form_plans_.find(group_name);
+        prepared_edge_1form_vertex_execution_plans_.emplace(
+            group_name,
+            make_prepared_edge_1form_vertex_execution_view_(
+                entry->second.snapshot));
+    }
+    edge_1form_vertex_execution_registry_generation_ =
+        registry_generation_;
+    edge_1form_vertex_execution_pattern_generation_ =
+        pattern_generation_;
+    edge_1form_vertex_execution_mode_ =
+        Edge1FormVertexExecutionMode::Prepared;
+    return true;
+}
+
+bool Halo::activate_prepared_edge_1form_vertex_execution()
+{
+    return set_edge_1form_vertex_execution_mode(
+        Edge1FormVertexExecutionMode::Prepared);
+}
+
+bool Halo::deactivate_prepared_edge_1form_vertex_execution()
+{
+    return set_edge_1form_vertex_execution_mode(
+        Edge1FormVertexExecutionMode::Legacy);
+}
+
+Edge1FormVertexExecutionMode
+Halo::debug_edge_1form_vertex_execution_mode() const noexcept
+{
+    return edge_1form_vertex_execution_mode_;
+}
+
+bool Halo::debug_prepared_edge_1form_vertex_execution_active() const noexcept
+{
+    return prepared_edge_1form_vertex_execution_valid_();
+}
+
+Edge1FormVertexExecutionCounters
+Halo::debug_edge_1form_vertex_execution_counters() const noexcept
+{
+    return edge_1form_vertex_execution_counters_;
+}
+
 
 void Halo::invalidate_prepared_edge_face_2form_metadata_()
 {

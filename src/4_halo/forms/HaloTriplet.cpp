@@ -44,6 +44,17 @@ struct PreparedEdge1FormEdgeExecutionView
     std::vector<int> send_lengths;
 };
 
+struct PreparedEdge1FormVertexExecutionView
+{
+    int ncomp = 0;
+    int nghost = 0;
+    std::vector<TripletCornerMeta> recv_plan;
+    std::vector<TripletCornerMeta> send_plan;
+    std::vector<Box3> send_boxes;
+    std::vector<int> recv_lengths;
+    std::vector<int> send_lengths;
+};
+
 
 namespace
 {
@@ -379,6 +390,61 @@ Halo::make_prepared_edge_1form_edge_execution_view_(
     return view;
 }
 
+
+
+std::shared_ptr<const PreparedEdge1FormVertexExecutionView>
+Halo::make_prepared_edge_1form_vertex_execution_view_(
+    const LegacyOrientedVertexPlanSnapshot &snapshot) const
+{
+    auto view =
+        std::make_shared<PreparedEdge1FormVertexExecutionView>();
+    view->ncomp = snapshot.ncomp;
+    view->nghost = snapshot.nghost;
+    view->recv_plan.reserve(snapshot.recv_plan.size());
+    view->send_plan.reserve(snapshot.send_plan.size());
+    view->recv_lengths.reserve(snapshot.recv_plan.size());
+    view->send_lengths.reserve(snapshot.send_plan.size());
+    view->send_boxes.reserve(snapshot.send_plan.size());
+
+    const auto copy_metadata =
+        [](const LegacyOrientedVertexTransferSnapshot &record)
+    {
+        TripletCornerMeta metadata{};
+        metadata.recv_rank = record.recv_rank;
+        metadata.send_rank = record.send_rank;
+        metadata.recv_block = record.recv_block;
+        metadata.send_block = record.send_block;
+        metadata.recv_axis = record.recv_axis;
+        metadata.send_axis = record.send_axis;
+        metadata.sign = record.sign;
+        metadata.recv_box = record.recv_box;
+        metadata.node_box_on_send = record.node_box_on_send;
+        metadata.dir1_send = record.dir1_send;
+        metadata.dir2_send = record.dir2_send;
+        metadata.dir3_send = record.dir3_send;
+        metadata.trans_recv_to_send =
+            record.trans_recv_to_send;
+        metadata.tag = record.tag;
+        return metadata;
+    };
+
+    for (const auto &record : snapshot.recv_plan)
+    {
+        view->recv_plan.push_back(copy_metadata(record));
+        view->recv_lengths.push_back(record.message_length);
+    }
+    for (const auto &record : snapshot.send_plan)
+    {
+        if (!record.send_box)
+            ERROR::Abort(
+                "[Halo] prepared Edge1Form Vertex send record lacks send_box");
+        view->send_plan.push_back(copy_metadata(record));
+        view->send_boxes.push_back(*record.send_box);
+        view->send_lengths.push_back(record.message_length);
+    }
+
+    return view;
+}
 
 void Halo::data_trans_edge_1form_triplet(const std::vector<std::string> &fields,
                                          HaloLevel level)
@@ -1730,6 +1796,120 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
     int myid = 0;
     PARALLEL::mpi_rank(&myid);
 
+
+    if (edge_1form_vertex_execution_mode_ ==
+        Edge1FormVertexExecutionMode::Prepared)
+    {
+        const auto abort_prepared_contract =
+            [&](const char *reason)
+        {
+            std::cerr << "[Halo][rank " << myid
+                      << "][stage Vertex] prepared Edge1Form execution: "
+                      << reason << "\n" << std::flush;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            std::abort();
+        };
+
+        if (!prepared_edge_1form_vertex_execution_valid_())
+            abort_prepared_contract(
+                "activation is stale; rebuild, prepare, and activate");
+
+        const auto group_it = field_to_group_.find(fields[0]);
+        if (group_it == field_to_group_.end())
+            abort_prepared_contract("sync group is absent");
+        const auto prepared =
+            prepared_edge_1form_vertex_execution_plans_.find(
+                group_it->second);
+        if (prepared ==
+                prepared_edge_1form_vertex_execution_plans_.end() ||
+            !prepared->second)
+            abort_prepared_contract("execution view is absent");
+
+        const PreparedEdge1FormVertexExecutionView &view =
+            *prepared->second;
+        if (view.ncomp != ncomp || view.nghost != nghost ||
+            view.send_plan.size() != view.send_boxes.size() ||
+            view.send_plan.size() != view.send_lengths.size() ||
+            view.recv_plan.size() != view.recv_lengths.size())
+            abort_prepared_contract("execution view is inconsistent");
+
+        const int nsend =
+            static_cast<int>(view.send_plan.size());
+        const int nrecv =
+            static_cast<int>(view.recv_plan.size());
+        std::vector<std::vector<double>> sbuf(nsend);
+        std::vector<std::vector<double>> rbuf(nrecv);
+        std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
+        std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
+
+        for (int index = 0; index < nsend; ++index)
+        {
+            const TripletCornerMeta &metadata =
+                view.send_plan[index];
+            const int length = view.send_lengths[index];
+            if (metadata.send_rank != myid || length < 0 ||
+                length != box_volume(metadata.recv_box) * ncomp)
+                abort_prepared_contract("invalid cached send record");
+            sbuf[index].resize(length);
+            pack_triplet_corner_send(
+                fld_, fid, metadata, view.send_boxes[index],
+                ncomp, sbuf[index]);
+        }
+
+        for (int index = 0; index < nrecv; ++index)
+        {
+            const TripletCornerMeta &metadata =
+                view.recv_plan[index];
+            const int length = view.recv_lengths[index];
+            if (metadata.recv_rank != myid || length < 0 ||
+                length != box_volume(metadata.recv_box) * ncomp)
+                abort_prepared_contract("invalid cached receive record");
+            rbuf[index].resize(length);
+            PARALLEL::mpi_data_recv(
+                metadata.send_rank, metadata.tag,
+                rbuf[index].data(), length, &rreq[index]);
+        }
+        for (int index = 0; index < nsend; ++index)
+        {
+            const TripletCornerMeta &metadata =
+                view.send_plan[index];
+            PARALLEL::mpi_data_send(
+                metadata.recv_rank, metadata.tag,
+                sbuf[index].data(), view.send_lengths[index],
+                &sreq[index]);
+        }
+
+        int wait_recv = nrecv;
+        int wait_send = nsend;
+        if (wait_recv > 0)
+            PARALLEL::mpi_wait(
+                wait_recv, rreq.data(), rstat.data());
+        if (wait_send > 0)
+            PARALLEL::mpi_wait(
+                wait_send, sreq.data(), sstat.data());
+        for (int index = 0; index < nrecv; ++index)
+        {
+            unpack_triplet_corner_recv(
+                fld_, fid, view.recv_plan[index], ncomp,
+                rbuf[index]);
+        }
+
+        Edge1FormVertexExecutionCounters &counters =
+            edge_1form_vertex_execution_counters_;
+        ++counters.prepared_executions;
+        counters.send_messages +=
+            static_cast<std::uint64_t>(nsend);
+        counters.recv_messages +=
+            static_cast<std::uint64_t>(nrecv);
+        for (int length : view.send_lengths)
+            counters.sent_doubles +=
+                static_cast<std::uint64_t>(length);
+        for (int length : view.recv_lengths)
+            counters.received_doubles +=
+                static_cast<std::uint64_t>(length);
+        return;
+    }
+
     std::map<int, std::vector<TripletCornerMeta>> meta_to_send;
     std::map<int, int> next_tag;
     std::vector<TripletCornerMeta> recv_plan;
@@ -1786,6 +1966,8 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
 
     std::vector<TripletCornerMeta> send_plan;
     exchange_triplet_corner_meta(meta_to_send, send_plan);
+    ++edge_1form_vertex_execution_counters_.legacy_metadata_alltoall;
+    ++edge_1form_vertex_execution_counters_.legacy_metadata_alltoallv;
 
     const int nsend = static_cast<int>(send_plan.size());
     const int nrecv = static_cast<int>(recv_plan.size());
@@ -1904,6 +2086,20 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
         // Point-to-point waits above complete this exchange; no global barrier is required.
     for (int i = 0; i < nrecv; ++i)
         unpack_triplet_corner_recv(fld_, fid, recv_plan[i], ncomp, rbuf[i]);
+
+    Edge1FormVertexExecutionCounters &counters =
+        edge_1form_vertex_execution_counters_;
+    ++counters.legacy_executions;
+    counters.send_messages +=
+        static_cast<std::uint64_t>(nsend);
+    counters.recv_messages +=
+        static_cast<std::uint64_t>(nrecv);
+    for (int length : slen)
+        counters.sent_doubles +=
+            static_cast<std::uint64_t>(length);
+    for (int length : rlen)
+        counters.received_doubles +=
+            static_cast<std::uint64_t>(length);
 
     if (captured_plan)
         vertex_edge_1form_plan_snapshots_[

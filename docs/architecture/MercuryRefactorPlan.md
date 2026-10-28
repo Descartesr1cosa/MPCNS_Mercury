@@ -1880,3 +1880,102 @@ approved separately, must remain a distinct unit (for example the
 Vertex-stage Edge1Form path) and must preserve its separate prepared metadata
 and communication ordering. No ExchangeExecutor or broader Halo migration is
 started here.
+
+## 44. Parallel Unit 2B-5B: Prepared Edge1Form Vertex-stage runtime reuse
+
+Parallel Unit 2B-5B changes exactly one additional production executor:
+`Halo::exchange_parallel_vertex_edge_1form_triplet_()`. The default is
+`Edge1FormVertexExecutionMode::Legacy`; it remains independent from the
+already-frozen Edge-stage mode, and no existing Mercury execution selects
+Prepared implicitly.
+
+The explicit collective contract is
+`prepare_vertex_edge_1form_metadata()` on every rank followed by
+`activate_prepared_edge_1form_vertex_execution()` on every rank.
+Activation collectively checks the requested mode, a stable final registry
+and descriptor schedule, and local snapshot/transfer validity. An activation
+rank mismatch, malformed snapshot, absent cache, incomplete triplet, or
+ineligible registry returns every participating rank to Legacy and returns
+false. Successful activation performs one conversion only, from the verified
+`LegacyOrientedVertexPlanSnapshot` into the Halo-owned private
+`PreparedEdge1FormVertexExecutionView`. It copies the legacy
+`TripletCornerMeta` fields, original receive/send order, 3D send boxes,
+message lengths, tags, transform, direct axis mapping
+`send_axis = perm[recv_axis]`, sign
+`sign[recv_axis]`, and all three normal-first corrected directions. The
+conversion neither traverses VertexPatch at runtime, creates an MPI
+communication buffer, invokes MPI, nor accesses FieldBlock values.
+
+The Prepared target branch directly consumes that stable view. It makes no
+metadata `MPI_Alltoall` or `MPI_Alltoallv` call; the data tail preserves
+the legacy behavior and order exactly: `pack_triplet_corner_send()`,
+posted Irecv order, posted Isend order, tags, waits, and
+`unpack_triplet_corner_recv()`. Test-only counters separately expose the
+legacy metadata collectives, both execution counts, data-message counts, and
+payload totals. Only the Vertex Edge1Form target changed: Edge1Form Edge,
+both Face2Form paths, coupling, owner/alias, tags, persistent buffers, and
+all numerical operators remain unchanged.
+
+Registration changes and `build_registered_patterns()` invalidate the
+Vertex private execution view and saved generations before the prepared
+snapshot is invalidated. A selected Prepared mode therefore becomes stale,
+rather than silently falling back to Legacy; entering its target executor
+then aborts before data transfer. Recovery is explicitly collective:
+deactivate, rebuild/register as needed, prepare, and activate. This makes
+the Vertex and Edge lifecycle independent while preventing a single rank
+from falling back during a prepared exchange.
+
+The existing Z0 global Halo Communication module now also calls
+`RunPreparedEdge1FormVertexExecutionTests()`. Its independent,
+legacy-derived Vertex receive/send oracle uses component-distinct markers,
+actual field storage, transform/sign mapping, and the cached three-direction
+records. It verifies all three requested combinations: Edge Legacy / Vertex
+Legacy, Edge Legacy / Vertex Prepared, and Edge Prepared / Vertex Prepared.
+It additionally verifies two repeated Vertex Prepared synchronizations reuse
+the same view and preparation snapshot; bit-exact complete field state;
+identical data-message/payload totals per synchronization; zero Prepared
+runtime metadata collectives; non-finite source zeroing; mixed-rank
+activation rejection; and stale-after-rebuild and stale-after-registration
+behavior. No second MPI conclusion is introduced.
+
+A final registry that lacks Corner3D is correctly ineligible rather than a
+failure: the standard `all_face` mode records
+`vertex_stage_registered=0`, no Vertex snapshot, and rejected activation.
+The three `Z0_FORM_ORIENTATION=0` modes record no snapshot or metadata
+preparation. Partial cache presence across ranks remains a test failure.
+
+Acceptance used at most four build jobs and exactly three MPI ranks. The MPI
+harnesses were run serially; retained final logs are under
+`build/unit2b5b-logs/`, `build/Z0_NULL/validation_logs/`, and
+`build/Z0_NULL/preprocess_cube_validation_logs/`.
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten serial modes passed, with one MPI-global normal conclusion per mode |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, and owner_only passed serially, with one MPI-global normal conclusion per mode |
+
+The six Vertex-eligible standard modes
+(edgeforms_vertex, forms_vertex, all_edge, all_vertex, all_owner_vertex, and
+owner_only) each reported 7,173,438 exact/lifecycle checks, 24 receive and
+24 send records, 768 marker checks, 192 Legacy plus 192 Prepared non-finite
+checks, and zero failures. One Legacy Vertex synchronization sent/received
+24 data messages and 192 doubles; the two repeated Prepared
+synchronizations sent/received exactly 48 messages and 384 doubles. Each
+recorded zero Prepared runtime metadata collectives, proving the same
+activation view was reused rather than rebuilding legacy discovery.
+
+Every periodic-cube mode reported 71,178 exact/lifecycle checks, 24 receive
+and 24 send records, 768 marker checks, 192 Legacy plus 192 Prepared
+non-finite checks, zero out-of-bounds source values, and zero failures. Its
+one Legacy Vertex synchronization likewise sent/received 24 messages and
+192 doubles; its two Prepared synchronizations sent/received 48 messages and
+384 doubles with zero runtime metadata collectives.
+
+Parallel Unit 2B-5B is complete and frozen. The next smallest unit, if
+separately approved, should migrate only one remaining oriented executor
+(such as Edge-stage Face2Form) using its existing prepared snapshot and the
+same no-runtime-metadata-collective constraint. No ExchangeExecutor or
+broader Halo migration is started here.

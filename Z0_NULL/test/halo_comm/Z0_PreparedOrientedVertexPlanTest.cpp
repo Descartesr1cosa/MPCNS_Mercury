@@ -1693,4 +1693,601 @@ bool RunPreparedOrientedVertexPlanTests(
         "Prepared Vertex-stage Edge1Form metadata parity",
         summary.failed == 0, detail.str());
 }
+
+bool RunPreparedEdge1FormVertexExecutionTests(
+    const Grid &grid,
+    const TOPO::Topology &topology,
+    Field &field,
+    Halo &halo,
+    int rank)
+{
+    int size = 0;
+    PARALLEL::mpi_size(&size);
+    Summary summary;
+    const Context context{rank};
+    const std::array<std::string, 3> fields = {
+        "E_xi", "E_eta", "E_zeta"};
+
+    const auto requests = field.halo_requests();
+    const auto request = std::find_if(
+        requests.begin(), requests.end(),
+        [](const FieldHaloRequest &candidate)
+        {
+            const std::string group =
+                candidate.sync_group.empty()
+                    ? candidate.field_name
+                    : candidate.sync_group;
+            return candidate.do_halo &&
+                   candidate.orientation_aware &&
+                   candidate.value_kind ==
+                       FieldValueKind::EdgeCovariant1Form &&
+                   group == "Eedge";
+        });
+
+    check_equal(
+        summary, context, "edge_default_legacy",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Legacy),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "vertex_default_legacy",
+        static_cast<int>(Edge1FormVertexExecutionMode::Legacy),
+        static_cast<int>(halo.debug_edge_1form_vertex_execution_mode()));
+    check_equal(
+        summary, context, "edge_explicit_legacy", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_explicit_legacy", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+
+    const std::uint64_t edge_prepare_before =
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count();
+    const std::uint64_t vertex_prepare_before =
+        halo.debug_prepared_vertex_edge_1form_metadata_exchange_count();
+    check_equal(
+        summary, context, "edge_prepare_succeeds", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "vertex_prepare_succeeds", true,
+        halo.prepare_vertex_edge_1form_metadata());
+    const std::uint64_t edge_prepare_after_first =
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count();
+    const std::uint64_t vertex_prepare_after_first =
+        halo.debug_prepared_vertex_edge_1form_metadata_exchange_count();
+
+    if (request == requests.end())
+    {
+        check_equal(
+            summary, context, "orientation_disabled_edge_snapshot",
+            false,
+            halo.debug_prepared_edge_1form_corner_plan(
+                "Eedge").has_value());
+        check_equal(
+            summary, context, "orientation_disabled_vertex_snapshot",
+            false,
+            halo.debug_prepared_vertex_edge_1form_plan(
+                "Eedge").has_value());
+        check_equal(
+            summary, context, "orientation_disabled_edge_activation",
+            false,
+            halo.activate_prepared_edge_1form_edge_execution());
+        check_equal(
+            summary, context, "orientation_disabled_vertex_activation",
+            false,
+            halo.activate_prepared_edge_1form_vertex_execution());
+
+        const long long global_checked = global_sum(summary.checked);
+        const long long global_failed = global_sum(summary.failed);
+        std::ostringstream detail;
+        detail << "orientation_aware=0 checks=" << global_checked
+               << " failed=" << global_failed
+               << " edge_prepare_metadata_exchange_groups="
+               << (halo.debug_prepared_edge_1form_corner_metadata_exchange_count() -
+                   edge_prepare_before)
+               << " vertex_prepare_metadata_exchange_groups="
+               << (halo.debug_prepared_vertex_edge_1form_metadata_exchange_count() -
+                   vertex_prepare_before);
+        return print_result(
+            "Prepared Vertex-stage Edge1Form execution",
+            summary.failed == 0, detail.str());
+    }
+
+    const auto prepared_edge =
+        halo.debug_prepared_edge_1form_corner_plan("Eedge");
+    const auto prepared_vertex =
+        halo.debug_prepared_vertex_edge_1form_plan("Eedge");
+    int local_prepared_present =
+        prepared_edge.has_value() && prepared_vertex.has_value() ? 1 : 0;
+    int all_prepared_present = 0;
+    int prepared_present_count = 0;
+    MPI_Allreduce(
+        &local_prepared_present, &all_prepared_present, 1, MPI_INT,
+        MPI_MIN, MPI_COMM_WORLD);
+    MPI_Allreduce(
+        &local_prepared_present, &prepared_present_count, 1, MPI_INT,
+        MPI_SUM, MPI_COMM_WORLD);
+    if (prepared_present_count == 0)
+    {
+        // Some valid Z0 modes deliberately register Eedge below Corner3D.
+        // Vertex Prepared is then ineligible by the final Halo registry,
+        // rather than a cache or activation failure.
+        check_equal(
+            summary, context, "vertex_stage_not_registered_snapshot",
+            false, prepared_vertex.has_value());
+        check_equal(
+            summary, context, "vertex_stage_not_registered_activation",
+            false,
+            halo.activate_prepared_edge_1form_vertex_execution());
+        check_equal(
+            summary, context, "vertex_stage_not_registered_stays_legacy",
+            static_cast<int>(Edge1FormVertexExecutionMode::Legacy),
+            static_cast<int>(
+                halo.debug_edge_1form_vertex_execution_mode()));
+
+        const long long global_checked = global_sum(summary.checked);
+        const long long global_failed = global_sum(summary.failed);
+        std::ostringstream detail;
+        detail << "vertex_stage_registered=0 checks="
+               << global_checked << " failed=" << global_failed
+               << " edge_prepare_metadata_exchange_groups="
+               << (edge_prepare_after_first - edge_prepare_before)
+               << " vertex_prepare_metadata_exchange_groups="
+               << (vertex_prepare_after_first - vertex_prepare_before);
+        return print_result(
+            "Prepared Vertex-stage Edge1Form execution",
+            summary.failed == 0, detail.str());
+    }
+
+    check_equal(summary, context, "both_prepared_snapshots_present",
+                true, all_prepared_present == 1);
+    if (all_prepared_present != 1)
+    {
+        const long long global_checked = global_sum(summary.checked);
+        const long long global_failed = global_sum(summary.failed);
+        std::ostringstream detail;
+        detail << "prepared_snapshot_rank_mismatch checks="
+               << global_checked << " failed=" << global_failed;
+        return print_result(
+            "Prepared Vertex-stage Edge1Form execution", false,
+            detail.str());
+    }
+
+    check_equal(
+        summary, context, "edge_repeated_prepare_uses_cache", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "vertex_repeated_prepare_uses_cache", true,
+        halo.prepare_vertex_edge_1form_metadata());
+    check_equal(
+        summary, context, "edge_repeated_prepare_no_metadata_exchange",
+        edge_prepare_after_first,
+        halo.debug_prepared_edge_1form_corner_metadata_exchange_count());
+    check_equal(
+        summary, context, "vertex_repeated_prepare_no_metadata_exchange",
+        vertex_prepare_after_first,
+        halo.debug_prepared_vertex_edge_1form_metadata_exchange_count());
+
+    const auto expected_recv = expected_receive_plan(
+        topology, request->ncomp, request->nghost);
+    const auto expected_send = expected_send_plan(
+        expected_recv, rank, size);
+    const auto compare_state =
+        [&](const std::string &role,
+            const std::map<ValueKey, double> &expected,
+            const std::map<ValueKey, double> &actual)
+        {
+            Context value_context = context;
+            value_context.role = role.c_str();
+            check_equal(summary, value_context, "field_value_count",
+                        expected.size(), actual.size());
+            for (const auto &entry : expected)
+            {
+                const auto found = actual.find(entry.first);
+                check_equal(summary, value_context, "field_value_present",
+                            true, found != actual.end());
+                if (found != actual.end())
+                    check_equal(summary, value_context, "field_value",
+                                entry.second, found->second);
+            }
+        };
+
+    long long oracle_checks = 0;
+    long long out_of_bounds_values = 0;
+    long long oracle_nonfinite_values = 0;
+    const auto execute_marked_full_sync =
+        [&]()
+        {
+            seed_fields(field, fields, rank, request->ncomp);
+            halo.sync_group("Eedge", HaloLevel::Corner1D);
+            halo.sync_group("Eedge", HaloLevel::Corner2D);
+            const auto face_edge_state = snapshot_fields(
+                field, fields, request->ncomp);
+            const auto inner_state = simulate_inner_vertex(
+                halo, field, fields, rank, request->ncomp,
+                request->nghost, face_edge_state);
+            const PacketMap packets = gather_expected_packets(
+                expected_send, inner_state, fields, field, rank, size,
+                out_of_bounds_values, oracle_nonfinite_values);
+            halo.sync_group("Eedge", HaloLevel::Corner3D);
+            oracle_checks += check_final_values(
+                summary, rank, expected_recv, packets, fields, field);
+            return snapshot_fields(field, fields, request->ncomp);
+        };
+
+    const Edge1FormEdgeExecutionCounters edge_legacy_before =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_legacy_before =
+        halo.debug_edge_1form_vertex_execution_counters();
+    const auto legacy_state = execute_marked_full_sync();
+    const Edge1FormEdgeExecutionCounters edge_legacy_after =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_legacy_after =
+        halo.debug_edge_1form_vertex_execution_counters();
+    check_equal(
+        summary, context, "edge_legacy_metadata_alltoall_once",
+        edge_legacy_before.legacy_metadata_alltoall + 1,
+        edge_legacy_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "vertex_legacy_metadata_alltoall_once",
+        vertex_legacy_before.legacy_metadata_alltoall + 1,
+        vertex_legacy_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "edge_legacy_metadata_alltoallv_once",
+        edge_legacy_before.legacy_metadata_alltoallv + 1,
+        edge_legacy_after.legacy_metadata_alltoallv);
+    check_equal(
+        summary, context, "vertex_legacy_metadata_alltoallv_once",
+        vertex_legacy_before.legacy_metadata_alltoallv + 1,
+        vertex_legacy_after.legacy_metadata_alltoallv);
+
+    if (size > 1)
+    {
+        const Edge1FormVertexExecutionMode mismatched_mode =
+            rank == 0
+                ? Edge1FormVertexExecutionMode::Prepared
+                : Edge1FormVertexExecutionMode::Legacy;
+        check_equal(
+            summary, context, "vertex_mixed_rank_activation_rejected",
+            false,
+            halo.set_edge_1form_vertex_execution_mode(mismatched_mode));
+        check_equal(
+            summary, context, "vertex_mixed_rank_returns_legacy",
+            static_cast<int>(Edge1FormVertexExecutionMode::Legacy),
+            static_cast<int>(
+                halo.debug_edge_1form_vertex_execution_mode()));
+    }
+
+    check_equal(
+        summary, context, "vertex_prepared_activation", true,
+        halo.activate_prepared_edge_1form_vertex_execution());
+    check_equal(
+        summary, context, "vertex_prepared_active", true,
+        halo.debug_prepared_edge_1form_vertex_execution_active());
+    check_equal(
+        summary, context, "edge_remains_legacy_for_vertex_prepared",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Legacy),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+
+    const Edge1FormEdgeExecutionCounters edge_vertex_prepared_before =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_prepared_before =
+        halo.debug_edge_1form_vertex_execution_counters();
+    const std::uint64_t vertex_prepare_exchanges_before =
+        halo.debug_prepared_vertex_edge_1form_metadata_exchange_count();
+    const auto vertex_prepared_state = execute_marked_full_sync();
+    const auto vertex_prepared_repeat_state = execute_marked_full_sync();
+    const Edge1FormEdgeExecutionCounters edge_vertex_prepared_after =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_prepared_after =
+        halo.debug_edge_1form_vertex_execution_counters();
+    const std::uint64_t legacy_vertex_send_messages =
+        vertex_legacy_after.send_messages -
+        vertex_legacy_before.send_messages;
+    const std::uint64_t legacy_vertex_recv_messages =
+        vertex_legacy_after.recv_messages -
+        vertex_legacy_before.recv_messages;
+    const std::uint64_t legacy_vertex_sent_doubles =
+        vertex_legacy_after.sent_doubles -
+        vertex_legacy_before.sent_doubles;
+    const std::uint64_t legacy_vertex_received_doubles =
+        vertex_legacy_after.received_doubles -
+        vertex_legacy_before.received_doubles;
+    const std::uint64_t prepared_vertex_send_messages =
+        vertex_prepared_after.send_messages -
+        vertex_prepared_before.send_messages;
+    const std::uint64_t prepared_vertex_recv_messages =
+        vertex_prepared_after.recv_messages -
+        vertex_prepared_before.recv_messages;
+    const std::uint64_t prepared_vertex_sent_doubles =
+        vertex_prepared_after.sent_doubles -
+        vertex_prepared_before.sent_doubles;
+    const std::uint64_t prepared_vertex_received_doubles =
+        vertex_prepared_after.received_doubles -
+        vertex_prepared_before.received_doubles;
+    compare_state(
+        "edge-legacy-vertex-prepared",
+        legacy_state, vertex_prepared_state);
+    compare_state(
+        "vertex-prepared-repeat",
+        legacy_state, vertex_prepared_repeat_state);
+    check_equal(
+        summary, context, "vertex_prepared_execution_count_twice",
+        vertex_prepared_before.prepared_executions + 2,
+        vertex_prepared_after.prepared_executions);
+    check_equal(
+        summary, context, "vertex_prepared_runtime_alltoall_zero",
+        vertex_prepared_before.legacy_metadata_alltoall,
+        vertex_prepared_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "vertex_prepared_runtime_alltoallv_zero",
+        vertex_prepared_before.legacy_metadata_alltoallv,
+        vertex_prepared_after.legacy_metadata_alltoallv);
+    check_equal(
+        summary, context, "vertex_prepared_reuses_active_view", true,
+        halo.debug_prepared_edge_1form_vertex_execution_active());
+    check_equal(
+        summary, context, "vertex_prepared_reuses_metadata",
+        vertex_prepare_exchanges_before,
+        halo.debug_prepared_vertex_edge_1form_metadata_exchange_count());
+    check_equal(
+        summary, context, "edge_legacy_during_vertex_prepared",
+        edge_vertex_prepared_before.legacy_metadata_alltoall + 2,
+        edge_vertex_prepared_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "vertex_prepared_message_count",
+        2 * (vertex_legacy_after.send_messages -
+             vertex_legacy_before.send_messages),
+        vertex_prepared_after.send_messages -
+            vertex_prepared_before.send_messages);
+    check_equal(
+        summary, context, "vertex_prepared_payload_count",
+        2 * (vertex_legacy_after.sent_doubles -
+             vertex_legacy_before.sent_doubles),
+        vertex_prepared_after.sent_doubles -
+            vertex_prepared_before.sent_doubles);
+
+    check_equal(
+        summary, context, "deactivate_vertex_before_both_prepared", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+    check_equal(
+        summary, context, "edge_prepared_activation", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_activation_after_edge", true,
+        halo.activate_prepared_edge_1form_vertex_execution());
+    check_equal(
+        summary, context, "both_prepared_active", true,
+        halo.debug_prepared_edge_1form_edge_execution_active() &&
+            halo.debug_prepared_edge_1form_vertex_execution_active());
+
+    const Edge1FormEdgeExecutionCounters edge_both_prepared_before =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_both_prepared_before =
+        halo.debug_edge_1form_vertex_execution_counters();
+    const auto both_prepared_state = execute_marked_full_sync();
+    const Edge1FormEdgeExecutionCounters edge_both_prepared_after =
+        halo.debug_edge_1form_edge_execution_counters();
+    const Edge1FormVertexExecutionCounters vertex_both_prepared_after =
+        halo.debug_edge_1form_vertex_execution_counters();
+    compare_state(
+        "edge-prepared-vertex-prepared",
+        legacy_state, both_prepared_state);
+    check_equal(
+        summary, context, "edge_prepared_execution_once",
+        edge_both_prepared_before.prepared_executions + 1,
+        edge_both_prepared_after.prepared_executions);
+    check_equal(
+        summary, context, "vertex_both_prepared_execution_once",
+        vertex_both_prepared_before.prepared_executions + 1,
+        vertex_both_prepared_after.prepared_executions);
+    check_equal(
+        summary, context, "edge_both_prepared_alltoall_zero",
+        edge_both_prepared_before.legacy_metadata_alltoall,
+        edge_both_prepared_after.legacy_metadata_alltoall);
+    check_equal(
+        summary, context, "vertex_both_prepared_alltoall_zero",
+        vertex_both_prepared_before.legacy_metadata_alltoall,
+        vertex_both_prepared_after.legacy_metadata_alltoall);
+
+    check_equal(
+        summary, context, "edge_deactivate_before_nonfinite", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_deactivate_before_nonfinite", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+    seed_fields(field, fields, rank, request->ncomp);
+    halo.sync_group("Eedge", HaloLevel::Corner1D);
+    halo.sync_group("Eedge", HaloLevel::Corner2D);
+    fill_fields(
+        field, fields, request->ncomp,
+        std::numeric_limits<double>::quiet_NaN());
+    halo.sync_group("Eedge", HaloLevel::Corner3D);
+    const long long legacy_nonfinite_checks =
+        check_zero_final_values(
+            summary, rank, expected_recv, fields, field);
+
+    check_equal(
+        summary, context, "vertex_prepare_before_nonfinite", true,
+        halo.prepare_vertex_edge_1form_metadata());
+    check_equal(
+        summary, context, "vertex_activate_before_nonfinite", true,
+        halo.activate_prepared_edge_1form_vertex_execution());
+    seed_fields(field, fields, rank, request->ncomp);
+    halo.sync_group("Eedge", HaloLevel::Corner1D);
+    halo.sync_group("Eedge", HaloLevel::Corner2D);
+    fill_fields(
+        field, fields, request->ncomp,
+        std::numeric_limits<double>::quiet_NaN());
+    halo.sync_group("Eedge", HaloLevel::Corner3D);
+    const long long prepared_nonfinite_checks =
+        check_zero_final_values(
+            summary, rank, expected_recv, fields, field);
+
+    check_equal(
+        summary, context, "edge_activate_before_lifecycle", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "both_active_before_rebuild", true,
+        halo.debug_prepared_edge_1form_edge_execution_active() &&
+            halo.debug_prepared_edge_1form_vertex_execution_active());
+    halo.build_registered_patterns();
+    check_equal(
+        summary, context, "rebuild_invalidates_edge_view", false,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+    check_equal(
+        summary, context, "rebuild_invalidates_vertex_view", false,
+        halo.debug_prepared_edge_1form_vertex_execution_active());
+    check_equal(
+        summary, context, "rebuild_keeps_edge_mode_stale",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "rebuild_keeps_vertex_mode_stale",
+        static_cast<int>(Edge1FormVertexExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_vertex_execution_mode()));
+    check_equal(
+        summary, context, "edge_explicit_deactivate_after_rebuild", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_explicit_deactivate_after_rebuild", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+    check_equal(
+        summary, context, "edge_prepare_after_rebuild", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "vertex_prepare_after_rebuild", true,
+        halo.prepare_vertex_edge_1form_metadata());
+    check_equal(
+        summary, context, "edge_activate_after_rebuild", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_activate_after_rebuild", true,
+        halo.activate_prepared_edge_1form_vertex_execution());
+
+    std::vector<FieldHaloRequest> triplet;
+    for (FieldHaloRequest candidate : requests)
+    {
+        const std::string group =
+            candidate.sync_group.empty()
+                ? candidate.field_name
+                : candidate.sync_group;
+        if (candidate.do_halo &&
+            candidate.orientation_aware &&
+            candidate.value_kind ==
+                FieldValueKind::EdgeCovariant1Form &&
+            group == "Eedge")
+        {
+            candidate.level = HaloLevel::Corner3D;
+            triplet.push_back(std::move(candidate));
+        }
+    }
+    check_equal(summary, context, "reregister_complete_triplet",
+                std::size_t(3), triplet.size());
+    halo.register_halo_fields(triplet);
+    check_equal(
+        summary, context, "reregister_invalidates_edge_view", false,
+        halo.debug_prepared_edge_1form_edge_execution_active());
+    check_equal(
+        summary, context, "reregister_invalidates_vertex_view", false,
+        halo.debug_prepared_edge_1form_vertex_execution_active());
+    check_equal(
+        summary, context, "reregister_keeps_edge_mode_stale",
+        static_cast<int>(Edge1FormEdgeExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_edge_execution_mode()));
+    check_equal(
+        summary, context, "reregister_keeps_vertex_mode_stale",
+        static_cast<int>(Edge1FormVertexExecutionMode::Prepared),
+        static_cast<int>(halo.debug_edge_1form_vertex_execution_mode()));
+    check_equal(
+        summary, context, "edge_explicit_deactivate_after_reregister", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_explicit_deactivate_after_reregister", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+    halo.build_registered_patterns();
+    check_equal(
+        summary, context, "edge_prepare_after_reregister", true,
+        halo.prepare_edge_1form_corner_metadata());
+    check_equal(
+        summary, context, "vertex_prepare_after_reregister", true,
+        halo.prepare_vertex_edge_1form_metadata());
+    check_equal(
+        summary, context, "edge_activate_after_reregister", true,
+        halo.activate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_activate_after_reregister", true,
+        halo.activate_prepared_edge_1form_vertex_execution());
+    check_equal(
+        summary, context, "edge_final_deactivate", true,
+        halo.deactivate_prepared_edge_1form_edge_execution());
+    check_equal(
+        summary, context, "vertex_final_deactivate", true,
+        halo.deactivate_prepared_edge_1form_vertex_execution());
+
+    const long long global_checked = global_sum(summary.checked);
+    const long long global_failed = global_sum(summary.failed);
+    const long long global_oracle_checks = global_sum(oracle_checks);
+    const long long global_legacy_nonfinite =
+        global_sum(legacy_nonfinite_checks);
+    const long long global_prepared_nonfinite =
+        global_sum(prepared_nonfinite_checks);
+    const long long global_recv =
+        global_sum(static_cast<long long>(expected_recv.size()));
+    const long long global_send =
+        global_sum(static_cast<long long>(expected_send.size()));
+    const long long global_oob = global_sum(out_of_bounds_values);
+    const long long global_oracle_nonfinite =
+        global_sum(oracle_nonfinite_values);
+    std::ostringstream detail;
+    const long long global_legacy_vertex_send_messages = global_sum(
+        static_cast<long long>(legacy_vertex_send_messages));
+    const long long global_legacy_vertex_recv_messages = global_sum(
+        static_cast<long long>(legacy_vertex_recv_messages));
+    const long long global_legacy_vertex_sent_doubles = global_sum(
+        static_cast<long long>(legacy_vertex_sent_doubles));
+    const long long global_legacy_vertex_received_doubles = global_sum(
+        static_cast<long long>(legacy_vertex_received_doubles));
+    const long long global_prepared_vertex_send_messages = global_sum(
+        static_cast<long long>(prepared_vertex_send_messages));
+    const long long global_prepared_vertex_recv_messages = global_sum(
+        static_cast<long long>(prepared_vertex_recv_messages));
+    const long long global_prepared_vertex_sent_doubles = global_sum(
+        static_cast<long long>(prepared_vertex_sent_doubles));
+    const long long global_prepared_vertex_received_doubles = global_sum(
+        static_cast<long long>(prepared_vertex_received_doubles));
+    detail << "checks=" << global_checked
+           << " failed=" << global_failed
+           << " recv_records=" << global_recv
+           << " send_records=" << global_send
+           << " marker_value_checks=" << global_oracle_checks
+           << " legacy_nonfinite_checks="
+           << global_legacy_nonfinite
+           << " prepared_nonfinite_checks="
+           << global_prepared_nonfinite
+           << " out_of_bounds_values=" << global_oob
+           << " oracle_nonfinite_values="
+           << global_oracle_nonfinite
+           << " vertex_prepared_runtime_metadata_collectives=0"
+           << " legacy_vertex_send_messages="
+           << global_legacy_vertex_send_messages
+           << " legacy_vertex_recv_messages="
+           << global_legacy_vertex_recv_messages
+           << " legacy_vertex_sent_doubles="
+           << global_legacy_vertex_sent_doubles
+           << " legacy_vertex_received_doubles="
+           << global_legacy_vertex_received_doubles
+           << " prepared_vertex_send_messages="
+           << global_prepared_vertex_send_messages
+           << " prepared_vertex_recv_messages="
+           << global_prepared_vertex_recv_messages
+           << " prepared_vertex_sent_doubles="
+           << global_prepared_vertex_sent_doubles
+           << " prepared_vertex_received_doubles="
+           << global_prepared_vertex_received_doubles
+           << " repeated_vertex_prepared_syncs=2"
+           << " mode_combinations=3";
+    return print_result(
+        "Prepared Vertex-stage Edge1Form execution",
+        summary.failed == 0, detail.str());
+}
+
 } // namespace Z0_TEST

@@ -35,6 +35,26 @@ struct Edge1FormEdgeExecutionCounters
 
 struct PreparedEdge1FormEdgeExecutionView;
 
+enum class Edge1FormVertexExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Edge1FormVertexExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedEdge1FormVertexExecutionView;
+
 class Halo
 {
 public:
@@ -101,6 +121,18 @@ public:
     bool debug_prepared_edge_1form_edge_execution_active() const noexcept;
     Edge1FormEdgeExecutionCounters
     debug_edge_1form_edge_execution_counters() const noexcept;
+
+    // Default is Legacy. Vertex activation is independent from Edge-stage
+    // activation and requires prepared Corner3D metadata on every rank.
+    bool set_edge_1form_vertex_execution_mode(
+        Edge1FormVertexExecutionMode mode);
+    bool activate_prepared_edge_1form_vertex_execution();
+    bool deactivate_prepared_edge_1form_vertex_execution();
+    Edge1FormVertexExecutionMode
+    debug_edge_1form_vertex_execution_mode() const noexcept;
+    bool debug_prepared_edge_1form_vertex_execution_active() const noexcept;
+    Edge1FormVertexExecutionCounters
+    debug_edge_1form_vertex_execution_counters() const noexcept;
 
 
     // Explicit initialization-time metadata preparation for the existing
@@ -220,6 +252,12 @@ private:
     void coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
 
+    void invalidate_prepared_edge_1form_vertex_execution_();
+    bool prepared_edge_1form_vertex_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedEdge1FormVertexExecutionView>
+    make_prepared_edge_1form_vertex_execution_view_(
+        const LegacyOrientedVertexPlanSnapshot &snapshot) const;
+
     // Orientation-aware coupling helpers.
     bool coupling_channel_needs_form_transfer_(const CouplingChannelSpec &ch) const;
     int coupling_form_axis_from_location_(StaggerLocation loc) const;
@@ -323,6 +361,15 @@ private:
     std::uint64_t prepared_vertex_edge_1form_registry_generation_ = 0;
     std::uint64_t prepared_vertex_edge_1form_pattern_generation_ = 0;
     std::uint64_t prepared_vertex_edge_1form_metadata_exchange_count_ = 0;
+    // Independent Vertex-stage execution view built once at activation.
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedEdge1FormVertexExecutionView>>
+        prepared_edge_1form_vertex_execution_plans_;
+    Edge1FormVertexExecutionMode edge_1form_vertex_execution_mode_ =
+        Edge1FormVertexExecutionMode::Legacy;
+    std::uint64_t edge_1form_vertex_execution_registry_generation_ = 0;
+    std::uint64_t edge_1form_vertex_execution_pattern_generation_ = 0;
+    Edge1FormVertexExecutionCounters edge_1form_vertex_execution_counters_;
 
     struct PreparedEdgeFace2FormPlanEntry
     {
