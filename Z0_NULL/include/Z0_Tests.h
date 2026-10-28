@@ -48,6 +48,9 @@ namespace Z0_TEST
         Field &field, Halo &halo, int myid);
     bool RunFace2FormVertexPlanTests(const Grid &grid, const TOPO::Topology &topology,
                                      Field &field, Halo &halo, int myid);
+    bool RunCouplingIntegrationTests(
+        Grid &grid, const TOPO::Topology &topology,
+        Param &param, int myid);
     bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
     bool RunPhysicalIoTests(Field &field, Param &param);
 }

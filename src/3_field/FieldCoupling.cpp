@@ -117,6 +117,7 @@ void Field::register_coupling_channel(const std::string &src,
 
     pair_desc.channels.push_back(
         make_channel_spec(tag, location, value_kind, ncomp, nghost, orientation_aware));
+    ++coupling_generation_;
 }
 
 void Field::register_coupling_channel(const std::string &src,
@@ -210,6 +211,8 @@ void Field::build_coupling_buffers(const TOPO::Topology &topo, int dimension)
 
         coupling_buffers_[key] = std::move(bs);
     }
+
+    ++coupling_generation_;
 
     auto build_face_list = [&](const auto &plist, TOPO::PatchKind kind,
                                auto CouplingBuffersForPair::*storage_member)

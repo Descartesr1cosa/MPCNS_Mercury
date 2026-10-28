@@ -95,6 +95,25 @@ struct Face2FormVertexExecutionCounters
 
 struct PreparedFace2FormVertexExecutionView;
 
+enum class CouplingExecutionMode
+{
+    Prepared,
+    LegacyValidation
+};
+
+struct CouplingExecutionCounters
+{
+    std::uint64_t prepared_inner_channel_executions = 0;
+    std::uint64_t prepared_parallel_channel_executions = 0;
+    std::uint64_t legacy_entry_executions = 0;
+    std::uint64_t initialization_collectives = 0;
+    std::uint64_t zero_length_messages = 0;
+    std::uint64_t sent_messages = 0;
+    std::uint64_t received_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
 class Halo
 {
 public:
@@ -121,6 +140,14 @@ public:
     void dump_sync_registry(std::ostream &os) const;
     HALO_EXEC::Statistics
     debug_prepared_exchange_statistics() const noexcept;
+
+    // Prepared is the production mode. LegacyValidation exists only for
+    // exact regression comparison and retains the former scan/temporary
+    // buffer implementation.
+    void set_coupling_execution_mode(CouplingExecutionMode mode) noexcept;
+    CouplingExecutionMode debug_coupling_execution_mode() const noexcept;
+    CouplingExecutionCounters debug_coupling_execution_counters() const noexcept;
+    bool debug_coupling_execution_ready() const noexcept;
 
     // Test/debug helper: expose the recv/send boxes used by the registered
     // halo patterns without changing the production sync path.
@@ -319,6 +346,19 @@ private:
     void coupling_parallel_vertex(const std::string &src, const std::string &dst);
     void coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
     void coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids);
+
+    void coupling_inner_face_legacy_(const std::string &, const std::string &);
+    void coupling_inner_face_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_inner_edge_legacy_(const std::string &, const std::string &);
+    void coupling_inner_edge_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_inner_vertex_legacy_(const std::string &, const std::string &);
+    void coupling_inner_vertex_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_face_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_face_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_edge_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_edge_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
+    void coupling_parallel_vertex_legacy_(const std::string &, const std::string &);
+    void coupling_parallel_vertex_legacy_(const std::string &, const std::string &, std::vector<int32_t> &);
 
     void invalidate_prepared_edge_1form_vertex_execution_();
     bool prepared_edge_1form_vertex_execution_valid_() const noexcept;
@@ -559,6 +599,72 @@ private:
     std::map<std::string, std::vector<OrientedFaceExchangePlan>>
         oriented_face_exchange_plans_;
 
+    struct CouplingPlanKey
+    {
+        std::string src;
+        std::string dst;
+        int stage = 0;
+        int channel = 0;
+
+        bool operator<(const CouplingPlanKey &other) const
+        {
+            if (src != other.src)
+                return src < other.src;
+            if (dst != other.dst)
+                return dst < other.dst;
+            if (stage != other.stage)
+                return stage < other.stage;
+            return channel < other.channel;
+        }
+    };
+
+    struct LocalCouplingTransfer
+    {
+        int source_fid = -1;
+        int source_block = -1;
+        std::size_t buffer_index = 0;
+        Box3 destination_box;
+        TOPO::IndexTransform destination_to_source{};
+        int ncomp = 0;
+        double factor = 1.0;
+    };
+
+    struct ParallelCouplingSendTransfer
+    {
+        int source_fid = -1;
+        int source_block = -1;
+        Box3 source_box;
+        TOPO::IndexTransform source_to_destination{};
+        int ncomp = 0;
+        double factor = 1.0;
+    };
+
+    struct ParallelCouplingRecvTransfer
+    {
+        std::size_t buffer_index = 0;
+        Box3 destination_box;
+        int ncomp = 0;
+    };
+
+    struct ParallelCouplingPlan
+    {
+        std::vector<ParallelCouplingSendTransfer> sends;
+        std::vector<ParallelCouplingRecvTransfer> recvs;
+        HALO_EXEC::Plan exchange_plan;
+    };
+
+    std::map<CouplingPlanKey, std::vector<LocalCouplingTransfer>>
+        local_coupling_plans_;
+    std::map<CouplingPlanKey, ParallelCouplingPlan>
+        parallel_coupling_plans_;
+    CouplingExecutionMode coupling_execution_mode_ =
+        CouplingExecutionMode::Prepared;
+    CouplingExecutionCounters coupling_execution_counters_;
+    std::uint64_t coupling_field_generation_ = 0;
+    std::uint64_t coupling_pattern_generation_ = 0;
+    bool coupling_plans_ready_ = false;
+    int coupling_tag_base_ = -1;
+
     HALO_EXEC::PreparedExchangeExecutor prepared_exchange_executor_;
     std::unordered_map<std::string, int> owner_sync_tags_;
 
@@ -635,6 +741,33 @@ private:
     void validate_owner_sync_pattern_lengths_(OwnerSyncPattern &pat) const;
 
     void configure_owner_sync_tags_();
+
+    void collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const;
+    void validate_coupling_registry_consistency_();
+    void build_coupling_execution_plans_(std::uint64_t generation);
+
+    void execute_coupling_inner_(const std::string &src,
+                                 const std::string &dst,
+                                 HaloLevel stage,
+                                 const std::vector<int32_t> *channels);
+    void execute_coupling_parallel_(const std::string &src,
+                                    const std::string &dst,
+                                    HaloLevel stage,
+                                    const std::vector<int32_t> *channels);
+    void validate_coupling_execution_ready_() const;
+    int managed_coupling_tag_(int original_tag) const;
+
+    std::vector<CouplingBufferBlock> &coupling_buffer_list_(
+        CouplingBuffersForPair &buffers, HaloLevel stage,
+        bool parallel, int channel) const;
+
+    const ParallelCouplingPlan &parallel_coupling_plan_(
+        const std::string &src, const std::string &dst,
+        HaloLevel stage, int channel) const;
+
+    const std::vector<LocalCouplingTransfer> &local_coupling_plan_(
+        const std::string &src, const std::string &dst,
+        HaloLevel stage, int channel) const;
 
     void build_component_copy_exchange_plans_(
         std::uint64_t generation);

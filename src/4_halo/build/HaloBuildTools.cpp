@@ -1,6 +1,8 @@
 #include "4_halo/detail/HaloBuildTools.h"
 #include "0_basic/Error.h"
 
+#include <algorithm>
+
 namespace HALO_TOOLS
 {
     //=========================================================================
@@ -313,12 +315,19 @@ namespace HALO_TOOLS
         // tar_ref[0] = (tar1[0] <= tar2[0]) ? tar1[0] : tar2[0];
         // tar_ref[1] = (tar1[1] <= tar2[1]) ? tar1[1] : tar2[1];
         // tar_ref[2] = (tar1[2] <= tar2[2]) ? tar1[2] : tar2[2];
-        int tar_ref[3] = {0, 0, 0}; // nb box 的“最小角”锚点：用 sb.lo 映射得到
+        int tar_lo[3] = {0, 0, 0};
+        int tar_hi[3] = {0, 0, 0};
+        int tar_ref[3] = {0, 0, 0};
+        const int loc_lo[3] = {sb.lo.i, sb.lo.j, sb.lo.k};
+        const int loc_hi[3] = {sb.hi.i - 1, sb.hi.j - 1,
+                               sb.hi.k - 1};
+        for (int a = 0; a < 3; ++a)
         {
-            int loc0[3] = {sb.lo.i, sb.lo.j, sb.lo.k};
-            for (int a = 0; a < 3; ++a)
-                tar_ref[T.perm[a]] = T.sign[a] * loc0[a] + offset[a];
+            tar_lo[T.perm[a]] = T.sign[a] * loc_lo[a] + offset[a];
+            tar_hi[T.perm[a]] = T.sign[a] * loc_hi[a] + offset[a];
         }
+        for (int a = 0; a < 3; ++a)
+            tar_ref[a] = std::min(tar_lo[a], tar_hi[a]);
 
         int len_nb[3] = {0, 0, 0};
         for (int d = 0; d < 3; ++d)

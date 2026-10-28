@@ -80,6 +80,10 @@ public:
     const CouplingPairDesc &coupling_pair(const std::string &src, const std::string &dst) const;
     CouplingBuffersForPair &coupling_buffers(const std::string &src, const std::string &dst);
     const std::map<PairKey, CouplingPairDesc> &coupling_pairs() const;
+    std::uint64_t coupling_generation() const noexcept
+    {
+        return coupling_generation_;
+    }
 
 private:
     void bind_grid(Grid *grid);
@@ -88,6 +92,7 @@ private:
     FieldStorage storage_;
     std::map<PairKey, CouplingPairDesc> coupling_pairs_;
     std::map<PairKey, CouplingBuffersForPair> coupling_buffers_;
+    std::uint64_t coupling_generation_ = 0;
 
 public:
     // Legacy public handles kept for existing solver code.

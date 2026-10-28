@@ -2,7 +2,7 @@
 #include "2_topology/TopologyView.h"
 #include "4_halo/detail/HaloBuildTools.h"
 
-void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
+void Halo::coupling_inner_face_legacy_(const std::string &src, const std::string &dst)
 {
     // 0) 必须先有 coupling 定义 + 已经 build_coupling_buffers
     if (!fld_->has_coupling_pair(src, dst))
@@ -93,7 +93,7 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst)
     }
 }
 
-void Halo::coupling_inner_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_inner_face_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     // 0) 必须先有 coupling 定义 + 已经 build_coupling_buffers
     if (!fld_->has_coupling_pair(src, dst))
@@ -185,7 +185,7 @@ void Halo::coupling_inner_face(const std::string &src, const std::string &dst, s
     }
 }
 
-void Halo::coupling_inner_edge(const std::string &src, const std::string &dst)
+void Halo::coupling_inner_edge_legacy_(const std::string &src, const std::string &dst)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;
@@ -262,7 +262,7 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst)
     }
 }
 
-void Halo::coupling_inner_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_inner_edge_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;
@@ -339,7 +339,7 @@ void Halo::coupling_inner_edge(const std::string &src, const std::string &dst, s
     }
 }
 
-void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst)
+void Halo::coupling_inner_vertex_legacy_(const std::string &src, const std::string &dst)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;
@@ -416,7 +416,7 @@ void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst)
     }
 }
 
-void Halo::coupling_inner_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_inner_vertex_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;

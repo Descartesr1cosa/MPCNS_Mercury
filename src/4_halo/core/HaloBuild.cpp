@@ -452,6 +452,9 @@ void Halo::build_registered_patterns()
     owner_sync_patterns_.clear();
     component_exchange_plans_.clear();
     oriented_face_exchange_plans_.clear();
+    local_coupling_plans_.clear();
+    parallel_coupling_plans_.clear();
+    coupling_plans_ready_ = false;
 
     // 维度
     const int dim = fld_->grd->dimension;
@@ -507,26 +510,9 @@ void Halo::build_registered_patterns()
     // 5) Coupling parallel corner patterns (directed src -> dst)
     //    Build once here to avoid lazy rebuild during frequent coupling exchanges.
     const auto &cpairs = fld_->coupling_pairs();
+    validate_coupling_registry_consistency_();
     if (!cpairs.empty())
     {
-        // small helpers: check whether any matching coupling patches exist on this rank
-        auto has_parallel_coupling_edge = [&](const std::string &src, const std::string &dst) -> bool
-        {
-            const auto &parallel_edges = TOPO_VIEW::edge_patches(*topo_, TOPO::PatchKind::Parallel);
-            for (const auto &ep : parallel_edges)
-                if (ep.is_coupling && ep.nb_block_name == src && ep.this_block_name == dst)
-                    return true;
-            return false;
-        };
-        auto has_parallel_coupling_vertex = [&](const std::string &src, const std::string &dst) -> bool
-        {
-            const auto &parallel_vertices = TOPO_VIEW::vertex_patches(*topo_, TOPO::PatchKind::Parallel);
-            for (const auto &vp : parallel_vertices)
-                if (vp.is_coupling && vp.nb_block_name == src && vp.this_block_name == dst)
-                    return true;
-            return false;
-        };
-
         for (const auto &kv : cpairs)
         {
             const CouplingPairDesc &pd = kv.second;
@@ -548,17 +534,15 @@ void Halo::build_registered_patterns()
                 }
             }
 
-            if (dim >= 2 && has_parallel_coupling_edge(src, dst))
-            {
+            // Every rank follows the same metadata protocol. Empty ranks build
+            // empty patterns and still participate in the collectives.
+            if (dim >= 2)
                 for (const auto &k : ckeys)
                     build_coupling_parallel_2DCorner_pattern(src, dst, k.first, k.second);
-            }
 
-            if (dim >= 3 && has_parallel_coupling_vertex(src, dst))
-            {
+            if (dim >= 3)
                 for (const auto &k : ckeys)
                     build_coupling_parallel_3DCorner_pattern(src, dst, k.first, k.second);
-            }
         }
     }
 
@@ -567,6 +551,7 @@ void Halo::build_registered_patterns()
     build_component_copy_exchange_plans_(next_generation);
     build_oriented_face_exchange_plans_(next_generation);
     configure_owner_sync_tags_();
+    build_coupling_execution_plans_(next_generation);
     build_owner_sync_patterns_();
     prepared_exchange_executor_.activate();
     registered_patterns_built_ = true;

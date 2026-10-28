@@ -62,8 +62,8 @@ inline void finalize_plan(Plan &plan)
     }
 }
 
-// A Halo deliberately shares this workspace among every non-Coupling
-// prepared exchange. Halo calls are serialized; nested/concurrent use is a
+// A Halo deliberately shares this workspace among every prepared exchange,
+// including Coupling. Halo calls are serialized; nested/concurrent use is a
 // contract violation rather than a reason to allocate a second workspace.
 class PreparedExchangeExecutor
 {

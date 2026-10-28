@@ -2191,3 +2191,154 @@ prepared result comparison is recorded.
 The framework is otherwise frozen at this boundary. No Coupling semantics,
 Coupling exchange, CT/Hall/DEC operator, physical boundary condition, grid or
 topology construction, Field model, or user synchronization API was changed.
+
+
+## 48. Final Coupling Integration — Acceptance
+
+Coupling is now a first-class member of the prepared communication
+framework. The public `coupling_trans_1DCorner`,
+`coupling_trans_2DCorner`, and `coupling_trans_3DCorner` APIs, including
+their explicit channel-subset overloads, are unchanged. Their production
+implementation now consumes initialization-time plans for all six Inner and
+Parallel Face/Edge/Vertex paths. The former implementations remain reachable
+only through the explicit `CouplingExecutionMode::LegacyValidation` test
+mode; there is no stage-specific silent fallback.
+
+Parallel Coupling uses the same Halo-owned
+`HALO_EXEC::PreparedExchangeExecutor` as ordinary prepared communication.
+Each plan freezes the directed physics pair, channel, stage, source field and
+block, destination CouplingBuffer index, peer, managed tag, message order and
+length, boxes, transform, orientation factor, and enabled state. Runtime is
+therefore only specialized pack, deterministic Irecv/Isend, wait, and
+specialized unpack. It does not scan Topology patches, discover buffers,
+derive source axes, allocate fixed-size communication storage, or run a
+metadata collective.
+
+Inner Coupling uses a lightweight `LocalCouplingTransfer` plan under the
+same generation lifecycle. It stores stable field/block/buffer indices,
+destination boxes, transforms, component counts, and orientation factors;
+runtime performs only the local mapped copy into the existing
+CouplingBuffer. Neither Inner nor Parallel plans retain pointers to FieldBlock,
+CouplingBuffer, or Topology elements.
+
+The CouplingBuffer remains the semantic boundary between communication and
+physics:
+
+`Source Field -> prepared local/MPI transfer -> CouplingBuffer ->
+BoundaryCore::ApplyCouplingPair -> destination physical Field`.
+
+`DefaultCouplingCopy`, custom handlers, directed pairs, channel order,
+scalar and CartesianVector components, EdgeCovariant1Form and
+FaceContravariant2Form permutation/sign rules, and Face -> Edge -> Vertex
+staging are unchanged.
+
+### Build, ordering, and lifecycle contract
+
+`build_registered_patterns()` now executes one rank-global Coupling build
+protocol even on ranks with no local Coupling patch or local message. It
+validates the ordered pair/channel registry, builds all pair/channel/stage
+plans, matches each MPI schedule by peer/tag/ordinal/length, reserves the
+shared workspace, and activates the new generation. Coupling registry
+changes and CouplingBuffer rebuilds increment a Field generation; Halo
+registration/pattern rebuilds invalidate the Halo generation. A stale
+generation is diagnosed before transfer and requires an explicit
+`build_registered_patterns()`.
+
+Plan order is deterministic: ordered Field pair registry, registered channel
+order, and the caller's Face/Edge/Vertex stage order. The subset overload has
+an explicit collective contract: every rank must call the same directed pair
+and the same ordered channel-id subset. No runtime collective is inserted to
+repair inconsistent rank-local selections.
+
+Owner/Alias tags remain allocated downwards from `MPI_TAG_UB`. Coupling
+uses a separately managed contiguous range immediately below Owner/Alias and
+above the global maximum tag used by normal Face/Edge/Vertex patterns.
+Initialization aborts if the communicator cannot provide disjoint ranges.
+The original Coupling flags are preserved as stable offsets inside the
+managed range.
+
+The shared executor clears the used persistent send range before packing,
+so an unallocated source cannot expose data from an earlier Coupling call.
+Disabled messages are matched and disabled on both endpoints during build.
+Zero-length enabled messages retain normal MPI semantics. Requests and
+statuses are completed before workspace reuse, and nested/concurrent use is
+rejected.
+
+### Migration inventory
+
+| Coupling path | Production execution |
+| --- | --- |
+| Inner Face, Edge, Vertex; full and subset | Prebuilt local plan |
+| Parallel Face, Edge, Vertex; full and subset | Shared PreparedExchangeExecutor |
+| Boundary Coupling handlers and copy | Existing BoundaryCore implementation |
+| Legacy Coupling scan/temporary-buffer implementations | Explicit LegacyValidation mode only |
+
+No Coupling path remains on Legacy in normal production mode. No solver,
+Boundary, topology, grid, numerical operator, or user synchronization API was
+redesigned.
+
+### Acceptance and performance evidence
+
+The dedicated three-rank test builds a multi-block Coupling topology from
+the bundled Z0 geometry and executes the real public Coupling and Boundary
+paths. Its first topology leaves two ranks without a local receive-side
+parallel Coupling buffer and one rank with no local Coupling patch of any
+kind, while retaining rank-global plan construction. It then rebuilds with
+all parallel interfaces enabled, exercises a rank with two
+peers, and proves the Field generation invalidates the old plans before an
+explicit Halo rebuild restores execution.
+
+The focused result was:
+
+- 409,484 CouplingBuffer elements compared exactly between Legacy and
+  Prepared full-channel execution;
+- 205,392 elements compared exactly for an ordered channel subset;
+- 205,392 epoch-2 elements compared exactly after repeated execution,
+  detecting stale persistent-send data;
+- 145,100 scalar/vector elements plus 270 negative orientation and 212
+  non-identity permutation coverage instances;
+- 102,676 destination values checked after DefaultCouplingCopy and a custom
+  CouplingHandler;
+- 320 Inner and 48 Parallel receive buffers in the empty-rank topology;
+- 24 zero-length plan messages from the explicit nghost=0 channel;
+- 669,614 values executed after generation invalidation/rebuild in the
+  two-peer topology;
+- 90 stable prepared executor calls with zero workspace growth and zero
+  runtime metadata collectives before rebuild.
+
+The dedicated run and the two existing MPI harnesses were executed serially
+on 2026-10-28:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 built and linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| `NP=3 bash Z0_NULL/run_coupling_validation.sh` | 0; all Coupling assertions and MPI-global summary passed |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes passed |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, owner_only passed |
+
+The general harnesses continue to cover ordinary Halo, all oriented forms,
+Owner/Alias, topology/equivalence, CT, DEC, Faraday, Hodge, StateView,
+geometry, physical I/O, OOB/non-finite handling, zero-length messages, and
+the MPI-global result protocol. The dedicated test additionally verifies the
+Boundary Coupling layer and exact full/subset/repeated Coupling values.
+
+No standalone wall-clock, latency, or bandwidth benchmark was collected, so
+this integration makes no throughput claim. The demonstrated performance
+properties are deterministic: stable execution performs no fixed-workspace
+reallocation and no metadata collective, while communication buffers,
+requests, and statuses are shared with the existing executor.
+
+### Remaining production evidence limitation
+
+A real Mercury time-advance comparison was not run because this checkout has
+no `Z4_Mercury/CASE` directory and therefore no Mercury setup, decomposed
+geometry, initial state, or reference result. `MercuryZ4` builds and links,
+but that is not claimed as physical-case acceptance. The independent Z0
+multi-block Coupling integration test is the available execution evidence
+until a production case is supplied.
+
+This completes and freezes Step 1. Step 2 (Solver Runtime API), Step 3
+(Independent Solver Demonstration), and unrelated framework refactors are
+not started.

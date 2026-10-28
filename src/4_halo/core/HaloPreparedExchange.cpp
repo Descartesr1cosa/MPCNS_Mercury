@@ -1,6 +1,7 @@
 #include "4_halo/Halo.h"
 
 #include "0_basic/Error.h"
+#include "2_topology/TopologyView.h"
 #include "4_halo/detail/HaloBuildTools.h"
 
 #include <algorithm>
@@ -211,6 +212,11 @@ void unpack_box(FieldBlock &field, const HaloRegion &region, int ncomp,
                         buffer[base + component];
             }
 }
+}
+
+void Halo::collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const
+{
+    collectively_match_plan(plan);
 }
 
 void Halo::build_component_copy_exchange_plans_(std::uint64_t generation)
@@ -517,6 +523,7 @@ Halo::debug_prepared_exchange_statistics() const noexcept
 void Halo::configure_owner_sync_tags_()
 {
     owner_sync_tags_.clear();
+    coupling_tag_base_ = -1;
     int *tag_upper_bound = nullptr;
     int present = 0;
     MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &tag_upper_bound,
@@ -528,12 +535,76 @@ void Halo::configure_owner_sync_tags_()
     if (required > *tag_upper_bound)
         ERROR::Abort("[Halo] insufficient MPI tags for Owner/Alias plans");
 
-    // The managed Owner/Alias namespace is allocated from MPI_TAG_UB down.
-    // Existing legacy halo tags are built from small local ordinals, so the
-    // two namespaces cannot collide.
     for (int index = 0; index < required; ++index)
         owner_sync_tags_.emplace(owner_sync_requests_[index].field_name,
                                  *tag_upper_bound - index);
+
+    int local_normal_max = 0;
+    int local_coupling_max = 0;
+    const auto scan_plan = [&](const HALO_EXEC::Plan &plan)
+    {
+        for (const auto &message : plan.sends)
+            local_normal_max = std::max(local_normal_max, message.tag);
+        for (const auto &message : plan.recvs)
+            local_normal_max = std::max(local_normal_max, message.tag);
+    };
+    for (const auto &entry : component_exchange_plans_)
+        scan_plan(entry.second.exchange_plan);
+    for (const auto &entry : oriented_face_exchange_plans_)
+        for (const auto &plan : entry.second)
+            scan_plan(plan.exchange_plan);
+
+    const auto scan_halo_patterns = [&](const auto &patterns)
+    {
+        for (const auto &entry : patterns)
+            for (const HaloRegion &region : entry.second.regions)
+                local_normal_max =
+                    std::max(local_normal_max,
+                             std::max(region.send_flag, region.recv_flag));
+    };
+    scan_halo_patterns(parallel_patterns_);
+    scan_halo_patterns(parallel_edge_patterns_send);
+    scan_halo_patterns(parallel_edge_patterns_recv);
+    scan_halo_patterns(parallel_vertex_patterns_send);
+    scan_halo_patterns(parallel_vertex_patterns_recv);
+
+    const auto scan_coupling_patterns = [&](const auto &patterns)
+    {
+        for (const auto &entry : patterns)
+            for (const HaloRegion &region : entry.second.regions)
+            {
+                if (region.send_flag < 0 || region.recv_flag < 0)
+                    ERROR::Abort("[Halo] Coupling pattern has a negative MPI tag");
+                local_coupling_max =
+                    std::max(local_coupling_max,
+                             std::max(region.send_flag, region.recv_flag));
+            }
+    };
+    scan_coupling_patterns(coupling_parallel_edge_patterns_send);
+    scan_coupling_patterns(coupling_parallel_edge_patterns_recv);
+    scan_coupling_patterns(coupling_parallel_vertex_patterns_send);
+    scan_coupling_patterns(coupling_parallel_vertex_patterns_recv);
+    for (const auto &patch : TOPO_VIEW::parallel_faces(*topo_))
+        if (patch.is_coupling)
+        {
+            if (patch.send_flag < 0 || patch.recv_flag < 0)
+                ERROR::Abort("[Halo] Coupling face has a negative MPI tag");
+            local_coupling_max =
+                std::max(local_coupling_max,
+                         std::max(patch.send_flag, patch.recv_flag));
+        }
+
+    int global_normal_max = 0;
+    int global_coupling_max = 0;
+    MPI_Allreduce(&local_normal_max, &global_normal_max, 1, MPI_INT,
+                  MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&local_coupling_max, &global_coupling_max, 1, MPI_INT,
+                  MPI_MAX, MPI_COMM_WORLD);
+
+    coupling_tag_base_ =
+        *tag_upper_bound - required - global_coupling_max;
+    if (coupling_tag_base_ <= global_normal_max)
+        ERROR::Abort("[Halo] insufficient disjoint MPI tag space for Coupling");
 }
 
 void Halo::validate_owner_sync_pattern_lengths_(OwnerSyncPattern &pat) const

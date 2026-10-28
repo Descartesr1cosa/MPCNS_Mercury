@@ -22,7 +22,7 @@ void pack_to_neighbor_order_scaled(FieldBlock &fb,
 }
 } // namespace
 
-void Halo::coupling_parallel_face(const std::string &src, const std::string &dst)
+void Halo::coupling_parallel_face_legacy_(const std::string &src, const std::string &dst)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;
@@ -218,7 +218,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
     }
 }
 
-void Halo::coupling_parallel_face(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_parallel_face_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     if (!fld_->has_coupling_pair(src, dst))
         return;
@@ -448,7 +448,7 @@ void Halo::coupling_parallel_face(const std::string &src, const std::string &dst
     }
 }
 
-void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst)
+void Halo::coupling_parallel_edge_legacy_(const std::string &src, const std::string &dst)
 {
     // 2D+ 才有 edge corner
     const int dim = fld_->grd->dimension;
@@ -723,7 +723,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
     }
 }
 
-void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_parallel_edge_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     // 2D+ 才有 edge corner
     const int dim = fld_->grd->dimension;
@@ -998,7 +998,7 @@ void Halo::coupling_parallel_edge(const std::string &src, const std::string &dst
     }
 }
 
-void Halo::coupling_parallel_vertex(const std::string &src, const std::string &dst)
+void Halo::coupling_parallel_vertex_legacy_(const std::string &src, const std::string &dst)
 {
     // 3D 才有 vertex corner
     const int dim = fld_->grd->dimension;
@@ -1265,7 +1265,7 @@ void Halo::coupling_parallel_vertex(const std::string &src, const std::string &d
     }
 }
 
-void Halo::coupling_parallel_vertex(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
+void Halo::coupling_parallel_vertex_legacy_(const std::string &src, const std::string &dst, std::vector<int32_t> &field_cids)
 {
     // 3D 才有 vertex corner
     const int dim = fld_->grd->dimension;

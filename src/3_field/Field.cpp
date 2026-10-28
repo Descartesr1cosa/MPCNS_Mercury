@@ -23,12 +23,14 @@ void Field::register_field(const FieldDescriptor &desc)
     if (storage_.has_grid())
         storage_.allocate_field(fid, catalog_);
 
+    ++coupling_generation_;
     return;
 }
 
 void Field::allocate(int32_t fieldID)
 {
     storage_.allocate_field(fieldID, catalog_);
+    ++coupling_generation_;
 }
 
 int Field::field_id(const std::string &field_name) const
