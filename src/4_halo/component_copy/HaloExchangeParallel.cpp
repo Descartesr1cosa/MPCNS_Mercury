@@ -4,6 +4,10 @@
 
 void Halo::exchange_parallel(const std::string &field_name)
 {
+    execute_component_exchange_plan_(
+        component_exchange_plan_(field_name, HaloLevel::Corner1D));
+    return;
+
     //=========================================================================
     // 1. 找到这个 field 的 descriptor 和 fid
     const FieldDescriptor *desc = nullptr;
@@ -299,6 +303,10 @@ void Halo::exchange_parallel(const std::string &field_name)
 
 void Halo::exchange_parallel_vertex(const std::string &field_name)
 {
+    execute_component_exchange_plan_(
+        component_exchange_plan_(field_name, HaloLevel::Corner3D));
+    return;
+
     //=========================================================================
     // 1. 找到这个 field 的 descriptor 和 fid
     const FieldDescriptor *desc = nullptr;
@@ -536,6 +544,10 @@ void Halo::exchange_parallel_vertex(const std::string &field_name)
 
 void Halo::exchange_parallel_edge(const std::string &field_name)
 {
+    execute_component_exchange_plan_(
+        component_exchange_plan_(field_name, HaloLevel::Corner2D));
+    return;
+
     //=========================================================================
     // 1. 找到这个 field 的 descriptor 和 fid
     const FieldDescriptor *desc = nullptr;

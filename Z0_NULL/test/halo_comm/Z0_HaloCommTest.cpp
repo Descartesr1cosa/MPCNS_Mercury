@@ -835,10 +835,27 @@ namespace Z0_TEST
         if (rank() == 0)
             std::cout << "Z0 halo communication tests\n";
 
+        const HALO_EXEC::Statistics workspace_before =
+            halo.debug_prepared_exchange_statistics();
         bool passed = true;
         passed &= run_stage(field, halo, boundary, HaloLevel::Corner1D);
         passed &= run_stage(field, halo, boundary, HaloLevel::Corner2D);
         passed &= run_stage(field, halo, boundary, HaloLevel::Corner3D);
+        const HALO_EXEC::Statistics workspace_after =
+            halo.debug_prepared_exchange_statistics();
+        std::ostringstream workspace_detail;
+        workspace_detail
+            << "executions="
+            << (workspace_after.executions - workspace_before.executions)
+            << " growth_events="
+            << (workspace_after.workspace_growth_events -
+                workspace_before.workspace_growth_events);
+        passed &= print_result(
+            "Prepared exchange stable workspace",
+            workspace_after.executions > workspace_before.executions &&
+                workspace_after.workspace_growth_events ==
+                    workspace_before.workspace_growth_events,
+            workspace_detail.str());
         return passed;
     }
 }

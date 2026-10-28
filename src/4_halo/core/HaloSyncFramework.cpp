@@ -494,7 +494,9 @@ void Halo::build_owner_sync_patterns_()
     for (const auto &req : owner_sync_requests_)
     {
         OwnerSyncPattern pat = build_owner_sync_pattern_for_request_(req);
-        owner_sync_patterns_[req.field_name] = pat;
+        validate_owner_sync_pattern_lengths_(pat);
+        prepared_exchange_executor_.reserve_plan(pat.exchange_plan);
+        owner_sync_patterns_[req.field_name] = std::move(pat);
     }
 }
 
@@ -547,6 +549,8 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                 op.alias_k = alias.entity.k;
                 op.ncomp = req.ncomp;
                 op.sign = sign;
+                op.active = field_active_(owner_fid, owner.entity.block) &&
+                            field_active_(alias_fid, alias.entity.block);
                 pat.local_ops.push_back(op);
             }
             else if (owner.entity.rank == my_rank && alias.entity.rank != my_rank)
@@ -576,6 +580,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                 op.sign_for_alias = sign;
                 op.dst_rank = alias.entity.rank;
                 op.tag = owner_sync_tag_(req);
+                op.active = field_active_(owner_fid, owner.entity.block);
                 pat.send_ops.push_back(op);
             }
             else if (owner.entity.rank != my_rank && alias.entity.rank == my_rank)
@@ -599,6 +604,7 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
                 op.ncomp = req.ncomp;
                 op.src_rank = owner.entity.rank;
                 op.tag = owner_sync_tag_(req);
+                op.active = field_active_(alias_fid, alias.entity.block);
                 pat.recv_ops.push_back(op);
             }
         }
@@ -660,16 +666,11 @@ Halo::OwnerSyncPattern Halo::build_owner_sync_pattern_for_request_(const HaloOwn
 
 int Halo::owner_sync_tag_(const HaloOwnerRequest &req) const
 {
-    const int fid = fld_ ? fld_->field_id(req.field_name) : 0;
-    if (req.policy == OwnerSyncPolicy::FaceOwner)
-        return owner_sync_tag_base_ + 100 + fid;
-    if (req.policy == OwnerSyncPolicy::EdgeOwner)
-        return owner_sync_tag_base_ + 200 + fid;
-    if (req.policy == OwnerSyncPolicy::NodeOwner)
-        return owner_sync_tag_base_ + 300 + fid;
-
-    ERROR::Abort("[Halo] owner_sync_tag_: invalid OwnerSyncPolicy for field: " + req.field_name);
-    return owner_sync_tag_base_;
+    const auto found = owner_sync_tags_.find(req.field_name);
+    if (found == owner_sync_tags_.end())
+        ERROR::Abort("[Halo] owner sync tag was not assigned for field: " +
+                     req.field_name);
+    return found->second;
 }
 
 void Halo::resize_owner_sync_buffers_(OwnerSyncPattern &pat) const
@@ -688,14 +689,41 @@ void Halo::resize_owner_sync_buffers_(OwnerSyncPattern &pat) const
         recv_size += op.ncomp;
     }
 
-    pat.send_buffer.resize(send_size);
-    pat.recv_buffer.resize(recv_size);
+    pat.exchange_plan.name = "owner-alias:" + pat.field_name;
+    pat.exchange_plan.generation = pattern_generation_ + 1;
+    for (std::size_t first = 0; first < pat.send_ops.size();)
+    {
+        std::size_t last = first + 1;
+        int message_length = pat.send_ops[first].ncomp;
+        while (last < pat.send_ops.size() &&
+               pat.send_ops[last].dst_rank == pat.send_ops[first].dst_rank)
+            message_length += pat.send_ops[last++].ncomp;
+        pat.exchange_plan.sends.push_back(
+            {pat.send_ops[first].dst_rank, pat.send_ops[first].tag,
+             message_length, 0, true});
+        first = last;
+    }
+    for (std::size_t first = 0; first < pat.recv_ops.size();)
+    {
+        std::size_t last = first + 1;
+        int message_length = pat.recv_ops[first].ncomp;
+        while (last < pat.recv_ops.size() &&
+               pat.recv_ops[last].src_rank == pat.recv_ops[first].src_rank)
+            message_length += pat.recv_ops[last++].ncomp;
+        pat.exchange_plan.recvs.push_back(
+            {pat.recv_ops[first].src_rank, pat.recv_ops[first].tag,
+             message_length, 0, true});
+        first = last;
+    }
+    HALO_EXEC::finalize_plan(pat.exchange_plan);
 }
 
 void Halo::execute_owner_sync_local_ops_(const OwnerSyncPattern &pat)
 {
     for (const auto &op : pat.local_ops)
     {
+        if (!op.active)
+            continue;
         FieldBlock &owner_block = fld_->field(op.owner_fid, op.owner_block);
         FieldBlock &alias_block = fld_->field(op.alias_fid, op.alias_block);
 
@@ -711,152 +739,61 @@ void Halo::execute_owner_sync_local_ops_(const OwnerSyncPattern &pat)
     }
 }
 
-void Halo::pack_owner_sync_send_buffer_(OwnerSyncPattern &pat)
-{
-    for (const auto &op : pat.send_ops)
-    {
-        FieldBlock &owner_block = fld_->field(op.owner_fid, op.owner_block);
-
-        if (!owner_block.is_allocated())
-            ERROR::Abort("[Halo] owner sync send op references inactive owner field: " + pat.field_name);
-
-        for (int m = 0; m < op.ncomp; ++m)
-        {
-            pat.send_buffer[op.buffer_offset + m] =
-                static_cast<double>(op.sign_for_alias) *
-                owner_block(op.owner_i, op.owner_j, op.owner_k, m);
-        }
-    }
-}
-
-void Halo::unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat)
-{
-    for (const auto &op : pat.recv_ops)
-    {
-        FieldBlock &alias_block = fld_->field(op.alias_fid, op.alias_block);
-
-        if (!alias_block.is_allocated())
-            continue;
-
-        for (int m = 0; m < op.ncomp; ++m)
-        {
-            alias_block(op.alias_i, op.alias_j, op.alias_k, m) =
-                pat.recv_buffer[op.buffer_offset + m];
-        }
-    }
-}
 
 void Halo::execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat)
 {
-    pack_owner_sync_send_buffer_(pat);
+    if (!pat.mpi_lengths_validated)
+        ERROR::Abort("[Halo] Owner/Alias plan reached runtime before initialization validation: " +
+                     pat.field_name);
 
-    if(!pat.mpi_lengths_validated)
-    {
-        int nrank = 1;
-        PARALLEL::mpi_size(&nrank);
-        std::vector<int> send_lengths_by_rank(nrank, 0);
-        std::vector<int> recv_lengths_by_rank(nrank, 0);
-        std::vector<int> expected_recv_lengths_by_rank(nrank, 0);
-
-        for (const auto &op : pat.send_ops)
-            send_lengths_by_rank[op.dst_rank] += op.ncomp;
-        for (const auto &op : pat.recv_ops)
-            recv_lengths_by_rank[op.src_rank] += op.ncomp;
-
-        PARALLEL::mpi_alltoall(send_lengths_by_rank.data(), 1,
-                               expected_recv_lengths_by_rank.data(), 1);
-
-        for (int r = 0; r < nrank; ++r)
+    prepared_exchange_executor_.execute(
+        pat.exchange_plan,
+        [&](std::size_t message_index, double *buffer, int length)
         {
-            if (recv_lengths_by_rank[r] != expected_recv_lengths_by_rank[r])
+            const HALO_EXEC::Message &message =
+                pat.exchange_plan.sends[message_index];
+            for (const OwnerSyncSendOp &op : pat.send_ops)
             {
-                int my_rank = 0;
-                PARALLEL::mpi_rank(&my_rank);
-                std::ostringstream oss;
-                oss << "[Halo] owner sync length mismatch field=" << pat.field_name
-                    << " policy=" << owner_sync_policy_name(pat.policy)
-                    << " rank=" << my_rank
-                    << " peer_rank=" << r
-                    << " posted_recv_len=" << recv_lengths_by_rank[r]
-                    << " expected_from_peer_send_len=" << expected_recv_lengths_by_rank[r];
-                ERROR::Abort(oss.str());
+                if (op.dst_rank != message.peer || !op.active)
+                    continue;
+                FieldBlock &owner =
+                    fld_->field(op.owner_fid, op.owner_block);
+                if (!owner.is_allocated())
+                    continue;
+                const int relative =
+                    op.buffer_offset -
+                    static_cast<int>(message.buffer_offset);
+                if (relative < 0 || relative + op.ncomp > length)
+                    ERROR::Abort("[Halo] Owner/Alias send offset is out of bounds");
+                for (int component = 0; component < op.ncomp; ++component)
+                    buffer[relative + component] =
+                        static_cast<double>(op.sign_for_alias) *
+                        owner(op.owner_i, op.owner_j, op.owner_k,
+                              component);
             }
-        }
-        pat.mpi_lengths_validated=true;
-    }
-
-    if (pat.send_ops.empty() && pat.recv_ops.empty())
-        return;
-
-    auto &recv_requests=owner_recv_requests_;
-    auto &send_requests=owner_send_requests_;
-    auto &recv_statuses=owner_recv_statuses_;
-    auto &send_statuses=owner_send_statuses_;
-    recv_requests.clear();
-    send_requests.clear();
-
-    recv_requests.reserve(pat.recv_ops.size());
-    send_requests.reserve(pat.send_ops.size());
-
-    for (std::size_t first = 0; first < pat.recv_ops.size();)
-    {
-        std::size_t last = first + 1;
-        while (last < pat.recv_ops.size() &&
-               pat.recv_ops[last].src_rank == pat.recv_ops[first].src_rank)
+        },
+        [&](std::size_t message_index, const double *buffer, int length)
         {
-            ++last;
-        }
-
-        int length = 0;
-        for (std::size_t i = first; i < last; ++i)
-            length += pat.recv_ops[i].ncomp;
-
-        const OwnerSyncRecvOp &op = pat.recv_ops[first];
-        recv_requests.push_back(MPI_Request{});
-        PARALLEL::mpi_data_recv(op.src_rank,
-                                op.tag,
-                                pat.recv_buffer.data() + op.buffer_offset,
-                                length,
-                                &recv_requests.back());
-
-        first = last;
-    }
-
-    for (std::size_t first = 0; first < pat.send_ops.size();)
-    {
-        std::size_t last = first + 1;
-        while (last < pat.send_ops.size() &&
-               pat.send_ops[last].dst_rank == pat.send_ops[first].dst_rank)
-        {
-            ++last;
-        }
-
-        int length = 0;
-        for (std::size_t i = first; i < last; ++i)
-            length += pat.send_ops[i].ncomp;
-
-        const OwnerSyncSendOp &op = pat.send_ops[first];
-        send_requests.push_back(MPI_Request{});
-        PARALLEL::mpi_data_send(op.dst_rank,
-                                op.tag,
-                                pat.send_buffer.data() + op.buffer_offset,
-                                length,
-                                &send_requests.back());
-
-        first = last;
-    }
-
-    int nrecv = static_cast<int>(recv_requests.size());
-    int nsend = static_cast<int>(send_requests.size());
-    recv_statuses.resize(nrecv);
-    send_statuses.resize(nsend);
-
-    if (nrecv > 0)
-        PARALLEL::mpi_wait(nrecv, recv_requests.data(), recv_statuses.data());
-    if (nsend > 0)
-        PARALLEL::mpi_wait(nsend, send_requests.data(), send_statuses.data());
-
-    unpack_owner_sync_recv_buffer_(pat);
+            const HALO_EXEC::Message &message =
+                pat.exchange_plan.recvs[message_index];
+            for (const OwnerSyncRecvOp &op : pat.recv_ops)
+            {
+                if (op.src_rank != message.peer || !op.active)
+                    continue;
+                FieldBlock &alias =
+                    fld_->field(op.alias_fid, op.alias_block);
+                if (!alias.is_allocated())
+                    continue;
+                const int relative =
+                    op.buffer_offset -
+                    static_cast<int>(message.buffer_offset);
+                if (relative < 0 || relative + op.ncomp > length)
+                    ERROR::Abort("[Halo] Owner/Alias receive offset is out of bounds");
+                for (int component = 0; component < op.ncomp; ++component)
+                    alias(op.alias_i, op.alias_j, op.alias_k, component) =
+                        buffer[relative + component];
+            }
+        });
 }
 
 void Halo::sync_registered()

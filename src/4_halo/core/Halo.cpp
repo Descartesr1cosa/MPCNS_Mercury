@@ -626,6 +626,7 @@ bool Halo::set_edge_1form_edge_execution_mode(
             make_prepared_edge_1form_edge_execution_view_(
                 entry->second.snapshot));
     }
+    reserve_prepared_exchange_views_();
     edge_1form_edge_execution_registry_generation_ =
         registry_generation_;
     edge_1form_edge_execution_pattern_generation_ =
@@ -905,6 +906,7 @@ bool Halo::set_edge_1form_vertex_execution_mode(
             make_prepared_edge_1form_vertex_execution_view_(
                 entry->second.snapshot));
     }
+    reserve_prepared_exchange_views_();
     edge_1form_vertex_execution_registry_generation_ =
         registry_generation_;
     edge_1form_vertex_execution_pattern_generation_ =
@@ -1170,6 +1172,7 @@ bool Halo::set_face_2form_edge_execution_mode(
             make_prepared_face_2form_edge_execution_view_(
                 entry->second.snapshot));
     }
+    reserve_prepared_exchange_views_();
     face_2form_edge_execution_registry_generation_ =
         registry_generation_;
     face_2form_edge_execution_pattern_generation_ =
@@ -1550,6 +1553,7 @@ bool Halo::set_face_2form_vertex_execution_mode(
             make_prepared_face_2form_vertex_execution_view_(
                 entry->second.snapshot));
     }
+    reserve_prepared_exchange_views_();
     face_2form_vertex_execution_registry_generation_ =
         registry_generation_;
     face_2form_vertex_execution_pattern_generation_ =

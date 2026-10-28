@@ -2081,3 +2081,113 @@ owner/alias, MPI communicator/tags, pack/unpack formulas, numerical
 operators, and persistent-buffer work untouched. Production remains Legacy
 unless all ranks explicitly prepare and activate a specific mode. Parallel
 Unit 2B-6 is not started here.
+
+
+## 47. Final Framework Consolidation
+
+This consolidation freezes the non-Coupling communication architecture around
+one internal HALO_EXEC::PreparedExchangeExecutor. Every migrated path now
+uses the same sequence:
+
+prepared plan -> reusable contiguous workspace -> specialized pack -> ordered
+Irecv/Isend -> receive/send wait -> specialized unpack.
+
+The executor owns one Halo-wide send buffer, receive buffer, request arrays,
+and status arrays. It rejects nested/concurrent use, zeros the used send range
+before every pack (preventing stale persistent-buffer values), posts receives
+before sends, supports zero-length messages, and records workspace growth and
+data-message counters. Buffer and request growth is allowed only while an
+initialization/activation plan is reserved; stable execution cannot resize the
+workspace.
+
+### Frozen plan and generation lifecycle
+
+build_registered_patterns() now invalidates the old executor generation,
+rebuilds all ordinary component-copy plans and oriented Face-stage plans,
+assigns managed Owner/Alias tags, validates Owner/Alias lengths and active
+members collectively, reserves the maximum workspace, and explicitly
+activates the new generation. The globally ordered registry is followed even
+by ranks with no local DOF. Registration invalidates the active generation;
+runtime does not lazily repair it.
+
+Component-copy and oriented Face-stage schedules are matched collectively
+during construction by (rank, peer, tag, ordinal, length). Local and remote
+FieldBlock allocation is folded into the frozen enabled bit, so neither side
+posts a message that its peer skipped. Owner/Alias retains its deterministic
+class/member ordering and performs the former length handshake during build.
+Its active-member bitmap is also exchanged during build. Owner/Alias tags are
+allocated from the communicator's reported MPI_TAG_UB rather than a
+hard-coded base.
+
+The four existing prepared oriented views (Edge1Form Edge/Vertex and
+Face2Form Edge/Vertex) now reserve and execute through the same workspace.
+Their specialized transform, axis, sign, finite-value, OOB, and overlap
+behavior remains in the existing form pack/unpack mapping. Repeated prepared
+execution does not traverse topology or negotiate metadata.
+
+### Migration inventory
+
+| Path | Consolidated execution state |
+| --- | --- |
+| Component-copy Face/Edge/Vertex | Prepared at build_registered_patterns(); unified executor is the normal path |
+| Edge1Form Face | Prepared at build; unified executor is the normal path |
+| Face2Form Face | Prepared at build; unified executor is the normal oriented path |
+| Edge1Form Edge/Vertex | Unified executor when the existing prepared mode is explicitly activated |
+| Face2Form Edge/Vertex | Unified executor when the existing prepared mode is explicitly activated |
+| Node/Edge/Face Owner/Alias | Prepared and validated at build; unified executor is the normal path |
+| Same-rank local copies | No MPI workspace; existing deterministic local copy logic retained |
+| Coupling | Unchanged and outside this executor |
+
+The Edge/Vertex Legacy modes remain available, and remain the production
+default, solely for real-case comparison and rollback. They still execute
+their original runtime metadata discovery and temporary-buffer code when
+selected. This is an intentional compatibility path, not an unreported
+migration gap: all four prepared alternatives use the consolidated executor,
+and no solver API changed. Coupling is the only subsequent communication
+family eligible for future framework integration.
+
+### Acceptance evidence
+
+Final validation was run on 2026-10-28 with three MPI ranks. The two MPI
+harnesses were executed serially.
+
+| Command | Result |
+| --- | --- |
+| cmake --build build --parallel 4 | Passed; MercuryZ4 built and linked |
+| cmake -S Z0_NULL -B build/Z0_NULL | Passed |
+| cmake --build build/Z0_NULL --target z0_null --parallel 4 | Passed |
+| NP=3 bash Z0_NULL/run_halo_validation.sh | Passed; all ten modes |
+| NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh | Passed; all_vertex, all_owner_vertex, owner_only |
+
+The final Halo logs record zero workspace growth during stable execution in
+all ten modes. Representative execution counts were 18 for forms_vertex, 42
+for all_vertex, 58 for all_owner_vertex, and 16 for owner_only, each with
+growth_events=0. The prepared Edge1Form Edge comparison completed 102,376
+checks with zero failures; prepared Edge1Form Vertex completed 7,173,438
+checks with zero failures. Prepared Face2Form Edge/Vertex completed
+16,273,427 checks with zero failures and exact send/receive message and
+payload parity. All prepared runtime metadata-collective deltas were zero.
+The same harness also passed the existing CT, DEC, Faraday, Hodge, geometry,
+StateView, topology, physical I/O, negative-sign, axis-permutation,
+multi-block, multi-peer, zero-length, OOB, non-finite, and owner/alias
+checks.
+
+No standalone wall-clock or bandwidth benchmark was collected, so this
+change does not claim a throughput number. The verified performance property
+is narrower and deterministic: after initialization/activation, fixed-size
+MPI workspace reallocation is zero and prepared Edge/Vertex metadata
+collectives are zero.
+
+### Remaining evidence limitation
+
+A real Mercury time-advance regression could not be run because
+Z4_Mercury/CASE/geometry is absent from this checkout. The production
+executable and all shared communication code built successfully, but that is
+not a substitute for a physical-case comparison. Consequently production
+continues to default the four Edge/Vertex oriented modes to Legacy until a
+decomposed Mercury geometry/input set is supplied and a short Legacy versus
+prepared result comparison is recorded.
+
+The framework is otherwise frozen at this boundary. No Coupling semantics,
+Coupling exchange, CT/Hall/DEC operator, physical boundary condition, grid or
+topology construction, Field model, or user synchronization API was changed.

@@ -119,6 +119,8 @@ public:
     void sync_owner_alias_field(const std::string &field_name);
     void sync_owner_alias_group(const std::string &group_name);
     void dump_sync_registry(std::ostream &os) const;
+    HALO_EXEC::Statistics
+    debug_prepared_exchange_statistics() const noexcept;
 
     // Test/debug helper: expose the recv/send boxes used by the registered
     // halo patterns without changing the production sync path.
@@ -371,6 +373,8 @@ private:
     make_prepared_face_2form_vertex_execution_view_(
         const LegacyFace2FormVertexPlanSnapshot &snapshot) const;
 
+    void reserve_prepared_exchange_views_();
+
 
 private:
     Field *fld_;
@@ -521,14 +525,42 @@ private:
 
     std::unordered_map<std::string, OwnerSyncPattern> owner_sync_patterns_;
 
-    // Reused by owner synchronization; MPI requests are overwritten on every
-    // call, while vector capacity remains available.
-    std::vector<MPI_Request> owner_recv_requests_;
-    std::vector<MPI_Request> owner_send_requests_;
-    std::vector<MPI_Status> owner_recv_statuses_;
-    std::vector<MPI_Status> owner_send_statuses_;
+    struct ComponentExchangePlan
+    {
+        int fid = -1;
+        int ncomp = 0;
+        HaloLevel stage = HaloLevel::Corner1D;
+        std::vector<HaloRegion> send_regions;
+        std::vector<HaloRegion> recv_regions;
+        HALO_EXEC::Plan exchange_plan;
+    };
 
-    int owner_sync_tag_base_ = 2100;
+    using ComponentExchangeKey = std::pair<std::string, int>;
+    std::map<ComponentExchangeKey, ComponentExchangePlan>
+        component_exchange_plans_;
+
+    struct OrientedFaceTransfer
+    {
+        HaloRegion destination_region;
+        HaloRegion source_region;
+        int source_fid = -1;
+        int destination_fid = -1;
+        int sign = 1;
+    };
+
+    struct OrientedFaceExchangePlan
+    {
+        int ncomp = 0;
+        std::vector<OrientedFaceTransfer> send_transfers;
+        std::vector<OrientedFaceTransfer> recv_transfers;
+        HALO_EXEC::Plan exchange_plan;
+    };
+
+    std::map<std::string, std::vector<OrientedFaceExchangePlan>>
+        oriented_face_exchange_plans_;
+
+    HALO_EXEC::PreparedExchangeExecutor prepared_exchange_executor_;
+    std::unordered_map<std::string, int> owner_sync_tags_;
 
     // Sync registry helpers.
     HaloSyncSemantics sync_semantics_(const FieldHaloRequest &req) const;
@@ -600,6 +632,29 @@ private:
 
     void build_owner_sync_patterns_();
 
+    void validate_owner_sync_pattern_lengths_(OwnerSyncPattern &pat) const;
+
+    void configure_owner_sync_tags_();
+
+    void build_component_copy_exchange_plans_(
+        std::uint64_t generation);
+
+    const ComponentExchangePlan &component_exchange_plan_(
+        const std::string &field_name, HaloLevel stage) const;
+
+    void execute_component_exchange_plan_(
+        const ComponentExchangePlan &plan);
+
+    void build_oriented_face_exchange_plans_(
+        std::uint64_t generation);
+
+    void execute_oriented_face_exchange_plans_(
+        const std::vector<std::string> &fields,
+        FieldValueKind value_kind);
+
+    std::string oriented_face_plan_key_(
+        const std::string &group, FieldValueKind value_kind) const;
+
     OwnerSyncPattern build_owner_sync_pattern_for_request_(const HaloOwnerRequest &req) const;
 
     int owner_sync_tag_(const HaloOwnerRequest &req) const;
@@ -607,10 +662,6 @@ private:
     void resize_owner_sync_buffers_(OwnerSyncPattern &pat) const;
 
     void execute_owner_sync_local_ops_(const OwnerSyncPattern &pat);
-
-    void pack_owner_sync_send_buffer_(OwnerSyncPattern &pat);
-
-    void unpack_owner_sync_recv_buffer_(OwnerSyncPattern &pat);
 
     void execute_owner_sync_mpi_ops_(OwnerSyncPattern &pat);
 

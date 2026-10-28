@@ -378,6 +378,7 @@ void Halo::register_halo_field(const FieldHaloRequest &request)
     upsert_halo_request_(request);
     ++registry_generation_;
     registered_patterns_built_ = false;
+    prepared_exchange_executor_.invalidate();
     invalidate_prepared_edge_1form_corner_metadata_();
     invalidate_prepared_vertex_edge_1form_metadata_();
     invalidate_prepared_edge_face_2form_metadata_();
@@ -392,6 +393,7 @@ void Halo::register_halo_fields(const std::vector<FieldHaloRequest> &requests)
 
     ++registry_generation_;
     registered_patterns_built_ = false;
+    prepared_exchange_executor_.invalidate();
     invalidate_prepared_edge_1form_corner_metadata_();
     invalidate_prepared_vertex_edge_1form_metadata_();
     invalidate_prepared_edge_face_2form_metadata_();
@@ -421,6 +423,7 @@ void Halo::register_halo_field(const std::string &field_name, HaloLevel level)
 void Halo::build_registered_patterns()
 {
     registered_patterns_built_ = false;
+    prepared_exchange_executor_.invalidate();
     invalidate_prepared_edge_1form_corner_metadata_();
     invalidate_prepared_vertex_edge_1form_metadata_();
     invalidate_prepared_edge_face_2form_metadata_();
@@ -447,6 +450,8 @@ void Halo::build_registered_patterns()
     coupling_parallel_vertex_patterns_send.clear();
     coupling_parallel_vertex_patterns_recv.clear();
     owner_sync_patterns_.clear();
+    component_exchange_plans_.clear();
+    oriented_face_exchange_plans_.clear();
 
     // 维度
     const int dim = fld_->grd->dimension;
@@ -557,7 +562,13 @@ void Halo::build_registered_patterns()
         }
     }
 
+    const std::uint64_t next_generation = pattern_generation_ + 1;
+    prepared_exchange_executor_.reset(next_generation);
+    build_component_copy_exchange_plans_(next_generation);
+    build_oriented_face_exchange_plans_(next_generation);
+    configure_owner_sync_tags_();
     build_owner_sync_patterns_();
+    prepared_exchange_executor_.activate();
     registered_patterns_built_ = true;
-    ++pattern_generation_;
+    pattern_generation_ = next_generation;
 }

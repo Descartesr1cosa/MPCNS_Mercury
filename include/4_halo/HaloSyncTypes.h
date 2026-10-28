@@ -1,5 +1,6 @@
 #pragma once
 
+#include "4_halo/PreparedExchangeExecutor.h"
 #include "0_basic/StaggerLocation.h"
 #include "3_field/FieldDescriptor.h"
 #include "3_field/FieldValueKind.h"
@@ -66,6 +67,7 @@ namespace HALO_SYNC
 
         int ncomp = 1;
         int sign = +1;
+        bool active = true;
     };
 
     struct OwnerSendOp
@@ -90,6 +92,7 @@ namespace HALO_SYNC
         int dst_rank = -1;
         int tag = -1;
         int buffer_offset = 0;
+        bool active = true;
     };
 
     struct OwnerRecvOp
@@ -107,6 +110,7 @@ namespace HALO_SYNC
         int src_rank = -1;
         int tag = -1;
         int buffer_offset = 0;
+        bool active = true;
     };
 
     struct OwnerPattern
@@ -125,12 +129,7 @@ namespace HALO_SYNC
         std::vector<OwnerSendOp> send_ops;
         std::vector<OwnerRecvOp> recv_ops;
 
-        std::vector<double> send_buffer;
-        std::vector<double> recv_buffer;
-
-        // Pattern sizes are immutable after build.  The cross-rank length
-        // handshake is a construction-time invariant and only needs to pass
-        // once, not on every field synchronization.
+        HALO_EXEC::Plan exchange_plan;
         bool mpi_lengths_validated = false;
     };
 

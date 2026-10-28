@@ -42,6 +42,7 @@ struct PreparedEdge1FormEdgeExecutionView
     std::vector<Box3> send_boxes;
     std::vector<int> recv_lengths;
     std::vector<int> send_lengths;
+    HALO_EXEC::Plan exchange_plan;
 };
 
 struct PreparedEdge1FormVertexExecutionView
@@ -53,6 +54,7 @@ struct PreparedEdge1FormVertexExecutionView
     std::vector<Box3> send_boxes;
     std::vector<int> recv_lengths;
     std::vector<int> send_lengths;
+    HALO_EXEC::Plan exchange_plan;
 };
 
 
@@ -65,6 +67,7 @@ struct PreparedFace2FormEdgeExecutionView
     std::vector<Box3> send_boxes;
     std::vector<int> recv_lengths;
     std::vector<int> send_lengths;
+    HALO_EXEC::Plan exchange_plan;
 };
 
 struct PreparedFace2FormVertexExecutionView
@@ -76,6 +79,7 @@ struct PreparedFace2FormVertexExecutionView
     std::vector<Box3> send_boxes;
     std::vector<int> recv_lengths;
     std::vector<int> send_lengths;
+    HALO_EXEC::Plan exchange_plan;
 };
 
 
@@ -357,6 +361,115 @@ void unpack_triplet_corner_recv(Field *fld,
                     fb(rb.lo.i + ii, rb.lo.j + jj, rb.lo.k + kk, c) = buf[base + c];
             }
 }
+
+void pack_triplet_corner_send_raw(
+    Field *field, const std::array<int, 3> &fid,
+    const TripletCornerMeta &metadata, int ncomp,
+    double *buffer, int length)
+{
+    FieldBlock &block =
+        field->field(fid[metadata.send_axis], metadata.send_block);
+    if (!block.is_allocated() || length == 0)
+        return;
+    const int ni = metadata.recv_box.hi.i - metadata.recv_box.lo.i;
+    const int nj = metadata.recv_box.hi.j - metadata.recv_box.lo.j;
+    const int nk = metadata.recv_box.hi.k - metadata.recv_box.lo.k;
+    if (ni * nj * nk * ncomp != length)
+        ERROR::Abort("[Halo] prepared oriented pack length mismatch");
+
+    const Int3 lo = block.get_lo();
+    const Int3 hi = block.get_hi();
+    for (int ii = 0; ii < ni; ++ii)
+        for (int jj = 0; jj < nj; ++jj)
+            for (int kk = 0; kk < nk; ++kk)
+            {
+                const int ir = metadata.recv_box.lo.i + ii;
+                const int jr = metadata.recv_box.lo.j + jj;
+                const int kr = metadata.recv_box.lo.k + kk;
+                int is, js, ks;
+                map_index(metadata.trans_recv_to_send, ir, jr, kr,
+                          is, js, ks);
+                if (is < lo.i || is >= hi.i ||
+                    js < lo.j || js >= hi.j ||
+                    ks < lo.k || ks >= hi.k)
+                    continue;
+                const int base = ((ii * nj + jj) * nk + kk) * ncomp;
+                for (int component = 0; component < ncomp; ++component)
+                {
+                    const double value = block(is, js, ks, component);
+                    buffer[base + component] =
+                        std::isfinite(value)
+                            ? static_cast<double>(metadata.sign) * value
+                            : 0.0;
+                }
+            }
+}
+
+void unpack_triplet_corner_recv_raw(
+    Field *field, const std::array<int, 3> &fid,
+    const TripletCornerMeta &metadata, int ncomp,
+    const double *buffer, int length)
+{
+    FieldBlock &block =
+        field->field(fid[metadata.recv_axis], metadata.recv_block);
+    if (!block.is_allocated() || length == 0)
+        return;
+    const Box3 &box = metadata.recv_box;
+    const int ni = box.hi.i - box.lo.i;
+    const int nj = box.hi.j - box.lo.j;
+    const int nk = box.hi.k - box.lo.k;
+    if (ni * nj * nk * ncomp != length)
+        ERROR::Abort("[Halo] prepared oriented unpack length mismatch");
+    for (int ii = 0; ii < ni; ++ii)
+        for (int jj = 0; jj < nj; ++jj)
+            for (int kk = 0; kk < nk; ++kk)
+            {
+                const int base = ((ii * nj + jj) * nk + kk) * ncomp;
+                for (int component = 0; component < ncomp; ++component)
+                    block(box.lo.i + ii, box.lo.j + jj, box.lo.k + kk,
+                          component) = buffer[base + component];
+            }
+}
+
+template <class View, class Counters>
+void execute_prepared_triplet_exchange(
+    HALO_EXEC::PreparedExchangeExecutor &executor, const View &view,
+    Field *field, const std::array<int, 3> &fid, int ncomp,
+    Counters &counters)
+{
+    executor.execute(
+        view.exchange_plan,
+        [&](std::size_t index, double *buffer, int length)
+        { pack_triplet_corner_send_raw(
+              field, fid, view.send_plan[index], ncomp, buffer, length); },
+        [&](std::size_t index, const double *buffer, int length)
+        { unpack_triplet_corner_recv_raw(
+              field, fid, view.recv_plan[index], ncomp, buffer, length); });
+    ++counters.prepared_executions;
+    counters.send_messages += view.send_plan.size();
+    counters.recv_messages += view.recv_plan.size();
+    for (int value : view.send_lengths)
+        counters.sent_doubles += value;
+    for (int value : view.recv_lengths)
+        counters.received_doubles += value;
+}
+
+template <class View>
+void finalize_prepared_view(View &view, const std::string &name,
+                            std::uint64_t generation)
+{
+    view.exchange_plan.name = name;
+    view.exchange_plan.generation = generation;
+    for (std::size_t i = 0; i < view.send_plan.size(); ++i)
+        view.exchange_plan.sends.push_back({
+            view.send_plan[i].recv_rank, view.send_plan[i].tag,
+            view.send_lengths[i], 0, true});
+    for (std::size_t i = 0; i < view.recv_plan.size(); ++i)
+        view.exchange_plan.recvs.push_back({
+            view.recv_plan[i].send_rank, view.recv_plan[i].tag,
+            view.recv_lengths[i], 0, true});
+    HALO_EXEC::finalize_plan(view.exchange_plan);
+}
 } // namespace
 
 std::shared_ptr<const PreparedEdge1FormEdgeExecutionView>
@@ -410,6 +523,8 @@ Halo::make_prepared_edge_1form_edge_execution_view_(
         view->send_lengths.push_back(record.message_length);
     }
 
+    finalize_prepared_view(*view, "edge1form:edge",
+                           pattern_generation_);
     return view;
 }
 
@@ -466,6 +581,8 @@ Halo::make_prepared_edge_1form_vertex_execution_view_(
         view->send_lengths.push_back(record.message_length);
     }
 
+    finalize_prepared_view(*view, "edge1form:vertex",
+                           pattern_generation_);
     return view;
 }
 
@@ -518,6 +635,8 @@ Halo::make_prepared_face_2form_edge_execution_view_(
         view->send_boxes.push_back(*record.send_box);
         view->send_lengths.push_back(record.message_length);
     }
+    finalize_prepared_view(*view, "face2form:edge",
+                           pattern_generation_);
     return view;
 }
 
@@ -570,7 +689,30 @@ Halo::make_prepared_face_2form_vertex_execution_view_(
         view->send_boxes.push_back(*record.send_box);
         view->send_lengths.push_back(record.message_length);
     }
+    finalize_prepared_view(*view, "face2form:vertex",
+                           pattern_generation_);
     return view;
+}
+
+void Halo::reserve_prepared_exchange_views_()
+{
+    for (const auto &entry : prepared_edge_1form_edge_execution_plans_)
+        if (entry.second)
+            prepared_exchange_executor_.reserve_plan(
+                entry.second->exchange_plan);
+    for (const auto &entry : prepared_edge_1form_vertex_execution_plans_)
+        if (entry.second)
+            prepared_exchange_executor_.reserve_plan(
+                entry.second->exchange_plan);
+    for (const auto &entry : prepared_face_2form_edge_execution_plans_)
+        if (entry.second)
+            prepared_exchange_executor_.reserve_plan(
+                entry.second->exchange_plan);
+    for (const auto &entry : prepared_face_2form_vertex_execution_plans_)
+        if (entry.second)
+            prepared_exchange_executor_.reserve_plan(
+                entry.second->exchange_plan);
+    prepared_exchange_executor_.activate();
 }
 
 
@@ -753,6 +895,10 @@ void Halo::exchange_parallel_face_edge_1form_triplet_(const std::vector<std::str
     const auto fid = edge_triplet_ids(fld_, fields);
     const int ncomp = triplet_ncomp(fld_, fid);
     const int nghost = triplet_nghost(fld_, fid);
+
+    execute_oriented_face_exchange_plans_(
+        fields, FieldValueKind::EdgeCovariant1Form);
+    return;
 
     for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
     {
@@ -1095,6 +1241,13 @@ void Halo::exchange_parallel_face_face_2form_triplet_(const std::vector<std::str
     const int ncomp = triplet_ncomp(fld_, fid);
     const int nghost = triplet_nghost(fld_, fid);
 
+    if (oriented)
+    {
+        execute_oriented_face_exchange_plans_(
+            fields, FieldValueKind::FaceContravariant2Form);
+        return;
+    }
+
     for (int dst_axis = 0; dst_axis < 3; ++dst_axis)
     {
         PatternKey dst_key{face_loc_from_axis(dst_axis), nghost};
@@ -1267,64 +1420,9 @@ void Halo::exchange_parallel_edge_face_2form_triplet_(const std::vector<std::str
             view.recv_plan.size() != view.recv_lengths.size())
             abort_prepared_contract("execution view is inconsistent");
 
-        const int nsend = static_cast<int>(view.send_plan.size());
-        const int nrecv = static_cast<int>(view.recv_plan.size());
-        std::vector<std::vector<double>> sbuf(nsend);
-        std::vector<std::vector<double>> rbuf(nrecv);
-        std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
-        std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
-
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata = view.send_plan[index];
-            const int length = view.send_lengths[index];
-            if (metadata.send_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached send record");
-            sbuf[index].resize(length);
-            pack_triplet_corner_send(
-                fld_, fid, metadata, view.send_boxes[index],
-                ncomp, sbuf[index]);
-        }
-        for (int index = 0; index < nrecv; ++index)
-        {
-            const TripletCornerMeta &metadata = view.recv_plan[index];
-            const int length = view.recv_lengths[index];
-            if (metadata.recv_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached receive record");
-            rbuf[index].resize(length);
-            PARALLEL::mpi_data_recv(
-                metadata.send_rank, metadata.tag, rbuf[index].data(),
-                length, &rreq[index]);
-        }
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata = view.send_plan[index];
-            PARALLEL::mpi_data_send(
-                metadata.recv_rank, metadata.tag, sbuf[index].data(),
-                view.send_lengths[index], &sreq[index]);
-        }
-
-        int wait_recv = nrecv;
-        int wait_send = nsend;
-        if (wait_recv > 0)
-            PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
-        if (wait_send > 0)
-            PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-        for (int index = 0; index < nrecv; ++index)
-            unpack_triplet_corner_recv(
-                fld_, fid, view.recv_plan[index], ncomp, rbuf[index]);
-
-        Face2FormEdgeExecutionCounters &counters =
-            face_2form_edge_execution_counters_;
-        ++counters.prepared_executions;
-        counters.send_messages += static_cast<std::uint64_t>(nsend);
-        counters.recv_messages += static_cast<std::uint64_t>(nrecv);
-        for (int length : view.send_lengths)
-            counters.sent_doubles += static_cast<std::uint64_t>(length);
-        for (int length : view.recv_lengths)
-            counters.received_doubles += static_cast<std::uint64_t>(length);
+        execute_prepared_triplet_exchange(
+            prepared_exchange_executor_, view, fld_, fid, ncomp,
+            face_2form_edge_execution_counters_);
         return;
     }
 
@@ -1571,64 +1669,9 @@ void Halo::exchange_parallel_vertex_face_2form_triplet_(const std::vector<std::s
             view.recv_plan.size() != view.recv_lengths.size())
             abort_prepared_contract("execution view is inconsistent");
 
-        const int nsend = static_cast<int>(view.send_plan.size());
-        const int nrecv = static_cast<int>(view.recv_plan.size());
-        std::vector<std::vector<double>> sbuf(nsend);
-        std::vector<std::vector<double>> rbuf(nrecv);
-        std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
-        std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
-
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata = view.send_plan[index];
-            const int length = view.send_lengths[index];
-            if (metadata.send_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached send record");
-            sbuf[index].resize(length);
-            pack_triplet_corner_send(
-                fld_, fid, metadata, view.send_boxes[index],
-                ncomp, sbuf[index]);
-        }
-        for (int index = 0; index < nrecv; ++index)
-        {
-            const TripletCornerMeta &metadata = view.recv_plan[index];
-            const int length = view.recv_lengths[index];
-            if (metadata.recv_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached receive record");
-            rbuf[index].resize(length);
-            PARALLEL::mpi_data_recv(
-                metadata.send_rank, metadata.tag, rbuf[index].data(),
-                length, &rreq[index]);
-        }
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata = view.send_plan[index];
-            PARALLEL::mpi_data_send(
-                metadata.recv_rank, metadata.tag, sbuf[index].data(),
-                view.send_lengths[index], &sreq[index]);
-        }
-
-        int wait_recv = nrecv;
-        int wait_send = nsend;
-        if (wait_recv > 0)
-            PARALLEL::mpi_wait(wait_recv, rreq.data(), rstat.data());
-        if (wait_send > 0)
-            PARALLEL::mpi_wait(wait_send, sreq.data(), sstat.data());
-        for (int index = 0; index < nrecv; ++index)
-            unpack_triplet_corner_recv(
-                fld_, fid, view.recv_plan[index], ncomp, rbuf[index]);
-
-        Face2FormVertexExecutionCounters &counters =
-            face_2form_vertex_execution_counters_;
-        ++counters.prepared_executions;
-        counters.send_messages += static_cast<std::uint64_t>(nsend);
-        counters.recv_messages += static_cast<std::uint64_t>(nrecv);
-        for (int length : view.send_lengths)
-            counters.sent_doubles += static_cast<std::uint64_t>(length);
-        for (int length : view.recv_lengths)
-            counters.received_doubles += static_cast<std::uint64_t>(length);
+        execute_prepared_triplet_exchange(
+            prepared_exchange_executor_, view, fld_, fid, ncomp,
+            face_2form_vertex_execution_counters_);
         return;
     }
 
@@ -1880,80 +1923,9 @@ void Halo::exchange_parallel_edge_edge_1form_triplet_(const std::vector<std::str
             view.recv_plan.size() != view.recv_lengths.size())
             abort_prepared_contract("execution view is inconsistent");
 
-        const int nsend =
-            static_cast<int>(view.send_plan.size());
-        const int nrecv =
-            static_cast<int>(view.recv_plan.size());
-        std::vector<std::vector<double>> sbuf(nsend);
-        std::vector<std::vector<double>> rbuf(nrecv);
-        std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
-        std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
-
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.send_plan[index];
-            const int length = view.send_lengths[index];
-            if (metadata.send_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached send record");
-            sbuf[index].resize(length);
-            pack_triplet_corner_send(
-                fld_, fid, metadata, view.send_boxes[index],
-                ncomp, sbuf[index]);
-        }
-
-        for (int index = 0; index < nrecv; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.recv_plan[index];
-            const int length = view.recv_lengths[index];
-            if (metadata.recv_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached receive record");
-            rbuf[index].resize(length);
-            PARALLEL::mpi_data_recv(
-                metadata.send_rank, metadata.tag,
-                rbuf[index].data(), length, &rreq[index]);
-        }
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.send_plan[index];
-            PARALLEL::mpi_data_send(
-                metadata.recv_rank, metadata.tag,
-                sbuf[index].data(), view.send_lengths[index],
-                &sreq[index]);
-        }
-
-        int wait_recv = nrecv;
-        int wait_send = nsend;
-        if (wait_recv > 0)
-            PARALLEL::mpi_wait(
-                wait_recv, rreq.data(), rstat.data());
-        if (wait_send > 0)
-            PARALLEL::mpi_wait(
-                wait_send, sreq.data(), sstat.data());
-        for (int index = 0; index < nrecv; ++index)
-        {
-            unpack_triplet_corner_recv(
-                fld_, fid, view.recv_plan[index], ncomp,
-                rbuf[index]);
-        }
-
-        Edge1FormEdgeExecutionCounters &counters =
-            edge_1form_edge_execution_counters_;
-        ++counters.prepared_executions;
-        counters.send_messages +=
-            static_cast<std::uint64_t>(nsend);
-        counters.recv_messages +=
-            static_cast<std::uint64_t>(nrecv);
-        for (int length : view.send_lengths)
-            counters.sent_doubles +=
-                static_cast<std::uint64_t>(length);
-        for (int length : view.recv_lengths)
-            counters.received_doubles +=
-                static_cast<std::uint64_t>(length);
+        execute_prepared_triplet_exchange(
+            prepared_exchange_executor_, view, fld_, fid, ncomp,
+            edge_1form_edge_execution_counters_);
         return;
     }
 
@@ -2197,80 +2169,9 @@ void Halo::exchange_parallel_vertex_edge_1form_triplet_(const std::vector<std::s
             view.recv_plan.size() != view.recv_lengths.size())
             abort_prepared_contract("execution view is inconsistent");
 
-        const int nsend =
-            static_cast<int>(view.send_plan.size());
-        const int nrecv =
-            static_cast<int>(view.recv_plan.size());
-        std::vector<std::vector<double>> sbuf(nsend);
-        std::vector<std::vector<double>> rbuf(nrecv);
-        std::vector<MPI_Request> sreq(nsend), rreq(nrecv);
-        std::vector<MPI_Status> sstat(nsend), rstat(nrecv);
-
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.send_plan[index];
-            const int length = view.send_lengths[index];
-            if (metadata.send_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached send record");
-            sbuf[index].resize(length);
-            pack_triplet_corner_send(
-                fld_, fid, metadata, view.send_boxes[index],
-                ncomp, sbuf[index]);
-        }
-
-        for (int index = 0; index < nrecv; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.recv_plan[index];
-            const int length = view.recv_lengths[index];
-            if (metadata.recv_rank != myid || length < 0 ||
-                length != box_volume(metadata.recv_box) * ncomp)
-                abort_prepared_contract("invalid cached receive record");
-            rbuf[index].resize(length);
-            PARALLEL::mpi_data_recv(
-                metadata.send_rank, metadata.tag,
-                rbuf[index].data(), length, &rreq[index]);
-        }
-        for (int index = 0; index < nsend; ++index)
-        {
-            const TripletCornerMeta &metadata =
-                view.send_plan[index];
-            PARALLEL::mpi_data_send(
-                metadata.recv_rank, metadata.tag,
-                sbuf[index].data(), view.send_lengths[index],
-                &sreq[index]);
-        }
-
-        int wait_recv = nrecv;
-        int wait_send = nsend;
-        if (wait_recv > 0)
-            PARALLEL::mpi_wait(
-                wait_recv, rreq.data(), rstat.data());
-        if (wait_send > 0)
-            PARALLEL::mpi_wait(
-                wait_send, sreq.data(), sstat.data());
-        for (int index = 0; index < nrecv; ++index)
-        {
-            unpack_triplet_corner_recv(
-                fld_, fid, view.recv_plan[index], ncomp,
-                rbuf[index]);
-        }
-
-        Edge1FormVertexExecutionCounters &counters =
-            edge_1form_vertex_execution_counters_;
-        ++counters.prepared_executions;
-        counters.send_messages +=
-            static_cast<std::uint64_t>(nsend);
-        counters.recv_messages +=
-            static_cast<std::uint64_t>(nrecv);
-        for (int length : view.send_lengths)
-            counters.sent_doubles +=
-                static_cast<std::uint64_t>(length);
-        for (int length : view.recv_lengths)
-            counters.received_doubles +=
-                static_cast<std::uint64_t>(length);
+        execute_prepared_triplet_exchange(
+            prepared_exchange_executor_, view, fld_, fid, ncomp,
+            edge_1form_vertex_execution_counters_);
         return;
     }
 

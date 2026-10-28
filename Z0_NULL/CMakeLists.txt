@@ -28,6 +28,7 @@ aux_source_directory(../src/4_halo/core DIRSRCS4_CORE)
 # Keep the initialization-only prepared metadata builder explicit: source
 # discovery alone does not make a newly added file trigger CMake regeneration.
 list(APPEND DIRSRCS4_CORE ../src/4_halo/core/HaloPreparedMetadata.cpp)
+list(APPEND DIRSRCS4_CORE ../src/4_halo/core/HaloPreparedExchange.cpp)
 list(REMOVE_DUPLICATES DIRSRCS4_CORE)
 aux_source_directory(../src/4_halo/build DIRSRCS4_BUILD)
 aux_source_directory(../src/4_halo/component_copy DIRSRCS4_COMPONENT_COPY)
