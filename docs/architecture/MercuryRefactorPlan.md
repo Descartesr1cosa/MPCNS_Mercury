@@ -1979,3 +1979,105 @@ separately approved, should migrate only one remaining oriented executor
 (such as Edge-stage Face2Form) using its existing prepared snapshot and the
 same no-runtime-metadata-collective constraint. No ExchangeExecutor or
 broader Halo migration is started here.
+
+
+## 45. Parallel Unit 2B-5C: Prepared Face2Form Edge-stage runtime reuse
+
+Unit 2B-5C changes only
+`Halo::exchange_parallel_edge_face_2form_triplet_()` when its existing
+`oriented` argument is true. The new
+`Face2FormEdgeExecutionMode` defaults to `Legacy`; component-copy
+Face2Form calls (`oriented == false`) bypass the view completely.
+
+The collective activation contract is explicit:
+`prepare_edge_face_2form_metadata()` followed by
+`activate_prepared_face_2form_edge_execution()` on every rank. Activation
+checks the requested mode, a rank-identical registry/descriptor schedule,
+complete orientation-aware FaceXi/FaceEta/FaceZeta
+`FaceContravariant2Form` membership, Corner2D eligibility, cache
+generations, and every receive/send record. The record validation preserves
+the Face2 inverse mapping
+`perm[send_axis] == recv_axis`, the legacy
+`face_2form_orientation_sign(transform, send_axis)`, two corrected
+normal-first directions, box and tag/order contracts. A failed global check
+returns all participants to Legacy.
+
+On success, one Halo-owned private
+`PreparedFace2FormEdgeExecutionView` copies the frozen legacy
+`TripletCornerMeta` records, receive/send order, cached send boxes,
+lengths, transform, sign, directions, and tags. The Prepared branch reads
+only that view: it does not traverse EdgePatch or execute metadata
+Alltoall/Alltoallv. Its data path preserves the legacy order exactly: pack
+all, post all Irecv, post all Isend, wait receives, wait sends, then unpack
+in receive-plan order. It retains the original pack/unpack routines, tags,
+temporary data buffers, OOB/non-finite behavior, and overlap ordering.
+
+## 46. Parallel Unit 2B-5D: Prepared Face2Form Vertex-stage runtime reuse
+
+Unit 2B-5D is the independent Corner3D counterpart. Its
+`Face2FormVertexExecutionMode` is also Legacy by default and activation
+uses `prepare_vertex_face_2form_metadata()` plus
+`activate_prepared_face_2form_vertex_execution()`. It validates the same
+global schedule and descriptors, but requires Corner3D and preserves the
+Vertex snapshot's three normal-first directions, 3D boxes, original sender
+grouping/order, and per-peer tags. The axis mapping remains the Face2
+inverse permutation rather than the Edge1 direct mapping; the sign remains
+the legacy Face2 sign formula.
+
+Successful activation converts the verified
+`LegacyFace2FormVertexPlanSnapshot` once into a private
+`PreparedFace2FormVertexExecutionView`. Runtime then directly consumes
+its records and does no metadata collective or VertexPatch traversal. The
+point-to-point pack/Irecv/Isend/wait/unpack tail is otherwise unchanged.
+
+The four oriented runtime modes are now independent: Edge1Form Edge,
+Edge1Form Vertex, Face2Form Edge, and Face2Form Vertex. Registration and
+`build_registered_patterns()` invalidate their matching execution views
+and saved generations. A selected mode with a stale view is not rebuilt or
+silently demoted at runtime; its executor fails before field transfer. The
+documented recovery remains collective deactivate, rebuild, prepare, and
+activate.
+
+The Z0 Halo Communication module includes
+`RunPreparedFace2FormExecutionTests()` in the existing MPI-global
+summary. It verifies default Legacy, rank-mismatched activation rejection,
+two repeated Prepared executions per Face2 path, exact complete Bface state
+against a Legacy baseline, exact message/payload parity per sync, zero
+Prepared runtime metadata collective counters, Face2-only Edge and
+Edge+Vertex mode combinations, all-four Prepared operation, lifecycle
+invalidation by rebuild, stale activation rejection, reprepare/reactivation,
+and explicit deactivation. Existing raw/Prepared Face2 snapshot tests supply
+the independent coverage for inverse/non-identity mapping, negative signs,
+normal-first reordering, zero-length messages, OOB and non-finite source
+handling, multiple blocks/peers, and overlap ordering. An explicit
+three-rank `Z0_FORM_ORIENTATION=0` run proves no oriented Face2 execution
+view can activate.
+
+Focused all-vertex acceptance after the implementation completed with zero
+failures: 16,273,427 exact checks across three ranks; cumulative Face2
+Edge send/receive count 2,904/2,904 with 203,456/203,456 doubles, and Face2
+Vertex 312/312 with 2,496/2,496 doubles. Each direct Legacy/Prepared parity
+assertion compared exact ghost values, message counts,
+and payload counts; the Prepared runtime metadata Alltoall and Alltoallv
+deltas were both zero. The orientation-disabled focused run completed with
+30 contract checks and zero failures. The complete serial MPI harness
+results and command exit codes are recorded with this unit's final commit.
+
+Final acceptance used three MPI ranks and serial harnesses:
+
+| Command | Exit/result |
+| --- | --- |
+| `cmake --build build --parallel 4` | 0; MercuryZ4 linked |
+| `cmake -S Z0_NULL -B build/Z0_NULL` | 0 |
+| `cmake --build build/Z0_NULL --target z0_null --parallel 4` | 0 |
+| focused all-vertex `Z0_TEST_DRIVEN_SYNC=1 Z0_HALO_MODE=all Z0_HALO_LEVEL=vertex mpirun -np 3 ./z0_null` | 0; 16,273,427 exact checks, zero failures |
+| focused orientation-disabled equivalent with `Z0_FORM_ORIENTATION=0` | 0; 30 contract checks, zero failures |
+| `NP=3 bash Z0_NULL/run_halo_validation.sh` | 0; all ten modes completed with the MPI-global normal conclusion |
+| `NP=3 BUILD_JOBS=4 bash Z0_NULL/run_preprocess_cube_validation.sh` | 0; all_vertex, all_owner_vertex, owner_only passed |
+
+
+Units 2B-5C and 2B-5D leave Face-stage transfer, component-copy, coupling,
+owner/alias, MPI communicator/tags, pack/unpack formulas, numerical
+operators, and persistent-buffer work untouched. Production remains Legacy
+unless all ranks explicitly prepare and activate a specific mode. Parallel
+Unit 2B-6 is not started here.

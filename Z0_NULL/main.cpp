@@ -61,7 +61,8 @@ int main(int argc, char **argv)
                                    Z0_TEST::RunPreparedFace2FormEdgePlanTests(grid, topology, field, halo, myid) &&
                                    Z0_TEST::RunPreparedFace2FormVertexPlanTests(grid, topology, field, halo, myid) &&
                                    Z0_TEST::RunPreparedEdge1FormEdgeExecutionTests(grid, topology, field, halo, myid) &&
-                                   Z0_TEST::RunPreparedEdge1FormVertexExecutionTests(grid, topology, field, halo, myid)},
+                                   Z0_TEST::RunPreparedEdge1FormVertexExecutionTests(grid, topology, field, halo, myid) &&
+                                   Z0_TEST::RunPreparedFace2FormExecutionTests(grid, topology, field, halo, myid)},
             {"DEC / State", Z0_TEST::RunDecChainTests(field, halo, boundary, param)},
         }};
 
