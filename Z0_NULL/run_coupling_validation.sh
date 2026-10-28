@@ -47,6 +47,7 @@ echo "[Z0 Coupling] running prepared/Legacy integration validation"
     timeout --preserve-status --signal=TERM "${TIMEOUT_SECONDS}s" \
         env Z0_TEST_DRIVEN_SYNC=1 \
             Z0_COUPLING_TEST=1 \
+            Z0_RUNTIME_TEST=1 \
             Z0_HALO_MODE=all \
             Z0_HALO_LEVEL=vertex \
             mpirun -np "${NP}" ./z0_null
@@ -59,6 +60,7 @@ if grep -q "\[FAIL\]" "${LOG}"; then
 fi
 if ! grep -q "Coupling Legacy/Prepared exact full exchange" "${LOG}" ||
    ! grep -q "Coupling repeated execution reuses prepared workspace" "${LOG}" ||
+   ! grep -q "Runtime stable sync performs no metadata rebuild or workspace growth" "${LOG}" ||
    ! grep -q "Z0_NULL finished normally" "${LOG}"; then
     echo "[Z0 Coupling] validation did not complete: ${LOG}" >&2
     tail -n 100 "${LOG}" >&2

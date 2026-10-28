@@ -51,6 +51,7 @@ namespace Z0_TEST
     bool RunCouplingIntegrationTests(
         Grid &grid, const TOPO::Topology &topology,
         Param &param, int myid);
+    bool RunRuntimeIntegrationTests(Param &param, int myid);
     bool RunDecChainTests(Field &field, Halo &halo, Z0_Boundary &boundary, Param &param);
     bool RunPhysicalIoTests(Field &field, Param &param);
 }

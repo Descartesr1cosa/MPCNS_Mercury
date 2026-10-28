@@ -40,6 +40,7 @@ aux_source_directory(../src/5_boundary DIRSRCS5)
 aux_source_directory(../src/6_io DIRSRCS6)
 aux_source_directory(../src/7_metric DIRSRCS7)
 aux_source_directory(../src/8_dec DIRSRCS8)
+set(DIRSRCS9 ../src/9_runtime/SimulationContext.cpp)
 
 if(NOT TARGET mpcns_mesh)
     add_library(mpcns_mesh STATIC ../src/mpcns/mesh/mesh_partition.cpp)
@@ -156,6 +157,7 @@ add_executable(z0_null
     ${DIRSRCS6}
     ${DIRSRCS7}
     ${DIRSRCS8}
+    ${DIRSRCS9}
     ${Z0_NULL_SRCS}
     ${Z0_NULL_BOUNDARY_SRCS}
     ${Z0_NULL_PHYSICS_SRCS}

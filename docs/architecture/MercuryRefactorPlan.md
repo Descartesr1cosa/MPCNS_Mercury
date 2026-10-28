@@ -2339,6 +2339,82 @@ but that is not claimed as physical-case acceptance. The independent Z0
 multi-block Coupling integration test is the available execution evidence
 until a production case is supplied.
 
-This completes and freezes Step 1. Step 2 (Solver Runtime API), Step 3
-(Independent Solver Demonstration), and unrelated framework refactors are
-not started.
+This completed and froze Step 1. Step 2 is recorded below. Step 3
+(Independent Solver Demonstration) and unrelated framework refactors are not
+started.
+
+## 49. Solver Runtime API (Step 2, completed 2026-10-28)
+
+### Architecture and ownership
+
+`MPCNS::SimulationContext` is a new thin assembly layer in `9_runtime`. It
+owns Grid, Topology, Field, Halo, BoundaryCore, and optionally IOModule in
+dependency order. It borrows Param and deliberately does not initialize or
+finalize MPI. This prevents nested MPI ownership and makes destruction order
+explicit through the Context lifetime.
+
+`SimulationConfig` accepts the existing FieldDescriptor and FieldSyncContract
+without introducing a second catalog. It adds only assembly data: directed
+Coupling pairs, output/restart lists, optional Metric publication, IO sizing,
+physical-corner policy, and a constrained topology-annotation callback.
+Mercury-specific fields, chemistry, PETSc, and physics parameters are not
+dependencies of the Runtime implementation.
+
+Initialization is collective and one-shot:
+
+1. collectively validate an identical field/Coupling registry on every rank;
+2. preprocess Grid and build Topology;
+3. register/allocate declared Field and optional Metric storage;
+4. register Coupling channels and allocate buffers;
+5. register Halo and Owner/Alias requests, then build all patterns;
+6. prepare and activate oriented Edge/Vertex execution metadata;
+7. build Boundary patterns and configure optional IO.
+
+Ranks without a selected local Coupling patch still enter the same registry,
+buffer, and plan construction calls. Registration closes at initialization;
+the timestep sync path performs no pattern rebuild or metadata negotiation.
+
+### Unified solver-facing scheduling
+
+`sync(field_or_group)` and `sync_group(group)` resolve the existing declared
+contract and run Face, Edge, and Vertex stages through the existing Halo and
+Boundary public interfaces. Each stage preserves the Mercury order:
+
+`Physical -> Halo -> Coupling transfer/application`.
+
+Owner/Alias runs once after every selected stage and Coupling application has
+completed. SyncOptions can disable each phase or cap the stage. Physical
+corner behavior is selectable between Mercury-compatible, stage-local, and
+solver-managed modes; the Runtime does not define solver physics.
+
+MetricAccess and DecAccess are forwarding facades over the existing Metric and
+DEC modules. Field, Grid, Topology, Halo, BoundaryCore, IOModule, and RunData
+remain directly accessible. Existing MercurySolver, MercuryBoundary, Field,
+Halo, and IO APIs are unchanged. Mercury itself is not forced to delegate to
+the new Context in this step. The compilable usage guide is
+`docs/architecture/SolverRuntimeGuide.md`.
+
+### Acceptance and performance evidence
+
+The Z0 Coupling harness now enables a dedicated Runtime integration test. It
+constructs a second real Grid/Topology through SimulationContext on all three
+ranks, including a rank with no selected local Coupling patch. The test
+declares a Cartesian cell field, Node owner field, orientation-aware Edge1Form
+and Face2Form triplets, both directed Coupling pairs, Metric fields, and IO.
+It registers and executes Physical and Coupling handlers.
+
+Observed assertions:
+
+- dependency initialization completed at communication generation 1;
+- 370,170 cell values matched exactly between Runtime sync and direct staged
+  Halo calls from the same initial state;
+- 6 Physical handler calls and 1,168 Coupling handler calls executed globally;
+- Metric diagnostics, DEC d0/d1, IOModule, and RunData access completed;
+- all four prepared oriented Edge/Vertex modes were active before sync;
+- after warm-up, repeated cell/edge/face/node group sync retained the same five
+  initialization-time workspace growth events and the same Coupling metadata
+  collective count: stable execution added zero growth and zero negotiation.
+
+Final serial validation:
+
+| Command | Result |
