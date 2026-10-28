@@ -1,4 +1,5 @@
 #include "4_halo/Halo.h"
+#include "4_halo/detail/HaloBuildTools.h"
 
 #include <algorithm>
 #include <array>
@@ -131,6 +132,79 @@ bool edge1_valid_vertex_transfer(
            transfer.send_box &&
            edge1_valid_box(*transfer.send_box);
 }
+
+template <class Transfer>
+bool face2_valid_transfer_common(
+    const Transfer &transfer,
+    LegacyOrientedCornerRole expected_role,
+    int rank, int size, int ncomp, int nghost)
+{
+    if (transfer.role != expected_role ||
+        transfer.recv_rank < 0 || transfer.recv_rank >= size ||
+        transfer.send_rank < 0 || transfer.send_rank >= size ||
+        transfer.recv_block < 0 || transfer.send_block < 0 ||
+        transfer.recv_axis < 0 || transfer.recv_axis >= 3 ||
+        transfer.send_axis < 0 || transfer.send_axis >= 3 ||
+        (transfer.sign != -1 && transfer.sign != 1) ||
+        transfer.tag < 0 || transfer.ncomp != ncomp ||
+        transfer.nghost != nghost ||
+        !edge1_valid_box(transfer.recv_box) ||
+        !edge1_valid_box(transfer.node_box_on_send) ||
+        !edge1_valid_transform(transfer.trans_recv_to_send) ||
+        transfer.message_length !=
+            edge1_box_volume(transfer.recv_box) * ncomp)
+        return false;
+
+    if (transfer.trans_recv_to_send.perm[transfer.send_axis] !=
+            transfer.recv_axis ||
+        transfer.sign != HALO_TOOLS::face_2form_orientation_sign(
+            transfer.trans_recv_to_send, transfer.send_axis))
+        return false;
+
+    if (expected_role == LegacyOrientedCornerRole::Receive)
+        return transfer.recv_rank == rank &&
+               transfer.peer_rank == transfer.send_rank &&
+               !transfer.send_box;
+    return transfer.send_rank == rank &&
+           transfer.peer_rank == transfer.recv_rank &&
+           transfer.send_box &&
+           edge1_valid_box(*transfer.send_box);
+}
+
+bool face2_valid_edge_transfer(
+    const LegacyFace2FormEdgeTransferSnapshot &transfer,
+    LegacyOrientedCornerRole expected_role,
+    int rank, int size, int ncomp, int nghost)
+{
+    if (!edge1_valid_vertex_direction(transfer.dir1_send) ||
+        !edge1_valid_vertex_direction(transfer.dir2_send) ||
+        std::abs(transfer.dir1_send) == std::abs(transfer.dir2_send))
+        return false;
+    return face2_valid_transfer_common(
+        transfer, expected_role, rank, size, ncomp, nghost);
+}
+
+bool face2_valid_vertex_transfer(
+    const LegacyFace2FormVertexTransferSnapshot &transfer,
+    LegacyOrientedCornerRole expected_role,
+    int rank, int size, int ncomp, int nghost)
+{
+    const int directions[3] = {
+        transfer.dir1_send, transfer.dir2_send, transfer.dir3_send};
+    bool seen[3] = {false, false, false};
+    for (int direction : directions)
+    {
+        if (!edge1_valid_vertex_direction(direction))
+            return false;
+        const int axis = std::abs(direction) - 1;
+        if (seen[axis])
+            return false;
+        seen[axis] = true;
+    }
+    return face2_valid_transfer_common(
+        transfer, expected_role, rank, size, ncomp, nghost);
+}
+
 
 bool edge1_all_ranks_same_string(
     const std::string &local, int size)
@@ -872,6 +946,7 @@ Halo::debug_edge_1form_vertex_execution_counters() const noexcept
 
 void Halo::invalidate_prepared_edge_face_2form_metadata_()
 {
+    invalidate_prepared_face_2form_edge_execution_();
     prepared_edge_face_2form_plans_.clear();
     prepared_edge_face_2form_metadata_ready_ = false;
     prepared_edge_face_2form_registry_generation_ = 0;
@@ -916,6 +991,224 @@ Halo::debug_prepared_edge_face_2form_metadata_exchange_count() const noexcept
 {
     return prepared_edge_face_2form_metadata_exchange_count_;
 }
+void Halo::invalidate_prepared_face_2form_edge_execution_()
+{
+    prepared_face_2form_edge_execution_plans_.clear();
+    face_2form_edge_execution_registry_generation_ = 0;
+    face_2form_edge_execution_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_face_2form_edge_execution_valid_() const noexcept
+{
+    return face_2form_edge_execution_mode_ ==
+               Face2FormEdgeExecutionMode::Prepared &&
+           prepared_edge_face_2form_metadata_valid_() &&
+           face_2form_edge_execution_registry_generation_ ==
+               registry_generation_ &&
+           face_2form_edge_execution_pattern_generation_ ==
+               pattern_generation_ &&
+           !prepared_face_2form_edge_execution_plans_.empty();
+}
+
+bool Halo::set_face_2form_edge_execution_mode(
+    Face2FormEdgeExecutionMode mode)
+{
+    int rank = 0;
+    int size = 1;
+    PARALLEL::mpi_rank(&rank);
+    PARALLEL::mpi_size(&size);
+
+    const int requested_mode = static_cast<int>(mode);
+    std::vector<int> requested_modes(size, 0);
+    MPI_Allgather(
+        &requested_mode, 1, MPI_INT, requested_modes.data(), 1,
+        MPI_INT, MPI_COMM_WORLD);
+    const bool same_mode = std::all_of(
+        requested_modes.begin(), requested_modes.end(),
+        [&](int remote) { return remote == requested_mode; });
+    if (!same_mode)
+    {
+        invalidate_prepared_face_2form_edge_execution_();
+        face_2form_edge_execution_mode_ =
+            Face2FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    std::vector<std::string> groups;
+    for (const auto &entry : face_2form_triplets_)
+    {
+        if (entry.second.orientation_aware &&
+            static_cast<int>(entry.second.level) >=
+                static_cast<int>(HaloLevel::Corner2D))
+            groups.push_back(entry.first);
+    }
+    std::sort(groups.begin(), groups.end());
+
+    std::ostringstream descriptor;
+    descriptor << "face2-edge-execution-v1";
+    for (const std::string &group_name : groups)
+    {
+        const HaloTripletRequest &triplet =
+            face_2form_triplets_.at(group_name);
+        descriptor << "|group=" << group_name
+                   << "|level=" << static_cast<int>(triplet.level)
+                   << "|stage=" << static_cast<int>(HaloLevel::Corner2D)
+                   << "|nghost=" << triplet.nghost;
+        const std::string fields[3] = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field = fld_->descriptor(fields[axis]);
+            descriptor << "|field=" << fields[axis]
+                       << "|location=" << static_cast<int>(field.location)
+                       << "|kind=" << static_cast<int>(field.value_kind)
+                       << "|ncomp=" << field.ncomp
+                       << "|field_nghost=" << field.nghost
+                       << "|halo=" << field.sync.do_halo
+                       << "|oriented=" << field.sync.orientation_aware;
+        }
+    }
+    if (!edge1_all_ranks_same_string(descriptor.str(), size))
+    {
+        invalidate_prepared_face_2form_edge_execution_();
+        face_2form_edge_execution_mode_ =
+            Face2FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    if (mode == Face2FormEdgeExecutionMode::Legacy)
+    {
+        invalidate_prepared_face_2form_edge_execution_();
+        face_2form_edge_execution_mode_ =
+            Face2FormEdgeExecutionMode::Legacy;
+        return true;
+    }
+
+    const StaggerLocation expected_locations[3] = {
+        StaggerLocation::FaceXi, StaggerLocation::FaceEt,
+        StaggerLocation::FaceZe};
+    bool local_valid =
+        prepared_edge_face_2form_metadata_valid_() && !groups.empty();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry = prepared_edge_face_2form_plans_.find(group_name);
+        if (entry == prepared_edge_face_2form_plans_.end() ||
+            entry->second.registry_generation != registry_generation_ ||
+            entry->second.pattern_generation != pattern_generation_)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        const LegacyFace2FormEdgePlanSnapshot &snapshot =
+            entry->second.snapshot;
+        const HaloTripletRequest &triplet =
+            face_2form_triplets_.at(group_name);
+        const std::array<std::string, 3> fields = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        if (snapshot.group_name != group_name ||
+            snapshot.field_names != fields || snapshot.ncomp <= 0 ||
+            snapshot.nghost != triplet.nghost ||
+            !triplet.orientation_aware ||
+            static_cast<int>(triplet.level) <
+                static_cast<int>(HaloLevel::Corner2D))
+        {
+            local_valid = false;
+            continue;
+        }
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field = fld_->descriptor(fields[axis]);
+            if (field.location != expected_locations[axis] ||
+                field.value_kind !=
+                    FieldValueKind::FaceContravariant2Form ||
+                field.ncomp != snapshot.ncomp ||
+                field.nghost != snapshot.nghost ||
+                !field.sync.do_halo || !field.sync.orientation_aware)
+                local_valid = false;
+        }
+        for (std::size_t index = 0; index < snapshot.recv_plan.size();
+             ++index)
+        {
+            const auto &transfer = snapshot.recv_plan[index];
+            if (transfer.local_plan_order != index ||
+                transfer.peer_message_order !=
+                    static_cast<std::size_t>(transfer.tag) ||
+                !face2_valid_edge_transfer(
+                    transfer, LegacyOrientedCornerRole::Receive, rank,
+                    size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+        for (std::size_t index = 0; index < snapshot.send_plan.size();
+             ++index)
+        {
+            const auto &transfer = snapshot.send_plan[index];
+            if (transfer.local_plan_order != index ||
+                transfer.peer_message_order !=
+                    static_cast<std::size_t>(transfer.tag) ||
+                !face2_valid_edge_transfer(
+                    transfer, LegacyOrientedCornerRole::Send, rank,
+                    size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+    }
+
+    if (!edge1_all_ranks_true(local_valid))
+    {
+        invalidate_prepared_face_2form_edge_execution_();
+        face_2form_edge_execution_mode_ =
+            Face2FormEdgeExecutionMode::Legacy;
+        return false;
+    }
+
+    invalidate_prepared_face_2form_edge_execution_();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry = prepared_edge_face_2form_plans_.find(group_name);
+        prepared_face_2form_edge_execution_plans_.emplace(
+            group_name,
+            make_prepared_face_2form_edge_execution_view_(
+                entry->second.snapshot));
+    }
+    face_2form_edge_execution_registry_generation_ =
+        registry_generation_;
+    face_2form_edge_execution_pattern_generation_ =
+        pattern_generation_;
+    face_2form_edge_execution_mode_ =
+        Face2FormEdgeExecutionMode::Prepared;
+    return true;
+}
+
+bool Halo::activate_prepared_face_2form_edge_execution()
+{
+    return set_face_2form_edge_execution_mode(
+        Face2FormEdgeExecutionMode::Prepared);
+}
+
+bool Halo::deactivate_prepared_face_2form_edge_execution()
+{
+    return set_face_2form_edge_execution_mode(
+        Face2FormEdgeExecutionMode::Legacy);
+}
+
+Face2FormEdgeExecutionMode
+Halo::debug_face_2form_edge_execution_mode() const noexcept
+{
+    return face_2form_edge_execution_mode_;
+}
+
+bool Halo::debug_prepared_face_2form_edge_execution_active() const noexcept
+{
+    return prepared_face_2form_edge_execution_valid_();
+}
+
+Face2FormEdgeExecutionCounters
+Halo::debug_face_2form_edge_execution_counters() const noexcept
+{
+    return face_2form_edge_execution_counters_;
+}
+
+
 void Halo::enable_vertex_edge_1form_plan_capture(bool enabled)
 {
     if (enabled)
@@ -1031,6 +1324,7 @@ void Halo::coupling_trans_3DCorner(std::string &src,
 }
 void Halo::invalidate_prepared_vertex_face_2form_metadata_()
 {
+    invalidate_prepared_face_2form_vertex_execution_();
     prepared_vertex_face_2form_plans_.clear();
     prepared_vertex_face_2form_metadata_ready_ = false;
     prepared_vertex_face_2form_registry_generation_ = 0;
@@ -1074,4 +1368,222 @@ std::uint64_t
 Halo::debug_prepared_vertex_face_2form_metadata_exchange_count() const noexcept
 {
     return prepared_vertex_face_2form_metadata_exchange_count_;
+}
+void Halo::invalidate_prepared_face_2form_vertex_execution_()
+{
+    prepared_face_2form_vertex_execution_plans_.clear();
+    face_2form_vertex_execution_registry_generation_ = 0;
+    face_2form_vertex_execution_pattern_generation_ = 0;
+}
+
+bool Halo::prepared_face_2form_vertex_execution_valid_() const noexcept
+{
+    return face_2form_vertex_execution_mode_ ==
+               Face2FormVertexExecutionMode::Prepared &&
+           prepared_vertex_face_2form_metadata_valid_() &&
+           face_2form_vertex_execution_registry_generation_ ==
+               registry_generation_ &&
+           face_2form_vertex_execution_pattern_generation_ ==
+               pattern_generation_ &&
+           !prepared_face_2form_vertex_execution_plans_.empty();
+}
+
+bool Halo::set_face_2form_vertex_execution_mode(
+    Face2FormVertexExecutionMode mode)
+{
+    int rank = 0;
+    int size = 1;
+    PARALLEL::mpi_rank(&rank);
+    PARALLEL::mpi_size(&size);
+
+    const int requested_mode = static_cast<int>(mode);
+    std::vector<int> requested_modes(size, 0);
+    MPI_Allgather(
+        &requested_mode, 1, MPI_INT, requested_modes.data(), 1,
+        MPI_INT, MPI_COMM_WORLD);
+    const bool same_mode = std::all_of(
+        requested_modes.begin(), requested_modes.end(),
+        [&](int remote) { return remote == requested_mode; });
+    if (!same_mode)
+    {
+        invalidate_prepared_face_2form_vertex_execution_();
+        face_2form_vertex_execution_mode_ =
+            Face2FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    std::vector<std::string> groups;
+    for (const auto &entry : face_2form_triplets_)
+    {
+        if (entry.second.orientation_aware &&
+            static_cast<int>(entry.second.level) >=
+                static_cast<int>(HaloLevel::Corner3D))
+            groups.push_back(entry.first);
+    }
+    std::sort(groups.begin(), groups.end());
+
+    std::ostringstream descriptor;
+    descriptor << "face2-vertex-execution-v1";
+    for (const std::string &group_name : groups)
+    {
+        const HaloTripletRequest &triplet =
+            face_2form_triplets_.at(group_name);
+        descriptor << "|group=" << group_name
+                   << "|level=" << static_cast<int>(triplet.level)
+                   << "|stage=" << static_cast<int>(HaloLevel::Corner3D)
+                   << "|nghost=" << triplet.nghost;
+        const std::string fields[3] = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field = fld_->descriptor(fields[axis]);
+            descriptor << "|field=" << fields[axis]
+                       << "|location=" << static_cast<int>(field.location)
+                       << "|kind=" << static_cast<int>(field.value_kind)
+                       << "|ncomp=" << field.ncomp
+                       << "|field_nghost=" << field.nghost
+                       << "|halo=" << field.sync.do_halo
+                       << "|oriented=" << field.sync.orientation_aware;
+        }
+    }
+    if (!edge1_all_ranks_same_string(descriptor.str(), size))
+    {
+        invalidate_prepared_face_2form_vertex_execution_();
+        face_2form_vertex_execution_mode_ =
+            Face2FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    if (mode == Face2FormVertexExecutionMode::Legacy)
+    {
+        invalidate_prepared_face_2form_vertex_execution_();
+        face_2form_vertex_execution_mode_ =
+            Face2FormVertexExecutionMode::Legacy;
+        return true;
+    }
+
+    const StaggerLocation expected_locations[3] = {
+        StaggerLocation::FaceXi, StaggerLocation::FaceEt,
+        StaggerLocation::FaceZe};
+    bool local_valid =
+        prepared_vertex_face_2form_metadata_valid_() && !groups.empty();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_vertex_face_2form_plans_.find(group_name);
+        if (entry == prepared_vertex_face_2form_plans_.end() ||
+            entry->second.registry_generation != registry_generation_ ||
+            entry->second.pattern_generation != pattern_generation_)
+        {
+            local_valid = false;
+            continue;
+        }
+
+        const LegacyFace2FormVertexPlanSnapshot &snapshot =
+            entry->second.snapshot;
+        const HaloTripletRequest &triplet =
+            face_2form_triplets_.at(group_name);
+        const std::array<std::string, 3> fields = {
+            triplet.xi, triplet.eta, triplet.zeta};
+        if (snapshot.group_name != group_name ||
+            snapshot.field_names != fields || snapshot.ncomp <= 0 ||
+            snapshot.nghost != triplet.nghost ||
+            !triplet.orientation_aware ||
+            static_cast<int>(triplet.level) <
+                static_cast<int>(HaloLevel::Corner3D))
+        {
+            local_valid = false;
+            continue;
+        }
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const FieldDescriptor &field = fld_->descriptor(fields[axis]);
+            if (field.location != expected_locations[axis] ||
+                field.value_kind !=
+                    FieldValueKind::FaceContravariant2Form ||
+                field.ncomp != snapshot.ncomp ||
+                field.nghost != snapshot.nghost ||
+                !field.sync.do_halo || !field.sync.orientation_aware)
+                local_valid = false;
+        }
+        for (std::size_t index = 0; index < snapshot.recv_plan.size();
+             ++index)
+        {
+            const auto &transfer = snapshot.recv_plan[index];
+            if (transfer.local_plan_order != index ||
+                transfer.peer_message_order !=
+                    static_cast<std::size_t>(transfer.tag) ||
+                !face2_valid_vertex_transfer(
+                    transfer, LegacyOrientedCornerRole::Receive, rank,
+                    size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+        for (std::size_t index = 0; index < snapshot.send_plan.size();
+             ++index)
+        {
+            const auto &transfer = snapshot.send_plan[index];
+            if (transfer.local_plan_order != index ||
+                transfer.peer_message_order !=
+                    static_cast<std::size_t>(transfer.tag) ||
+                !face2_valid_vertex_transfer(
+                    transfer, LegacyOrientedCornerRole::Send, rank,
+                    size, snapshot.ncomp, snapshot.nghost))
+                local_valid = false;
+        }
+    }
+
+    if (!edge1_all_ranks_true(local_valid))
+    {
+        invalidate_prepared_face_2form_vertex_execution_();
+        face_2form_vertex_execution_mode_ =
+            Face2FormVertexExecutionMode::Legacy;
+        return false;
+    }
+
+    invalidate_prepared_face_2form_vertex_execution_();
+    for (const std::string &group_name : groups)
+    {
+        const auto entry =
+            prepared_vertex_face_2form_plans_.find(group_name);
+        prepared_face_2form_vertex_execution_plans_.emplace(
+            group_name,
+            make_prepared_face_2form_vertex_execution_view_(
+                entry->second.snapshot));
+    }
+    face_2form_vertex_execution_registry_generation_ =
+        registry_generation_;
+    face_2form_vertex_execution_pattern_generation_ =
+        pattern_generation_;
+    face_2form_vertex_execution_mode_ =
+        Face2FormVertexExecutionMode::Prepared;
+    return true;
+}
+
+bool Halo::activate_prepared_face_2form_vertex_execution()
+{
+    return set_face_2form_vertex_execution_mode(
+        Face2FormVertexExecutionMode::Prepared);
+}
+
+bool Halo::deactivate_prepared_face_2form_vertex_execution()
+{
+    return set_face_2form_vertex_execution_mode(
+        Face2FormVertexExecutionMode::Legacy);
+}
+
+Face2FormVertexExecutionMode
+Halo::debug_face_2form_vertex_execution_mode() const noexcept
+{
+    return face_2form_vertex_execution_mode_;
+}
+
+bool Halo::debug_prepared_face_2form_vertex_execution_active() const noexcept
+{
+    return prepared_face_2form_vertex_execution_valid_();
+}
+
+Face2FormVertexExecutionCounters
+Halo::debug_face_2form_vertex_execution_counters() const noexcept
+{
+    return face_2form_vertex_execution_counters_;
 }

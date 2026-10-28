@@ -55,6 +55,46 @@ struct Edge1FormVertexExecutionCounters
 
 struct PreparedEdge1FormVertexExecutionView;
 
+enum class Face2FormEdgeExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Face2FormEdgeExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedFace2FormEdgeExecutionView;
+
+enum class Face2FormVertexExecutionMode
+{
+    Legacy,
+    Prepared
+};
+
+struct Face2FormVertexExecutionCounters
+{
+    std::uint64_t legacy_metadata_alltoall = 0;
+    std::uint64_t legacy_metadata_alltoallv = 0;
+    std::uint64_t prepared_executions = 0;
+    std::uint64_t legacy_executions = 0;
+    std::uint64_t send_messages = 0;
+    std::uint64_t recv_messages = 0;
+    std::uint64_t sent_doubles = 0;
+    std::uint64_t received_doubles = 0;
+};
+
+struct PreparedFace2FormVertexExecutionView;
+
 class Halo
 {
 public:
@@ -161,6 +201,19 @@ public:
     std::uint64_t
     debug_prepared_edge_face_2form_metadata_exchange_count() const noexcept;
 
+    // Default is Legacy. Prepared activates only the orientation-aware
+    // Face2Form Edge-stage view after collective validation.
+    bool set_face_2form_edge_execution_mode(
+        Face2FormEdgeExecutionMode mode);
+    bool activate_prepared_face_2form_edge_execution();
+    bool deactivate_prepared_face_2form_edge_execution();
+    Face2FormEdgeExecutionMode
+    debug_face_2form_edge_execution_mode() const noexcept;
+    bool debug_prepared_face_2form_edge_execution_active() const noexcept;
+    Face2FormEdgeExecutionCounters
+    debug_face_2form_edge_execution_counters() const noexcept;
+
+
     // Explicit initialization-time metadata preparation for the existing
     // Parallel Vertex-stage Face2Form protocol. It never executes a field
     // exchange and is disabled from ordinary production initialization.
@@ -173,6 +226,19 @@ public:
     debug_prepared_vertex_face_2form_plan_generation() const;
     std::uint64_t
     debug_prepared_vertex_face_2form_metadata_exchange_count() const noexcept;
+
+    // Default is Legacy. Prepared activates only the orientation-aware
+    // Face2Form Vertex-stage view after collective validation.
+    bool set_face_2form_vertex_execution_mode(
+        Face2FormVertexExecutionMode mode);
+    bool activate_prepared_face_2form_vertex_execution();
+    bool deactivate_prepared_face_2form_vertex_execution();
+    Face2FormVertexExecutionMode
+    debug_face_2form_vertex_execution_mode() const noexcept;
+    bool debug_prepared_face_2form_vertex_execution_active() const noexcept;
+    Face2FormVertexExecutionCounters
+    debug_face_2form_vertex_execution_counters() const noexcept;
+
 
     // Optional capture for the independent Vertex-stage Edge1Form protocol.
     void enable_vertex_edge_1form_plan_capture(bool enabled);
@@ -294,6 +360,18 @@ private:
     void invalidate_prepared_vertex_face_2form_metadata_();
     bool prepared_vertex_face_2form_metadata_valid_() const noexcept;
 
+    void invalidate_prepared_face_2form_edge_execution_();
+    bool prepared_face_2form_edge_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedFace2FormEdgeExecutionView>
+    make_prepared_face_2form_edge_execution_view_(
+        const LegacyFace2FormEdgePlanSnapshot &snapshot) const;
+    void invalidate_prepared_face_2form_vertex_execution_();
+    bool prepared_face_2form_vertex_execution_valid_() const noexcept;
+    std::shared_ptr<const PreparedFace2FormVertexExecutionView>
+    make_prepared_face_2form_vertex_execution_view_(
+        const LegacyFace2FormVertexPlanSnapshot &snapshot) const;
+
+
 private:
     Field *fld_;
     TOPO::Topology *topo_;
@@ -386,6 +464,16 @@ private:
     std::uint64_t prepared_edge_face_2form_pattern_generation_ = 0;
     std::uint64_t prepared_edge_face_2form_metadata_exchange_count_ = 0;
 
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedFace2FormEdgeExecutionView>>
+        prepared_face_2form_edge_execution_plans_;
+    Face2FormEdgeExecutionMode face_2form_edge_execution_mode_ =
+        Face2FormEdgeExecutionMode::Legacy;
+    std::uint64_t face_2form_edge_execution_registry_generation_ = 0;
+    std::uint64_t face_2form_edge_execution_pattern_generation_ = 0;
+    Face2FormEdgeExecutionCounters face_2form_edge_execution_counters_;
+
+
     struct PreparedVertexFace2FormPlanEntry
     {
         LegacyFace2FormVertexPlanSnapshot snapshot;
@@ -400,6 +488,16 @@ private:
     std::uint64_t prepared_vertex_face_2form_registry_generation_ = 0;
     std::uint64_t prepared_vertex_face_2form_pattern_generation_ = 0;
     std::uint64_t prepared_vertex_face_2form_metadata_exchange_count_ = 0;
+
+    std::unordered_map<std::string,
+                       std::shared_ptr<const PreparedFace2FormVertexExecutionView>>
+        prepared_face_2form_vertex_execution_plans_;
+    Face2FormVertexExecutionMode face_2form_vertex_execution_mode_ =
+        Face2FormVertexExecutionMode::Legacy;
+    std::uint64_t face_2form_vertex_execution_registry_generation_ = 0;
+    std::uint64_t face_2form_vertex_execution_pattern_generation_ = 0;
+    Face2FormVertexExecutionCounters face_2form_vertex_execution_counters_;
+
 
     bool registered_patterns_built_ = false;
     std::uint64_t registry_generation_ = 0;
