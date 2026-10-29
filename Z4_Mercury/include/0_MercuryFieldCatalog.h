@@ -252,6 +252,27 @@ inline std::vector<SyncGroupSpec> SyncGroups()
     return groups;
 }
 
+// The application may be assembled either by the legacy hand-written bootstrap
+// or by MPCNS::SimulationContext.  Keep the actual FieldDescriptor expansion
+// here, next to FieldSpecs(), so both paths receive *exactly* the same field
+// names, staggering, cochain semantics, and synchronization contracts.
+inline std::vector<FieldDescriptor> RuntimeFieldDescriptors(int runtime_nghost)
+{
+    std::vector<FieldDescriptor> descriptors;
+    const std::vector<FieldSpec> specs = FieldSpecs();
+    descriptors.reserve(specs.size());
+    for (const FieldSpec &spec : specs)
+        descriptors.push_back(spec.descriptor(runtime_nghost));
+    return descriptors;
+}
+
+// These directed names are part of the Mercury material-interface contract:
+// a Solid -> Fluid update is not interchangeable with Fluid -> Solid.
+inline std::vector<Field::PairKey> CouplingPairs()
+{
+    return {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
+}
+
 inline void append_unique(std::vector<std::string> &out,
                           std::set<std::string> &seen,
                           const std::string &name)
@@ -325,8 +346,7 @@ inline void RegisterCouplingChannels(Field *fld,
                                      const TOPO::Topology &topology,
                                      int dimension)
 {
-    const std::vector<Field::PairKey> directed_pairs = {{"Solid", "Fluid"}, {"Fluid", "Solid"}};
-    fld->register_declared_coupling_channels(directed_pairs);
+    fld->register_declared_coupling_channels(CouplingPairs());
 
     fld->build_coupling_buffers(topology, dimension);
 }

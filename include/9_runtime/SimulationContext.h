@@ -78,6 +78,11 @@ public:
     void sync(const std::string &, const SyncOptions &);
     void sync_group(const std::string &);
     void sync_group(const std::string &, const SyncOptions &);
+    // Legacy physics adapters may still require their case parameters.  The
+    // context only borrows this object; it neither owns nor mutates its
+    // lifetime.  New infrastructure should prefer typed config instead.
+    Param &param() noexcept { return param_; }
+    const Param &param() const noexcept { return param_; }
     Grid &grid(); const Grid &grid() const;
     TOPO::Topology &topology(); const TOPO::Topology &topology() const;
     Field &field(); const Field &field() const;

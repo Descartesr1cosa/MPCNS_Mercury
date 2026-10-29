@@ -32,12 +32,22 @@ class Field;
 class Halo;
 class Param;
 class FieldBlock;
+namespace MPCNS
+{
+    class SimulationContext;
+}
 
 class MercurySolver
 {
 public:
     MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo, Param *par,
                   TOPO::Topology *topo_equiv = nullptr,
+                  HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
+                  METRIC::SingularEdgeRegistry *singular_edges = nullptr);
+    // Production construction path.  The runtime owns Grid/Topology/Field/
+    // Halo and must outlive this solver; Mercury retains direct references so
+    // its specialized boundary schedule can remain numerically unchanged.
+    MercurySolver(MPCNS::SimulationContext &runtime,
                   HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
                   METRIC::SingularEdgeRegistry *singular_edges = nullptr);
     ~MercurySolver();

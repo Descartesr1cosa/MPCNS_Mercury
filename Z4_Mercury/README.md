@@ -5,6 +5,15 @@ topology, field catalog, halo, owner-sync, metric, and DEC infrastructure.
 Panel interfaces are represented by topology equivalence classes; oriented
 edge/face forms are synchronized through their canonical owners.
 
+The executable now uses `MPCNS::SimulationContext` to own the generic runtime
+substrate (grid, topology, metric fields, field storage, coupling buffers, and
+prepared halo/owner plans). Mercury keeps its own physics-level boundary
+scheduler because pole closure, variable-valence edge assembly, and the
+conducting-planet interface have ordering constraints that a generic `sync()`
+cannot safely infer. See [Mercury Runtime Integration and Special Numerical
+Cases](../docs/architecture/MercuryRuntimeIntegration.md) before changing the
+induction, boundary, or resistive paths.
+
 The grid preprocessing order is important for a cubic sphere: extrapolate
 coordinates, exchange panel/corner ghost coordinates, then calculate metrics.
 At startup MercuryZ4 validates every physical and ghost metric point and stops

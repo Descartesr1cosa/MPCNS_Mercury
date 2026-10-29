@@ -7,6 +7,7 @@
 // Z4_Mercury
 #include "MercurySolver.h"
 #include "0_MercuryFieldCatalog.h"
+#include "9_runtime/SimulationContext.h"
 #include "mpcns/compat/legacy_geometry_build_pipeline.hpp"
 
 MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *halo,
@@ -283,6 +284,24 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         UpdateMagneticDerivedFields_();
         io_.WritePostStaticData(post_output_path_, post_write_options_);
     }
+}
+
+MercurySolver::MercurySolver(
+    MPCNS::SimulationContext &runtime,
+    HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat,
+    METRIC::SingularEdgeRegistry *singular_edges)
+    : MercurySolver(&runtime.grid(),
+                    &runtime.topology(),
+                    &runtime.field(),
+                    &runtime.halo(),
+                    &runtime.param(),
+                    &runtime.topology(),
+                    edge_owner_pat,
+                    singular_edges)
+{
+    // Do not replace MercuryBoundary with SimulationContext::sync here.
+    // The generic runtime owns dependency construction, while Mercury retains
+    // its established pole, singular-edge, and material-interface ordering.
 }
 
 MercurySolver::~MercurySolver()
