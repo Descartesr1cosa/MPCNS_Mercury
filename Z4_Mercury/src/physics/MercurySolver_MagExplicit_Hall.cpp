@@ -1,7 +1,9 @@
 #include "MercurySolver.h"
 #include "1_grid/1_MPCNS_Grid.h"
 
+#include <array>
 #include <cmath>
+#include <vector>
 
 double MercurySolver::HallRadialTaper_(double x, double y, double z)
 {
@@ -50,13 +52,52 @@ void MercurySolver::AssembleSingularEdgeEMF_HallExplicit_()
         const double taper=HallRadialTaper_(cx(c.i+1,c.j+1,c.k+1),cy(c.i+1,c.j+1,c.k+1),cz(c.i+1,c.j+1,c.k+1));
         return taper*(ex*edge.canonical_edge_vector[0]+ey*edge.canonical_edge_vector[1]+ez*edge.canonical_edge_vector[2]);
     };
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_xi",contribution);
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_eta",contribution);
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"Ehall_zeta",contribution);
+    singular_edges_->assemble_cell_triplet_to_local_owners(
+        *fld_,{"Ehall_xi","Ehall_eta","Ehall_zeta"},contribution);
 }
+
+namespace
+{
+// The Hall radial taper depends only on the (static) edge midpoint, so it is
+// evaluated once per edge instead of every step.
+struct HallTaperCache
+{
+    Int3 lo{0, 0, 0};
+    int dj = 0, dk = 0;
+    std::vector<double> v;
+    inline double &at(int i, int j, int k)
+    {
+        return v[static_cast<std::size_t>((i - lo.i) * dj + (j - lo.j)) * dk + (k - lo.k)];
+    }
+};
+std::vector<std::array<HallTaperCache, 3>> g_hall_taper;
+} // namespace
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
 {
+    if (g_hall_taper.size() < static_cast<std::size_t>(fld_->num_blocks()))
+        g_hall_taper.resize(fld_->num_blocks());
+    auto taper = [&](int ib, int axis, FieldBlock &E, int i, int j, int k) -> double
+    {
+        HallTaperCache &c = g_hall_taper[ib][axis];
+        if (c.v.empty())
+        {
+            const Int3 lo = E.inner_lo(), hi = E.inner_hi();
+            c.lo = lo;
+            c.dj = hi.j - lo.j;
+            const int dk = hi.k - lo.k;
+            c.dk = dk;
+            c.v.resize(static_cast<std::size_t>(hi.i - lo.i) * c.dj * dk);
+            const StaggerLocation loc = axis == 0 ? StaggerLocation::EdgeXi
+                                        : axis == 1 ? StaggerLocation::EdgeEt
+                                                    : StaggerLocation::EdgeZe;
+            for (int ii = lo.i; ii < hi.i; ++ii)
+                for (int jj = lo.j; jj < hi.j; ++jj)
+                    for (int kk = lo.k; kk < hi.k; ++kk)
+                        c.at(ii, jj, kk) = HallRadialTaperEdge_(ib, loc, ii, jj, kk);
+        }
+        return c.at(i, j, k);
+    };
     constexpr double eps = 1e-14;
     const double Cwh = 0.1; // 先沿用你原来的 whistler-LLF 系数
 
@@ -224,7 +265,7 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBeta_zeta = Bet(i, j, k, 0) - Bet(i, j, k - 1, 0);
 
                         Exi(i, j, k, 0) =
-                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeXi, i,j,k) *
+                            taper(ib, 0, Exi, i, j, k) *
                             (Ecen + 0.5 * mu_eta * dBzeta_eta - 0.5 * mu_zeta * dBeta_zeta);
                     }
         }
@@ -290,7 +331,7 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBzeta_xi = Bze(i, j, k, 0) - Bze(i - 1, j, k, 0);
 
                         Eet(i, j, k, 0) =
-                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeEt, i,j,k) *
+                            taper(ib, 1, Eet, i, j, k) *
                             (Ecen + 0.5 * mu_zeta * dBxi_zeta - 0.5 * mu_xi * dBzeta_xi);
                     }
         }
@@ -356,7 +397,7 @@ void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
                         const double dBxi_eta = Bxi(i, j, k, 0) - Bxi(i, j - 1, k, 0);
 
                         Eze(i, j, k, 0) =
-                            HallRadialTaperEdge_(ib, StaggerLocation::EdgeZe, i,j,k) *
+                            taper(ib, 2, Eze, i, j, k) *
                             (Ecen + 0.5 * mu_xi * dBeta_xi - 0.5 * mu_eta * dBxi_eta);
                     }
         }

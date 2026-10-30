@@ -58,6 +58,12 @@ public:
     void assemble_cell_field_to_local_owners(Field &fields,
                                              const std::string &field_name,
                                              const CellContribution &contribution) const;
+    // Same as assemble_cell_field_to_local_owners for a xi/eta/zeta edge
+    // triplet, but evaluates the contribution and reduces once: each entry is
+    // written only into the component matching its owner axis.
+    void assemble_cell_triplet_to_local_owners(Field &fields,
+                                               const std::array<std::string,3> &field_names,
+                                               const CellContribution &contribution) const;
     void assemble_face_triplet_to_local_owners(Field &fields,
                                                const std::array<std::string,3> &field_names,
                                                const FaceContribution &contribution) const;

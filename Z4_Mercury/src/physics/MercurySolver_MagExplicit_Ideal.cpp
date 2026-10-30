@@ -4,8 +4,37 @@
 #include <cmath>
 #include <stdexcept>
 
+namespace
+{
+// Per-cell quantities used by the ideal EMF assembly.  Contravariant velocity
+// and the face-averaged B are pure functions of one cell, but the face/edge
+// loops used to recompute them for every face and every flux.  They are
+// evaluated once per block per step here with the same arithmetic.
+struct IdealCellCache
+{
+    Int3 lo{0, 0, 0};
+    int dj = 0, dk = 0;
+    std::vector<double> data; // per cell: ucon[3], bind[3], btot[3]
+
+    inline std::size_t base(int i, int j, int k) const
+    {
+        return 9 * (static_cast<std::size_t>((i - lo.i) * dj + (j - lo.j)) * dk + (k - lo.k));
+    }
+    inline double ucon(int axis, int i, int j, int k) const { return data[base(i, j, k) + axis]; }
+    inline double bind(int axis, int i, int j, int k) const { return data[base(i, j, k) + 3 + axis]; }
+    inline double btot(int axis, int i, int j, int k) const { return data[base(i, j, k) + 6 + axis]; }
+};
+
+std::vector<IdealCellCache> g_ideal_cell_cache;
+const IdealCellCache *g_ideal_cell_cache_cur = nullptr;
+} // namespace
+
 void MercurySolver::AddIdealEdgeEMF_()
 {
+    constexpr double jac_floor = 1.0e-30;
+    if (g_ideal_cell_cache.size() < static_cast<std::size_t>(fld_->num_blocks()))
+        g_ideal_cell_cache.resize(fld_->num_blocks());
+
     for (int iblk = 0; iblk < fld_->num_blocks(); iblk++)
     {
         auto &Uplus = fld_->field(fid_.fid_U_plus, iblk);
@@ -25,6 +54,46 @@ void MercurySolver::AddIdealEdgeEMF_()
         auto &JDxi = fld_->field(fid_.fid_metric.xi, iblk);
         auto &JDet = fld_->field(fid_.fid_metric.eta, iblk);
         auto &JDze = fld_->field(fid_.fid_metric.zeta, iblk);
+
+        {
+            // Cells touched by the face loops and the edge assembly: the inner
+            // cell range extended by two layers (clipped to what is allocated).
+            IdealCellCache &cc = g_ideal_cell_cache[iblk];
+            const Int3 alo = Uplus.get_lo(), ahi = Uplus.get_hi();
+            const Int3 ilo = Uplus.inner_lo(), ihi = Uplus.inner_hi();
+            const Int3 lo{std::max(ilo.i - 2, alo.i), std::max(ilo.j - 2, alo.j), std::max(ilo.k - 2, alo.k)};
+            const Int3 hi{std::min(ihi.i + 2, ahi.i - 1), std::min(ihi.j + 2, ahi.j - 1), std::min(ihi.k + 2, ahi.k - 1)};
+            cc.lo = lo;
+            cc.dj = hi.j - lo.j;
+            cc.dk = hi.k - lo.k;
+            cc.data.resize(9 * static_cast<std::size_t>(hi.i - lo.i) * cc.dj * cc.dk);
+            FieldBlock *metric[3] = {&JDxi, &JDet, &JDze};
+            FieldBlock *Bind[3] = {&Bxi, &Beta, &Bzeta};
+            FieldBlock *Badd[3] = {&Badd_xi, &Badd_eta, &Badd_zeta};
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        double *out = &cc.data[cc.base(i, j, k)];
+                        const double inv_jac = 1.0 / (std::abs(Jac(i, j, k, 0)) + jac_floor);
+                        for (int a = 0; a < 3; ++a)
+                        {
+                            const int ip = i + (a == 0), jp = j + (a == 1), kp = k + (a == 2);
+                            FieldBlock &M = *metric[a];
+                            const double kx = 0.5 * (M(i, j, k, 0) + M(ip, jp, kp, 0));
+                            const double ky = 0.5 * (M(i, j, k, 1) + M(ip, jp, kp, 1));
+                            const double kz = 0.5 * (M(i, j, k, 2) + M(ip, jp, kp, 2));
+                            out[a] = (kx * Uplus(i, j, k, 0) +
+                                      ky * Uplus(i, j, k, 1) +
+                                      kz * Uplus(i, j, k, 2)) *
+                                     inv_jac;
+                            out[3 + a] = 0.5 * ((*Bind[a])(i, j, k, 0) + (*Bind[a])(ip, jp, kp, 0));
+                            out[6 + a] = 0.5 * (((*Bind[a])(i, j, k, 0) + (*Badd[a])(i, j, k, 0)) +
+                                                ((*Bind[a])(ip, jp, kp, 0) + (*Badd[a])(ip, jp, kp, 0)));
+                        }
+                    }
+            g_ideal_cell_cache_cur = &cc;
+        }
 
         AssembleOneDirectionEMF_(1, fld_->field(fid_.fid_Eface.xi, iblk),
                                  Bxi, Beta, Bzeta,
@@ -124,9 +193,8 @@ void MercurySolver::AssembleSingularEdgeEMF_NonHall_()
         return emf;
     };
 
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_xi",contribution);
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_eta",contribution);
-    singular_edges_->assemble_cell_field_to_local_owners(*fld_,"E_zeta",contribution);
+    singular_edges_->assemble_cell_triplet_to_local_owners(
+        *fld_,{"E_xi","E_eta","E_zeta"},contribution);
 }
 
 //=========================================================================
@@ -181,26 +249,10 @@ void MercurySolver::AssembleEdgeEMF_FromFaceE_Ideal_()
             return JDze(i, j, k, comp);
         };
 
+        const IdealCellCache &ideal_cache = g_ideal_cell_cache[iblk];
         auto cell_u_contra = [&](int axis, int i, int j, int k) -> double
         {
-            int ip = i, jp = j, kp = k;
-            shift_cell(axis, 1, ip, jp, kp);
-
-            const double kx = 0.5 * (metric_component(axis, i, j, k, 0) +
-                                     metric_component(axis, ip, jp, kp, 0));
-
-            const double ky = 0.5 * (metric_component(axis, i, j, k, 1) +
-                                     metric_component(axis, ip, jp, kp, 1));
-
-            const double kz = 0.5 * (metric_component(axis, i, j, k, 2) +
-                                     metric_component(axis, ip, jp, kp, 2));
-
-            const double inv_jac = 1.0 / (std::abs(Jac(i, j, k, 0)) + jac_floor);
-
-            return (kx * Uplus(i, j, k, 0) +
-                    ky * Uplus(i, j, k, 1) +
-                    kz * Uplus(i, j, k, 2)) *
-                   inv_jac;
+            return ideal_cache.ucon(axis, i, j, k);
         };
 
         auto max_abs_u4 = [&](int axis,
@@ -517,15 +569,16 @@ void MercurySolver::AssembleOneDirectionEMF_(
                     int iR, int jR, int kR,
                     double beta_flux_face) -> double
     {
-        const double betaTotalL = cell_beta_total(beta_axis, iL, jL, kL);
-        const double betaTotalR = cell_beta_total(beta_axis, iR, jR, kR);
-        const double betaIndL = cell_beta_ind(beta_axis, iL, jL, kL);
-        const double betaIndR = cell_beta_ind(beta_axis, iR, jR, kR);
+        const IdealCellCache &cc = *g_ideal_cell_cache_cur;
+        const double betaTotalL = cc.btot(beta_axis, iL, jL, kL);
+        const double betaTotalR = cc.btot(beta_axis, iR, jR, kR);
+        const double betaIndL = cc.bind(beta_axis, iL, jL, kL);
+        const double betaIndR = cc.bind(beta_axis, iR, jR, kR);
 
-        const double uFluxL = cell_u_contra(flux_axis, iL, jL, kL);
-        const double uFluxR = cell_u_contra(flux_axis, iR, jR, kR);
-        const double uBetaL = cell_u_contra(beta_axis, iL, jL, kL);
-        const double uBetaR = cell_u_contra(beta_axis, iR, jR, kR);
+        const double uFluxL = cc.ucon(flux_axis, iL, jL, kL);
+        const double uFluxR = cc.ucon(flux_axis, iR, jR, kR);
+        const double uBetaL = cc.ucon(beta_axis, iL, jL, kL);
+        const double uBetaR = cc.ucon(beta_axis, iR, jR, kR);
 
         const double GL = uFluxL * betaTotalL - uBetaL * beta_flux_face;
         const double GR = uFluxR * betaTotalR - uBetaR * beta_flux_face;

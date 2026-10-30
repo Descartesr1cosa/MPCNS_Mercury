@@ -198,6 +198,28 @@ void SingularEdgeRegistry::assemble_cell_field_to_local_owners(
     }
 }
 
+void SingularEdgeRegistry::assemble_cell_triplet_to_local_owners(
+    Field &fields, const std::array<std::string,3> &field_names,
+    const CellContribution &contribution) const
+{
+    if (entries_.empty()) return;
+    std::vector<double> lsum(entries_.size(),0.0), gsum(entries_.size(),0.0);
+    for (std::size_t n=0; n<entries_.size(); ++n)
+        for (const auto &c : entries_[n].local_incident_cells)
+            lsum[n] += c.weight*contribution(entries_[n],c);
+    MPI_Allreduce(lsum.data(),gsum.data(),static_cast<int>(entries_.size()),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+    const int fids[3]={fields.field_id(field_names[0]),fields.field_id(field_names[1]),
+                       fields.field_id(field_names[2])};
+    for (std::size_t n=0; n<entries_.size(); ++n)
+    {
+        const auto &e=entries_[n];
+        if (e.owner.rank!=rank_) continue;
+        int owner_sign=+1;
+        for (const auto &a:e.aliases) if (a.owner) { owner_sign=a.orientation; break; }
+        fields.field(fids[static_cast<int>(e.owner.axis)],e.owner.block)(e.owner.i,e.owner.j,e.owner.k,0)=owner_sign*gsum[n];
+    }
+}
+
 void SingularEdgeRegistry::assemble_face_triplet_to_local_owners(
     Field &fields, const std::array<std::string,3> &field_names,
     const FaceContribution &contribution) const
