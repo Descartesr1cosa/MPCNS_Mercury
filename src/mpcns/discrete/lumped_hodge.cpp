@@ -1,5 +1,6 @@
 #include "mpcns/discrete/lumped_hodge.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace mpcns::discrete
@@ -45,7 +46,18 @@ void apply_snapshot_star_2_component(const Source &source, Target &&target,
                                      const geometry::ConstFieldView &coefficient,
                                      int source_component, int target_component)
 {
-    const Bounds b = full_bounds(target);
+    // Geometry coefficients carry one ghost layer fewer than the state fields
+    // (see LegacyGeometryFieldRegistration::ghost_layers), so clip to what the
+    // coefficient view actually covers.  The dual-edge consumer only reads one
+    // layer beyond the inner range.
+    Bounds b = full_bounds(target);
+    const auto &ce = coefficient.extent();
+    b.ilo = std::max(b.ilo, ce.lo.i);
+    b.jlo = std::max(b.jlo, ce.lo.j);
+    b.klo = std::max(b.klo, ce.lo.k);
+    b.ihi = std::min(b.ihi, ce.hi.i);
+    b.jhi = std::min(b.jhi, ce.hi.j);
+    b.khi = std::min(b.khi, ce.hi.k);
     for (int i = b.ilo; i < b.ihi; ++i)
         for (int j = b.jlo; j < b.jhi; ++j)
             for (int k = b.klo; k < b.khi; ++k)

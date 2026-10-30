@@ -5,6 +5,7 @@
 #include "4_halo/detail/HaloBuildTools.h"
 
 #include <algorithm>
+#include <map>
 #include <cstring>
 #include <sstream>
 #include <vector>
@@ -222,9 +223,41 @@ void Halo::collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const
 void Halo::build_component_copy_exchange_plans_(std::uint64_t generation)
 {
     component_exchange_plans_.clear();
+
+    // A xi/eta/zeta triplet of staggered Face/Edge fields (e.g. the Cartesian
+    // vector Eface) is exchanged by the axis-permuting triplet path, never by
+    // per-field component copy.  Across panels with swapped axes an eta-face
+    // box does not even have the same size as its peer's xi-face box, so a
+    // component plan for such a field is invalid and must not be built.
+    const auto axis_of = [](StaggerLocation loc)
+    {
+        switch (loc)
+        {
+        case StaggerLocation::FaceXi: return 0;
+        case StaggerLocation::FaceEt: return 1;
+        case StaggerLocation::FaceZe: return 2;
+        case StaggerLocation::EdgeXi: return 3;
+        case StaggerLocation::EdgeEt: return 4;
+        case StaggerLocation::EdgeZe: return 5;
+        default: return -1;
+        }
+    };
+    std::map<std::string, int> axis_mask;
+    for (const std::string &name : component_copy_fields_)
+    {
+        const int ax = axis_of(halo_request_(name).location);
+        if (ax >= 0)
+            axis_mask[field_to_group_.at(name)] |= 1 << ax;
+    }
+
     for (const std::string &field_name : component_copy_fields_)
     {
         const FieldHaloRequest &request = halo_request_(field_name);
+        const int mask = axis_mask.count(field_to_group_.at(field_name))
+                             ? axis_mask[field_to_group_.at(field_name)]
+                             : 0;
+        if ((mask & 7) == 7 || (mask & 56) == 56)
+            continue;
         const int fid = fld_->field_id(field_name);
         for (int stage_value = static_cast<int>(HaloLevel::Corner1D);
              stage_value <= static_cast<int>(request.level); ++stage_value)
