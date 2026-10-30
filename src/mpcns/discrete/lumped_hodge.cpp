@@ -41,6 +41,25 @@ Bounds inner_bounds(const state::StateView &view)
     return {lo.i, lo.j, lo.k, hi.i, hi.j, hi.k};
 }
 
+// star_2 output (Jstar) is consumed only by d1_transpose over the inner dual
+// faces, which reads at most one layer outside the inner range.  Computing it
+// over the whole ghost shell wastes ~2x work, so restrict to inner +/- 1.
+Bounds star_2_bounds(const FieldBlock &view) { return full_bounds(view); }
+
+Bounds star_2_bounds(const state::StateView &view)
+{
+    Bounds b = full_bounds(view);
+    const auto &lo = view.inner_extent().lo;
+    const auto &hi = view.inner_extent().hi;
+    b.ilo = std::max(b.ilo, lo.i - 1);
+    b.jlo = std::max(b.jlo, lo.j - 1);
+    b.klo = std::max(b.klo, lo.k - 1);
+    b.ihi = std::min(b.ihi, hi.i + 1);
+    b.jhi = std::min(b.jhi, hi.j + 1);
+    b.khi = std::min(b.khi, hi.k + 1);
+    return b;
+}
+
 template <class Source, class Target>
 void apply_snapshot_star_2_component(const Source &source, Target &&target,
                                      const geometry::ConstFieldView &coefficient,
@@ -50,7 +69,7 @@ void apply_snapshot_star_2_component(const Source &source, Target &&target,
     // (see LegacyGeometryFieldRegistration::ghost_layers), so clip to what the
     // coefficient view actually covers.  The dual-edge consumer only reads one
     // layer beyond the inner range.
-    Bounds b = full_bounds(target);
+    Bounds b = star_2_bounds(target);
     const auto &ce = coefficient.extent();
     b.ilo = std::max(b.ilo, ce.lo.i);
     b.jlo = std::max(b.jlo, ce.lo.j);
