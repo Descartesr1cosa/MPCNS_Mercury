@@ -1,4 +1,6 @@
 #include "MercurySolver.h"
+#include <set>
+#include <map>
 
 #include "mpcns/discrete/lumped_hodge.hpp"
 #include "mpcns/operators/electromagnetic_operators.hpp"
@@ -19,45 +21,106 @@ void MercurySolver::ReduceEdgeAliasCandidatesToOwners_(const IdTriplet &fid_edge
         std::sort(edge_alias_reduce_classes_.begin(),edge_alias_reduce_classes_.end(),
                   [](const auto *a,const auto *b)
                   { return a->global_id<b->global_id; });
-        edge_alias_reduce_local_sum_.resize(edge_alias_reduce_classes_.size());
-        edge_alias_reduce_global_sum_.resize(edge_alias_reduce_classes_.size());
 
         edge_alias_reduce_local_terms_.clear();
         edge_alias_reduce_owner_writes_.clear();
-        for(std::size_t n=0;n<edge_alias_reduce_classes_.size();++n)
+        edge_alias_reduce_send_peers_.clear();
+        edge_alias_reduce_recv_peers_.clear();
+        std::map<int,EdgeAliasReducePeer_> send_peers,recv_peers;
+        std::size_t nslot=0;
+        for(const auto *clsp:edge_alias_reduce_classes_)
         {
-            const auto &cls=*edge_alias_reduce_classes_[n];
+            const auto &cls=*clsp;
+            const int owner_rank=cls.owner.entity.rank;
+            bool mine=false;
+            std::set<int> member_ranks;
             for(const auto &m:cls.members)
+            {
+                member_ranks.insert(m.entity.rank);
                 if(m.entity.rank==myid)
+                {
+                    mine=true;
                     edge_alias_reduce_local_terms_.push_back(
-                        {n,m.entity,m.orient_sign});
-            if(cls.owner.entity.rank==myid)
-                edge_alias_reduce_owner_writes_.push_back(
-                    {n,cls.owner.entity,cls.owner.orient_sign,
-                     static_cast<double>(cls.members.size())});
+                        {nslot,m.entity,m.orient_sign});
+                }
+            }
+            if(!mine) continue;
+            const std::size_t slot=nslot++;
+            if(owner_rank!=myid)
+            {
+                auto &peer=send_peers[owner_rank];
+                peer.rank=owner_rank;
+                peer.slots.push_back(slot);
+                continue;
+            }
+            const std::size_t w=edge_alias_reduce_owner_writes_.size();
+            edge_alias_reduce_owner_writes_.push_back(
+                {slot,cls.owner.entity,cls.owner.orient_sign,
+                 static_cast<double>(cls.members.size())});
+            for(int r:member_ranks)
+                if(r!=myid)
+                {
+                    auto &peer=recv_peers[r];
+                    peer.rank=r;
+                    peer.writes.push_back(w);
+                }
         }
+        for(auto &kv:send_peers)
+        {
+            kv.second.buffer.resize(kv.second.slots.size());
+            edge_alias_reduce_send_peers_.push_back(std::move(kv.second));
+        }
+        for(auto &kv:recv_peers)
+        {
+            kv.second.buffer.resize(kv.second.writes.size());
+            edge_alias_reduce_recv_peers_.push_back(std::move(kv.second));
+        }
+        edge_alias_reduce_local_sum_.assign(nslot,0.0);
+        edge_alias_reduce_owner_sum_.assign(edge_alias_reduce_owner_writes_.size(),0.0);
         edge_alias_reduce_cache_ready_=true;
     }
 
-    const auto &classes=edge_alias_reduce_classes_;
-    const std::size_t nclass=classes.size();
-    if(nclass==0) return;
     auto &local_sum=edge_alias_reduce_local_sum_;
-    auto &global_sum=edge_alias_reduce_global_sum_;
+    auto &owner_sum=edge_alias_reduce_owner_sum_;
     std::fill(local_sum.begin(),local_sum.end(),0.0);
     for(const auto &term:edge_alias_reduce_local_terms_)
     {
         const auto &e=term.edge;
         FieldBlock &value=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
-        local_sum[term.class_index]+=term.orient_sign*value(e.i,e.j,e.k,0);
+        local_sum[term.slot]+=term.orient_sign*value(e.i,e.j,e.k,0);
     }
-    MPI_Allreduce(local_sum.data(),global_sum.data(),static_cast<int>(nclass),MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-    for(const auto &write:edge_alias_reduce_owner_writes_)
+
+    constexpr int tag=7351;
+    std::vector<MPI_Request> requests;
+    requests.reserve(edge_alias_reduce_send_peers_.size()+edge_alias_reduce_recv_peers_.size());
+    for(auto &peer:edge_alias_reduce_recv_peers_)
     {
+        requests.emplace_back();
+        MPI_Irecv(peer.buffer.data(),static_cast<int>(peer.buffer.size()),MPI_DOUBLE,
+                  peer.rank,tag,MPI_COMM_WORLD,&requests.back());
+    }
+    for(auto &peer:edge_alias_reduce_send_peers_)
+    {
+        for(std::size_t n=0;n<peer.slots.size();++n)
+            peer.buffer[n]=local_sum[peer.slots[n]];
+        requests.emplace_back();
+        MPI_Isend(peer.buffer.data(),static_cast<int>(peer.buffer.size()),MPI_DOUBLE,
+                  peer.rank,tag,MPI_COMM_WORLD,&requests.back());
+    }
+    for(std::size_t w=0;w<edge_alias_reduce_owner_writes_.size();++w)
+        owner_sum[w]=local_sum[edge_alias_reduce_owner_writes_[w].slot];
+    if(!requests.empty())
+        MPI_Waitall(static_cast<int>(requests.size()),requests.data(),MPI_STATUSES_IGNORE);
+    for(const auto &peer:edge_alias_reduce_recv_peers_)
+        for(std::size_t n=0;n<peer.writes.size();++n)
+            owner_sum[peer.writes[n]]+=peer.buffer[n];
+
+    for(std::size_t w=0;w<edge_alias_reduce_owner_writes_.size();++w)
+    {
+        const auto &write=edge_alias_reduce_owner_writes_[w];
         const auto &e=write.edge;
         FieldBlock &owner=fld_->field(fid_edge.at(static_cast<int>(e.axis)+1),e.block);
-        owner(e.i,e.j,e.k,0)=write.orient_sign*
-            global_sum[write.class_index]/write.member_count;
+        owner(e.i,e.j,e.k,0)=write.orient_sign*owner_sum[w]/write.member_count;
     }
 }
 

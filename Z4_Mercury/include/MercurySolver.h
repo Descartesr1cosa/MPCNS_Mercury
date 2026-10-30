@@ -169,28 +169,41 @@ private:
     bool local_arti_eta_ready_{false};
 
     // Topology is immutable after solver setup.  Reuse the sorted shared-edge
-    // view and collective work arrays in every explicit/implicit alias
-    // reduction instead of rebuilding and allocating them in each RHS call.
+    // view and the owner-reduction schedule in every explicit/implicit alias
+    // reduction instead of rebuilding them in each RHS call.  Only the owner of
+    // a shared class consumes the sum of its oriented member values, so the
+    // reduction is a point-to-point gather to the owner rank, not a global
+    // Allreduce over every shared class.
     bool edge_alias_reduce_cache_ready_{false};
     std::vector<const TOPO::EquivClass *> edge_alias_reduce_classes_;
     struct EdgeAliasReduceLocalTerm_
     {
-        std::size_t class_index=0;
+        std::size_t slot=0; // index into edge_alias_reduce_local_sum_
         TOPO::EntityKey edge;
         int orient_sign=1;
     };
     struct EdgeAliasReduceOwnerWrite_
     {
-        std::size_t class_index=0;
+        std::size_t slot=0; // local partial sum of this class
         TOPO::EntityKey edge;
         int orient_sign=1;
         double member_count=1.0;
     };
+    struct EdgeAliasReducePeer_
+    {
+        int rank=-1;
+        std::vector<std::size_t> slots;  // send: local slots, ascending class order
+        std::vector<std::size_t> writes; // recv: owner-write indices, same order
+        std::vector<double> buffer;
+    };
     std::vector<EdgeAliasReduceLocalTerm_> edge_alias_reduce_local_terms_;
     std::vector<EdgeAliasReduceOwnerWrite_> edge_alias_reduce_owner_writes_;
     std::vector<double> edge_alias_reduce_local_sum_;
-    std::vector<double> edge_alias_reduce_global_sum_;
+    std::vector<double> edge_alias_reduce_owner_sum_;
+    std::vector<EdgeAliasReducePeer_> edge_alias_reduce_send_peers_;
+    std::vector<EdgeAliasReducePeer_> edge_alias_reduce_recv_peers_;
 
+    bool implicit_resistive_Eres_cleared_{false};
     KSP implicit_resistive_ksp_{nullptr};
     Mat implicit_resistive_A_{nullptr};
     Vec implicit_resistive_x_{nullptr};

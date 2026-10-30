@@ -304,7 +304,14 @@ void MercurySolver::RestoreImplicitResistiveBstar_()
 
 void MercurySolver::UnpackVecToImplicitEres_(Vec X)
 {
-    clear_triplet(fld_, fid_.fid_Eres);
+    // Only implicit DOFs are ever written here, and every other value that is
+    // read (aliases, ghosts) is rewritten by the synchronization below, so the
+    // full-array clear is needed just once to establish the zero background.
+    if (!implicit_resistive_Eres_cleared_)
+    {
+        clear_triplet(fld_, fid_.fid_Eres);
+        implicit_resistive_Eres_cleared_ = true;
+    }
 
     const PetscScalar *xarr = nullptr;
     PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(X, &xarr));
@@ -325,14 +332,14 @@ void MercurySolver::UnpackVecToImplicitEres_(Vec X)
 
 void MercurySolver::CalcImplicitDeltaJedgeFromDeltaB_()
 {
-    clear_triplet(fld_, fid_.fid_dJ);
-
+    // dJ is consumed only at owner DOFs by MatMultImplicitResistive_, directly
+    // after the owner reduction below.  ComputeRegularEdgeCurrent_ overwrites
+    // every inner edge, so no clear is needed, and the owner->alias / halo
+    // synchronization of dJ would only fill values nobody reads.
     ComputeRegularEdgeCurrent_(fid_.fid_dB, fid_.fid_dJ);
 
     ReduceEdgeAliasCandidatesToOwners_(fid_.fid_dJ);
     AssembleSingularEdgeCurrent_(fid_.fid_dB, fid_.fid_dJ);
-    HALO_OWNER::sync_edge_1form(*fld_, fid_.fid_dJ, *edge_owner_pat_);
-    mercury_bound_.Sync("dJ");
 }
 
 void MercurySolver::PackImplicitJedgeToVec_(Vec v, const IdTriplet &fid_Jedge,
@@ -370,6 +377,8 @@ PetscErrorCode MercurySolver::MatMultImplicitResistive_(Mat A, Vec X, Vec Y)
     {
         S->UnpackVecToImplicitEres_(X);
 
+        // Keep the full clear: subtract_d1 accumulates into the inner faces, and
+        // ghost faces the dB halo sync does not rewrite are still read.
         clear_triplet(S->fld_, S->fid_.fid_dB);
         for (int ib = 0; ib < S->fld_->num_blocks(); ++ib)
         {
@@ -504,7 +513,6 @@ void MercurySolver::ApplyImplicitResistiveUpdate_(double dt_step)
     // UnpackVecToImplicitEres_() has just completed the full Eres sync and no
     // Eres value changes between that call and this update.
 
-    clear_triplet(fld_, fid_.fid_RHS_b_res);
     for (int ib = 0; ib < fld_->num_blocks(); ++ib)
     {
         auto &Exi = fld_->field(fid_.fid_Eres.xi, ib);
