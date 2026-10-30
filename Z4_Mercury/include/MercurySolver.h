@@ -7,6 +7,7 @@
 #include "0_SolverFields.h"
 #include "2_Initial.h"
 #include "3_Control.h"
+#include "9_runtime/PartitionProfiler.h"
 #include "MercuryPhysicsTypes.h"
 #include "4_halo/HaloEdgeOwner.h"
 #include "7_metric/SingularEdgeRegistry.h"
@@ -51,6 +52,7 @@ public:
                   HALO_OWNER::EdgeOwnerSyncPattern *edge_owner_pat = nullptr,
                   METRIC::SingularEdgeRegistry *singular_edges = nullptr);
     ~MercurySolver();
+    void SetupPartitionProfiler_();
 
     static void RegisterFields(Field *fld, int ngg);
     static void RegisterCouplingChannels(Field *fld, const TOPO::Topology &topology, int dimension, int ngg);
@@ -75,6 +77,8 @@ private:
     METRIC::SingularEdgeRegistry *singular_edges_{nullptr};
     // --- components ---
     Control control_;
+    // Optional trial-run profiler (setup key profile_run); inert when disabled.
+    PROFILE::PartitionProfiler profiler_;
     MercuryBoundary mercury_bound_;
     IOModule io_;
     Mercury_Initial initial_;

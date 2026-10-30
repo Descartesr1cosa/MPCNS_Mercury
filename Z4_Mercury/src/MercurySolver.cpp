@@ -284,6 +284,53 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
         UpdateMagneticDerivedFields_();
         io_.WritePostStaticData(post_output_path_, post_write_options_);
     }
+
+    // ---- Optional partition-cost trial run ----
+    // Missing key means disabled, preserving every existing CASE.
+    SetupPartitionProfiler_();
+}
+
+void MercurySolver::SetupPartitionProfiler_()
+{
+    const bool enabled = par_->HasBoo("profile_run") && par_->GetBoo("profile_run");
+    const int warmup = par_->HasInt("profile_warmup") ? par_->GetInt("profile_warmup") : 20;
+    const int steps = par_->HasInt("profile_steps") ? par_->GetInt("profile_steps") : 100;
+    profiler_.configure(enabled, warmup, steps);
+    if (!enabled)
+        return;
+
+    const char *phase_names[] = {"timestep", "fluid_rhs", "induction_ct", "euler_update",
+                                 "implicit_resistive", "sync_ucell_bface", "derived_fields"};
+    for (int i = 0; i < 7; ++i)
+        profiler_.set_phase_name(i, phase_names[i]);
+
+    std::vector<PROFILE::BlockInfo> blocks;
+    for (int ib = 0; ib < fld_->num_blocks(); ++ib)
+    {
+        const FieldBlock &jac = fld_->field(fid_.fid_Jac, ib);
+        PROFILE::BlockInfo info;
+        info.name = grd_->grids(ib).block_name;
+        info.fluid = fld_->field(fid_.fid_U_H, ib).is_allocated();
+        const Int3 ilo = jac.inner_lo(), ihi = jac.inner_hi();
+        info.cells = static_cast<long long>(ihi.i - ilo.i) * (ihi.j - ilo.j) * (ihi.k - ilo.k);
+        const Int3 lo = jac.get_lo(), hi = jac.get_hi();
+        info.alloc_cells = static_cast<long long>(hi.i - lo.i) * (hi.j - lo.j) * (hi.k - lo.k);
+        blocks.push_back(info);
+    }
+    profiler_.set_blocks(std::move(blocks));
+    {
+        // Ghost layers of the allocated cell-centred geometry the fit is based on.
+        int ghost = 0;
+        if (fld_->num_blocks() > 0)
+        {
+            const FieldBlock &jac = fld_->field(fid_.fid_Jac, 0);
+            ghost = (jac.get_hi().i - jac.get_lo().i - (jac.inner_hi().i - jac.inner_lo().i)) / 2;
+        }
+        profiler_.set_ghost_layers(ghost);
+    }
+    if (par_->GetInt("myid") == 0)
+        std::cout << "[PartitionProfiler] trial run: " << warmup << " warm-up + " << steps
+                  << " measured steps, then DATA/partition_profile.json is written and the run stops.\n";
 }
 
 MercurySolver::MercurySolver(

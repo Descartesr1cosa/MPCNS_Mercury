@@ -47,7 +47,7 @@ aux_source_directory(../src/5_boundary  DIRSRCS5)
 aux_source_directory(../src/6_io  DIRSRCS6)
 aux_source_directory(../src/7_metric  DIRSRCS7)
 aux_source_directory(../src/8_dec  DIRSRCS8)
-set(DIRSRCS9 ../src/9_runtime/SimulationContext.cpp)
+set(DIRSRCS9 ../src/9_runtime/SimulationContext.cpp ../src/9_runtime/PartitionProfiler.cpp)
 
 if(NOT TARGET mpcns_mesh)
     add_library(mpcns_mesh STATIC ../src/mpcns/mesh/mesh_partition.cpp)

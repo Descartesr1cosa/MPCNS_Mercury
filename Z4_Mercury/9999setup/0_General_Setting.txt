@@ -13,6 +13,14 @@ bool    post_static_output      1
 // J_xi/J_eta/J_zeta follow Bface in the normal restart output.
 bool    output_dec_jedge        0
 
+// Partition-cost trial run (for Preprocess fluid/solid weight calibration).
+// profile_run=1: run profile_warmup + profile_steps steps, write
+// DATA/partition_profile.json (fitted cost model) and stop without writing
+// restart files. Default 0 leaves the computation untouched.
+bool    profile_run             0
+int     profile_warmup          20
+int     profile_steps           100
+
 int     dimension               3
 
 // cubic-sphere panel coupling needs enough non-degenerate ghost layers for
