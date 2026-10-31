@@ -1,10 +1,20 @@
 #include "MercurySolver.h"
 
+#include <vector>
+
 #include "mpcns/operators/reconstruction_operators.hpp"
 
-void MercurySolver::calc_Bcell()
+void MercurySolver::calc_Bcell(bool light)
 {
     const int nblock = fld_->num_blocks();
+
+    // light: only the total B is reconstructed (Hall substeps).  Bindcell is
+    // then built only on blocks with a Pole patch, which reads it below.
+    std::vector<char> need_bind(nblock, light ? 0 : 1);
+    if (light && topo_)
+        for (const auto &p : topo_->physical_patches)
+            if (p.bc_name == "Pole" && p.this_block >= 0 && p.this_block < nblock)
+                need_bind[p.this_block] = 1;
 
     for (int ib = 0; ib < nblock; ++ib)
     {
@@ -24,8 +34,9 @@ void MercurySolver::calc_Bcell()
                 induced, background, weights, Bcell))
             continue;
 
-        mpcns::operators::WeightedCellReconstruction::face_2form_to_cell_vector(
-            induced, weights, Bindcell);
+        if (need_bind[ib])
+            mpcns::operators::WeightedCellReconstruction::face_2form_to_cell_vector(
+                induced, weights, Bindcell);
     }
 
     mercury_bound_.Sync("B_cell");

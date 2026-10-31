@@ -226,13 +226,13 @@ private:
 private:
     //=========================================================================
     // TOOLS
-    void calc_Bcell();
+    void calc_Bcell(bool light = false);
     void calc_Jcell();
     void calc_divB();
     void calc_PV();
     void calc_Uplus();
     void UpdateFluidDerivedFields_();
-    void UpdateMagneticDerivedFields_();
+    void UpdateMagneticDerivedFields_(bool light = false);
     void UpdateDerivedFields_();
     void calc_physical_constant(Param *par);
     void PrintMinMaxDiagnostics_();

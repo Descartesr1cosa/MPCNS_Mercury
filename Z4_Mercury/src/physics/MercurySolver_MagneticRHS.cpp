@@ -160,7 +160,11 @@ void MercurySolver::AssembleRHS_Induction_CT_(bool hall_only)
     // later terms to leak back onto the shared tangential edge.
     ApplyStationaryWallNonResistiveEMF_();
 
-    mercury_bound_.Sync("Eedge");
+    // Hall-only substeps: E is just the (already synchronized) Hall EMF and the
+    // wall condition above is applied identically on every alias, so the second
+    // full halo exchange of E adds nothing.
+    if (!hall_only)
+        mercury_bound_.Sync("Eedge");
 
     for (int ib = 0; ib < nb; ++ib)
     {

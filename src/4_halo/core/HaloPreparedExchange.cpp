@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <map>
+#include <tuple>
+#include <cstddef>
 #include <cstring>
 #include <sstream>
 #include <vector>
@@ -128,8 +130,8 @@ void collectively_match_plan(HALO_EXEC::Plan &plan)
     HALO_EXEC::finalize_plan(plan);
 }
 
-void pack_transformed(FieldBlock &field, const HaloRegion &region,
-                      int ncomp, double *buffer, int length)
+void pack_transformed_slow(FieldBlock &field, const HaloRegion &region,
+                           int ncomp, double *buffer, int length)
 {
     if (!field.is_allocated() || length == 0)
         return;
@@ -183,8 +185,8 @@ void pack_transformed(FieldBlock &field, const HaloRegion &region,
             }
 }
 
-void unpack_box(FieldBlock &field, const HaloRegion &region, int ncomp,
-                const double *buffer, int length)
+void unpack_box_slow(FieldBlock &field, const HaloRegion &region, int ncomp,
+                     const double *buffer, int length)
 {
     if (!field.is_allocated() || length == 0)
         return;
@@ -213,6 +215,130 @@ void unpack_box(FieldBlock &field, const HaloRegion &region, int ncomp,
                         buffer[base + component];
             }
 }
+
+// The pack/unpack index maps are static once the exchange plans exist, so the
+// per-element transform (perm/sign/offset + bounds checks) is evaluated once per
+// (region, field storage) and replayed as a flat gather/scatter afterwards.
+struct OffsetKey
+{
+    const HaloRegion *region;
+    const double *base;
+    bool pack;
+    bool operator<(const OffsetKey &o) const
+    {
+        return std::tie(region, base, pack) < std::tie(o.region, o.base, o.pack);
+    }
+};
+std::map<OffsetKey, std::vector<std::ptrdiff_t>> g_offset_cache;
+
+// Record the field-storage offset touched by every buffer slot by running the
+// original (checked) routine over an offset-valued probe.
+void build_offsets(FieldBlock &field, const HaloRegion &region, int ncomp,
+                   int length, bool pack, std::vector<std::ptrdiff_t> &offsets)
+{
+    const double *base = &field(field.get_lo().i, field.get_lo().j, field.get_lo().k, 0);
+    // Probe: fill the field-sized view lazily through a scratch buffer whose
+    // slots are identified by running the slow routine on a tagged copy.
+    offsets.assign(static_cast<std::size_t>(length), -1);
+    std::vector<double> buf(static_cast<std::size_t>(length), 0.0);
+    if (pack)
+    {
+        // Tag every field element with its own linear offset, pack, restore.
+        const Int3 lo = field.get_lo(), hi = field.get_hi();
+        std::vector<double> saved;
+        saved.reserve(static_cast<std::size_t>(hi.i - lo.i) * (hi.j - lo.j) * (hi.k - lo.k) * ncomp);
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    for (int m = 0; m < ncomp; ++m)
+                    {
+                        double &v = field(i, j, k, m);
+                        saved.push_back(v);
+                        v = static_cast<double>(&v - base);
+                    }
+        std::vector<double> marked(static_cast<std::size_t>(length), -1.0);
+        pack_transformed_slow(field, region, ncomp, marked.data(), length);
+        std::size_t at = 0;
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    for (int m = 0; m < ncomp; ++m)
+                        field(i, j, k, m) = saved[at++];
+        for (int n = 0; n < length; ++n)
+            offsets[n] = marked[n] < 0.0 ? -1 : static_cast<std::ptrdiff_t>(marked[n]);
+    }
+    else
+    {
+        // Unpack writes every slot once; recover the destination of slot n by
+        // unpacking an index ramp into a zeroed field and reading it back.
+        const Int3 lo = field.get_lo(), hi = field.get_hi();
+        std::vector<double> saved;
+        saved.reserve(static_cast<std::size_t>(hi.i - lo.i) * (hi.j - lo.j) * (hi.k - lo.k) * ncomp);
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    for (int m = 0; m < ncomp; ++m)
+                    {
+                        double &v = field(i, j, k, m);
+                        saved.push_back(v);
+                        v = -1.0;
+                    }
+        std::vector<double> ramp(static_cast<std::size_t>(length));
+        for (int n = 0; n < length; ++n)
+            ramp[n] = static_cast<double>(n);
+        unpack_box_slow(field, region, ncomp, ramp.data(), length);
+        std::size_t at = 0;
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                    for (int m = 0; m < ncomp; ++m)
+                    {
+                        double &v = field(i, j, k, m);
+                        if (v >= 0.0)
+                            offsets[static_cast<std::size_t>(v)] = &v - base;
+                        v = saved[at++];
+                    }
+    }
+}
+
+void pack_transformed(FieldBlock &field, const HaloRegion &region,
+                      int ncomp, double *buffer, int length)
+{
+    if (!field.is_allocated() || length == 0)
+        return;
+    const double *base = &field(field.get_lo().i, field.get_lo().j, field.get_lo().k, 0);
+    const OffsetKey key{&region, base, true};
+    auto it = g_offset_cache.find(key);
+    if (it == g_offset_cache.end())
+    {
+        std::vector<std::ptrdiff_t> offsets;
+        build_offsets(field, region, ncomp, length, true, offsets);
+        it = g_offset_cache.emplace(key, std::move(offsets)).first;
+    }
+    const std::ptrdiff_t *off = it->second.data();
+    for (int n = 0; n < length; ++n)
+        buffer[n] = off[n] >= 0 ? base[off[n]] : buffer[n];
+}
+
+void unpack_box(FieldBlock &field, const HaloRegion &region, int ncomp,
+                const double *buffer, int length)
+{
+    if (!field.is_allocated() || length == 0)
+        return;
+    double *base = &field(field.get_lo().i, field.get_lo().j, field.get_lo().k, 0);
+    const OffsetKey key{&region, base, false};
+    auto it = g_offset_cache.find(key);
+    if (it == g_offset_cache.end())
+    {
+        std::vector<std::ptrdiff_t> offsets;
+        build_offsets(field, region, ncomp, length, false, offsets);
+        it = g_offset_cache.emplace(key, std::move(offsets)).first;
+    }
+    const std::ptrdiff_t *off = it->second.data();
+    for (int n = 0; n < length; ++n)
+        if (off[n] >= 0)
+            base[off[n]] = buffer[n];
+}
 }
 
 void Halo::collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const
@@ -222,6 +348,7 @@ void Halo::collectively_match_exchange_plan_(HALO_EXEC::Plan &plan) const
 
 void Halo::build_component_copy_exchange_plans_(std::uint64_t generation)
 {
+    g_offset_cache.clear();
     component_exchange_plans_.clear();
 
     // A xi/eta/zeta triplet of staggered Face/Edge fields (e.g. the Cartesian
@@ -366,6 +493,7 @@ std::string Halo::oriented_face_plan_key_(
 
 void Halo::build_oriented_face_exchange_plans_(std::uint64_t generation)
 {
+    g_offset_cache.clear();
     oriented_face_exchange_plans_.clear();
     std::vector<std::string> edge_groups;
     std::vector<std::string> face_groups;

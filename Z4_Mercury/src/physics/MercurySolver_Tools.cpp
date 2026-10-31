@@ -306,10 +306,10 @@ void MercurySolver::UpdateFluidDerivedFields_()
     calc_Uplus();
 }
 
-void MercurySolver::UpdateMagneticDerivedFields_()
+void MercurySolver::UpdateMagneticDerivedFields_(bool light)
 {
     // B_face is the CT state; J_cell is reconstructed from mimetic J_edge.
-    calc_Bcell();
+    calc_Bcell(light);
     Calc_J_Edge();
     calc_Jcell();
 }

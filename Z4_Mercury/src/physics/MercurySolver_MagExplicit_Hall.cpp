@@ -170,12 +170,12 @@ void MercurySolver::AdvanceHallSubcycled_()
     for (int s = 0; s < n; ++s)
     {
         if (s > 0)
-            UpdateMagneticDerivedFields_(); // Bcell/Jcell from the substepped B
+            UpdateMagneticDerivedFields_(true); // Bcell/Jcell from the substepped B
         AssembleRHS_Induction_CT_(/*hall_only=*/true);
         ApplyUpdate_Euler_BfaceOnly_(dts, fid_.fid_RHS_b);
         mercury_bound_.Sync("Bface");
     }
-    UpdateMagneticDerivedFields_();
+    UpdateMagneticDerivedFields_(true); // the end-of-step derive rebuilds Bindcell
 }
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
