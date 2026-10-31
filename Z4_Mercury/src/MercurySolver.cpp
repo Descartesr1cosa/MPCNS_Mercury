@@ -226,6 +226,8 @@ MercurySolver::MercurySolver(Grid *grd, TOPO::Topology *topo, Field *fld, Halo *
     ambipolar_control.enabled = par_->GetBoo("is_Ambipolar_Efield");
     hall_taper_r_min = par_->GetDou("r_min");
     hall_taper_r_max = par_->GetDou("r_max");
+    hall_subcycle_cfl = par_->GetDou("hall_subcycle_cfl");
+    hall_subcycle_max = par_->GetInt("hall_subcycle_max");
 
     arti_resist_control.eta_max = par_->GetDou("arti_eta_max");
     arti_resist_control.J_range_start = par_->GetDou("J_range_start");

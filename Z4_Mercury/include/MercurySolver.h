@@ -146,6 +146,9 @@ private:
     double ambi_coef{0.0};
     double hall_taper_r_min{0.0};
     double hall_taper_r_max{0.0};
+    double hall_subcycle_cfl{0.0}; // <=0: Hall stays in the single Euler step; >0: Hall B-update subcycled
+    int hall_subcycle_max{1};
+    int hall_last_nsub{1};
 
     double momentum_induce_coeff{0.0};
     double momentum_hall_coeff{0.0};
@@ -246,7 +249,11 @@ private:
 
     //=========================================================================
     void ZeroRHS_();
-    void AssembleRHS_Induction_CT_();
+    // hall_only=true assembles only the Hall edge EMF (for Hall subcycling);
+    // otherwise Hall is included unless it is subcycled separately.
+    void AssembleRHS_Induction_CT_(bool hall_only = false);
+    int HallSubcycleCount_();
+    void AdvanceHallSubcycled_();
     void ApplyUpdate_Euler_();
     //---------------------------------------------------------------
     // For Fluid

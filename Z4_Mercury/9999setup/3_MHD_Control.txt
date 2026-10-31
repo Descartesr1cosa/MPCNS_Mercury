@@ -22,6 +22,10 @@ int     implicit_resistive_ksp_max_it   200
 bool    is_Ambipolar_Efield             1
 double  r_min                           1.1
 double  r_max                           1.2
+// Hall subcycling (operator-split Hall B update, N=ceil(dt/(cfl*dt_whistler)) <= max). cfl<=0: off
+// (Hall stays in the single Euler step). Only needed if Hall is active on thin near-wall cells.
+double  hall_subcycle_cfl               0.0
+int     hall_subcycle_max               1
 
 // artificial resistivity limiter
 double  arti_eta_max                    0.00

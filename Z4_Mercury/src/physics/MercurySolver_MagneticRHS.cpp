@@ -88,7 +88,7 @@ void MercurySolver::ApplyStationaryWallNonResistiveEMF_()
         zero_wall_face(patch.this_block, patch.this_box_node, patch.direction);
     }
 }
-void MercurySolver::AssembleRHS_Induction_CT_()
+void MercurySolver::AssembleRHS_Induction_CT_(bool hall_only)
 {
     const int nb = fld_->num_blocks();
 
@@ -114,26 +114,33 @@ void MercurySolver::AssembleRHS_Induction_CT_()
         zero_electric(Eze);
     }
 
-    AddIdealEdgeEMF_();
-    AddAmbipolarEdgeEMF_();
-    AddArtificialResistivityToEdgeEMF_();
-    AddLocalArtificialResistivityToEdgeEMF_();
+    if (!hall_only)
+    {
+        AddIdealEdgeEMF_();
+        AddAmbipolarEdgeEMF_();
+        AddArtificialResistivityToEdgeEMF_();
+        AddLocalArtificialResistivityToEdgeEMF_();
 
-    // A regular physical edge on a rotated block interface has one complete
-    // block-local UCT candidate per alias.  Those candidates use different
-    // computational bases and are not bitwise identical even when U, B and
-    // the interface geometry are conformal.  Owner-only synchronization would
-    // arbitrarily keep one panel's candidate and creates an antisymmetric seam
-    // forcing.  Reconcile all oriented alias candidates first, just as for
-    // Jedge.  Singular physical edges are overwritten immediately below from
-    // their variable incident-entity assembly, so they do not use this regular
-    // edge average.
-    ReduceEdgeAliasCandidatesToOwners_(fid_.fid_E);
-    AssembleSingularEdgeEMF_NonHall_();
+        // A regular physical edge on a rotated block interface has one complete
+        // block-local UCT candidate per alias.  Those candidates use different
+        // computational bases and are not bitwise identical even when U, B and
+        // the interface geometry are conformal.  Owner-only synchronization would
+        // arbitrarily keep one panel's candidate and creates an antisymmetric seam
+        // forcing.  Reconcile all oriented alias candidates first, just as for
+        // Jedge.  Singular physical edges are overwritten immediately below from
+        // their variable incident-entity assembly, so they do not use this regular
+        // edge average.
+        ReduceEdgeAliasCandidatesToOwners_(fid_.fid_E);
+        AssembleSingularEdgeEMF_NonHall_();
+    }
 
+    const bool add_hall = hall_only || hall_subcycle_cfl <= 0.0;
+    if (add_hall)
+    {
     AddHallEdgeEMF_();
     mercury_bound_.Sync("Ehall");
-    for (int ib=0; ib<nb; ++ib)
+    }
+    for (int ib=0; add_hall && ib<nb; ++ib)
     {
         auto add_one=[](FieldBlock &e,FieldBlock &h)
         {

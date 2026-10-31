@@ -30,6 +30,14 @@ bool MercurySolver::StepOnce()
         Compute_Timestep();
     }
 
+    // Hall (whistler) stability needs a much smaller step than the MHD CFL on
+    // thin wall cells: advance only B under the Hall EMF with N substeps.
+    if (hall_subcycle_cfl > 0.0)
+    {
+        PROFILE::PhaseScope phase(profiler_, 2);
+        AdvanceHallSubcycled_();
+    }
+
     {
         PROFILE::PhaseScope phase(profiler_, 1);
         ZeroRHS_();

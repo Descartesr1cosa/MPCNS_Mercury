@@ -4,6 +4,8 @@
 #include <array>
 #include <cmath>
 #include <vector>
+#include <algorithm>
+#include "0_basic/MPI_WRAPPER.h"
 
 double MercurySolver::HallRadialTaper_(double x, double y, double z)
 {
@@ -72,6 +74,109 @@ struct HallTaperCache
 };
 std::vector<std::array<HallTaperCache, 3>> g_hall_taper;
 } // namespace
+
+namespace
+{
+// Static per-cell factor taper/h^2 (h = smallest cell width, V / max face area).
+// The explicit Hall (whistler) scheme is stable for dt <~ 1 / (factor * beta),
+// beta = |hall_coef / ne| |B|.  Tapered-off cells (factor ~ 0) do not limit it.
+struct HallSubcycleGeom
+{
+    Int3 lo{0, 0, 0};
+    int dj = 0, dk = 0;
+    std::vector<double> w;
+    inline double &at(int i, int j, int k)
+    {
+        return w[static_cast<std::size_t>((i - lo.i) * dj + (j - lo.j)) * dk + (k - lo.k)];
+    }
+};
+std::vector<HallSubcycleGeom> g_hall_sub;
+} // namespace
+
+int MercurySolver::HallSubcycleCount_()
+{
+    const int nb = fld_->num_blocks();
+    if (g_hall_sub.size() < static_cast<std::size_t>(nb))
+        g_hall_sub.resize(nb);
+
+    double beta_w_max = 0.0; // max over cells of taper/h^2 * beta
+    for (int ib = 0; ib < nb; ++ib)
+    {
+        FieldBlock &Bc = fld_->field(fid_.fid_Bcell, ib);
+        FieldBlock &UH = fld_->field(fid_.fid_U_H, ib);
+        FieldBlock &UNa = fld_->field(fid_.fid_U_Na, ib);
+        FieldBlock &Jac = fld_->field(fid_.fid_Jac, ib);
+        if (!Bc.is_allocated() || !UH.is_allocated() || !UNa.is_allocated() || !Jac.is_allocated())
+            continue;
+
+        const Int3 lo = Jac.inner_lo(), hi = Jac.inner_hi();
+        HallSubcycleGeom &g = g_hall_sub[ib];
+        if (g.w.empty())
+        {
+            FieldBlock &Axi = fld_->field(fid_.fid_metric.xi, ib);
+            FieldBlock &Aet = fld_->field(fid_.fid_metric.eta, ib);
+            FieldBlock &Aze = fld_->field(fid_.fid_metric.zeta, ib);
+            auto &gb = grd_->grids(ib);
+            g.lo = lo;
+            g.dj = hi.j - lo.j;
+            g.dk = hi.k - lo.k;
+            g.w.assign(static_cast<std::size_t>(hi.i - lo.i) * g.dj * g.dk, 0.0);
+            for (int i = lo.i; i < hi.i; ++i)
+                for (int j = lo.j; j < hi.j; ++j)
+                    for (int k = lo.k; k < hi.k; ++k)
+                    {
+                        const double V = std::abs(Jac(i, j, k, 0));
+                        const double ax = std::sqrt(Axi(i,j,k,0)*Axi(i,j,k,0) + Axi(i,j,k,1)*Axi(i,j,k,1) + Axi(i,j,k,2)*Axi(i,j,k,2));
+                        const double ay = std::sqrt(Aet(i,j,k,0)*Aet(i,j,k,0) + Aet(i,j,k,1)*Aet(i,j,k,1) + Aet(i,j,k,2)*Aet(i,j,k,2));
+                        const double az = std::sqrt(Aze(i,j,k,0)*Aze(i,j,k,0) + Aze(i,j,k,1)*Aze(i,j,k,1) + Aze(i,j,k,2)*Aze(i,j,k,2));
+                        const double amax = std::max(ax, std::max(ay, az));
+                        if (V <= 0.0 || amax <= 0.0) continue;
+                        const double h = V / amax;
+                        const double taper = HallRadialTaper_(gb.dual_x(i+1,j+1,k+1),
+                                                              gb.dual_y(i+1,j+1,k+1),
+                                                              gb.dual_z(i+1,j+1,k+1));
+                        g.at(i, j, k) = taper / (h * h);
+                    }
+        }
+
+        for (int i = lo.i; i < hi.i; ++i)
+            for (int j = lo.j; j < hi.j; ++j)
+                for (int k = lo.k; k < hi.k; ++k)
+                {
+                    const double w = g.at(i, j, k);
+                    if (w <= 0.0) continue;
+                    const NumInfo num = Hall_Num_Limiter(UH(i, j, k, 0), UNa(i, j, k, 0));
+                    const double bx = Bc(i, j, k, 0), by = Bc(i, j, k, 1), bz = Bc(i, j, k, 2);
+                    const double beta = hall_coef / num.ne_eff * std::sqrt(bx*bx + by*by + bz*bz);
+                    beta_w_max = std::max(beta_w_max, w * beta);
+                }
+    }
+
+    double gmax = beta_w_max;
+    PARALLEL::mpi_max(&beta_w_max, &gmax, 1);
+    int n = 1;
+    if (gmax > 0.0)
+        n = static_cast<int>(std::ceil(dt * gmax / hall_subcycle_cfl));
+    return std::max(1, std::min(n, hall_subcycle_max));
+}
+
+// Operator-split Hall substeps (active only when hall_subcycle_cfl > 0): N Euler
+// substeps of the Hall EMF on B, with Bcell/Jcell refreshed between substeps.
+void MercurySolver::AdvanceHallSubcycled_()
+{
+    const int n = HallSubcycleCount_();
+    hall_last_nsub = n;
+    const double dts = dt / n;
+    for (int s = 0; s < n; ++s)
+    {
+        if (s > 0)
+            UpdateMagneticDerivedFields_(); // Bcell/Jcell from the substepped B
+        AssembleRHS_Induction_CT_(/*hall_only=*/true);
+        ApplyUpdate_Euler_BfaceOnly_(dts, fid_.fid_RHS_b);
+        mercury_bound_.Sync("Bface");
+    }
+    UpdateMagneticDerivedFields_();
+}
 
 void MercurySolver::BuildHallFaceEMF_Rusanov_diff_()
 {
